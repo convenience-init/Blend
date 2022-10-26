@@ -1,3 +1,2 @@
 # AsyncNet
-
-A description of this package.
+A Simple but powerful Swifty Generic Async Networking Layer with Image Service (basic image loading+caching) 
