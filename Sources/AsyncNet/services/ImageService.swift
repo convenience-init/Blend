@@ -1,4 +1,7 @@
-import UIKit
+#if canImport(UIKit)
+import Foundation
+#else
+import Cocoa
 
 public final class ImageService {
 	
@@ -68,4 +71,4 @@ public final class ImageService {
 		return imageCache.object(forKey: key)
 	}
 }
-
+#endif
