@@ -12,7 +12,7 @@ public protocol AsyncRequestable {
 
 public extension AsyncRequestable {
 	
-	var imageService: ImageService { return ImageService.shared }
+	var imageService: ImageCache { return ImageCache.shared }
 	
 	@MainActor func fetchImage(from endPoint: String) async throws -> UIImage {
 		
@@ -53,7 +53,7 @@ public extension AsyncRequestable {
 					let image = UIImage(data: data)
 					
 					if let image = image {
-						ImageService.shared.imageCache.setObject(image, forKey: endPoint as NSString)
+						ImageCache.shared.imageCache.setObject(image, forKey: endPoint as NSString)
 					}
 					if let image = image {
 						fetchedImage = image }
