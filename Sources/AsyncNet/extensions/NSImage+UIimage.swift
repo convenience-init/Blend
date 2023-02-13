@@ -13,8 +13,7 @@ public extension NSImage {
 	}
 	
 	convenience init?(named name: String) {
-		self.init(named: Name(name))
+		self.init(imageLiteralResourceName: Name(name))
 	}
 }
-
 #endif

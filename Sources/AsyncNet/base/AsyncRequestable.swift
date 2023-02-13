@@ -1,4 +1,8 @@
+#if canImport(UIKit)
 import UIKit
+#else
+import Cocoa
+#endif
 
 public protocol AsyncRequestable {
 	associatedtype ResponseModel
