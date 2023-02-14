@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol ResponseModelServiceable {
-	associatedtype ResponseModel
-	associatedtype DetailsResponseModel
-}
+//public protocol ResponseModelServiceable {
+//	associatedtype ResponseModel
+//	associatedtype DetailsResponseModel
+//}
