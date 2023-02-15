@@ -18,57 +18,67 @@ public extension AsyncRequestable {
 		let imageCache = ImageCache.shared.imageCache
 		var fetchedImage: UIImage!
 				
-		guard let url = URL(string: endPoint) else {
-			throw NetworkError.invalidURL("\(endPoint)")
-		}
-		
-		let request = URLRequest(url: url)
-		
-		let (data, response) = try await URLSession.shared.data(for: request)
-		
-		guard let response = response as? HTTPURLResponse else { throw NetworkError.decode }
-		
-		switch response.statusCode {
-			case 200 ... 299:
-				do {
-					guard let mimeType = response.mimeType else {
-						throw NetworkError.badMimeType("no mimeType found")
-					}
-					
-					var isValidImage = false
-					
-					switch mimeType {
-						case "image/jpeg":
-							isValidImage = true
-						case "image/png":
-							isValidImage = true
-						default:
-							isValidImage = false
-					}
-					
-					if !isValidImage {
-						throw NetworkError.badMimeType(mimeType)
-					}
-					
-					let image = UIImage(data: data)
-					
-					if let image = image {
-						imageCache.setObject(image, forKey: endPoint as NSString)
-					}
-					if let image = image {
-						fetchedImage = image }
-				}
-				catch { throw NetworkError.decode }
 				
-			case 401:
-				throw NetworkError.unauthorized
-				
-			default:
-				throw NetworkError.unknown
+		if let image = imageCache.object(forKey: endPoint as NSString) {
+			fetchedImage = image
+			return fetchedImage
 		}
-		return fetchedImage
+		else {
+			
+			guard let url = URL(string: endPoint) else {
+				throw NetworkError.invalidURL("\(endPoint)")
+			}
+			
+			let request = URLRequest(url: url)
+
+			let (data, response) = try await URLSession.shared.data(for: request)
+			
+			guard let response = response as? HTTPURLResponse else { throw NetworkError.decode }
+			
+			switch response.statusCode {
+				case 200 ... 299:
+					do {
+						guard let mimeType = response.mimeType else {
+							throw NetworkError.badMimeType("no mimeType found")
+						}
+						
+						var isValidImage = false
+						
+						switch mimeType {
+							case "image/jpeg":
+								isValidImage = true
+							
+							case "image/png":
+								isValidImage = true
+							
+							default:
+								isValidImage = false
+						}
+						
+						if !isValidImage {
+							throw NetworkError.badMimeType(mimeType)
+						}
+						
+						//cast data as image
+						let image = UIImage(data: data)
+						
+						if let image {
+							//cache image
+							imageCache.setObject(image, forKey: endPoint as NSString)
+							fetchedImage = image
+						}
+					}
+					catch { throw NetworkError.decode }
+					
+				case 401:
+					throw NetworkError.unauthorized
+					
+				default:
+					throw NetworkError.unknown
+			}
+			return fetchedImage
+		}
 	}
-	
 }
 
 public extension AsyncRequestable {
