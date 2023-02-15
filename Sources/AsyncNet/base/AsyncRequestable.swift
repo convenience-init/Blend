@@ -10,12 +10,12 @@ public protocol AsyncRequestable {
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable
 }
 
+// MARK: - Async Image Fetcher + Local Cache
 public extension AsyncRequestable {
-	
-	var imageService: ImageCache { return ImageCache.shared }
-	
+		
 	@MainActor func fetchImage(from endPoint: String) async throws -> UIImage {
 		
+		let imageCache = ImageCache.shared.imageCache
 		var fetchedImage: UIImage!
 				
 		guard let url = URL(string: endPoint) else {
@@ -53,7 +53,7 @@ public extension AsyncRequestable {
 					let image = UIImage(data: data)
 					
 					if let image = image {
-						ImageCache.shared.imageCache.setObject(image, forKey: endPoint as NSString)
+						imageCache.setObject(image, forKey: endPoint as NSString)
 					}
 					if let image = image {
 						fetchedImage = image }
