@@ -1,2 +1,291 @@
 # AsyncNet
-A Simple but powerful Swifty Generic Async Networking Layer with Image Service (basic image loading+caching) 
+
+A powerful Swift networking library with comprehensive image handling capabilities, built for iOS, iPadOS, and macOS with full SwiftUI support.
+
+## Features
+
+**Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
+**Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
+**Complete Image Solution** - Download, upload, and cache images with ease  
+**SwiftUI Integration** - Native SwiftUI view modifiers and components  
+**High Performance** - Intelligent caching with configurable limits  
+**Type Safe** - Protocol-oriented design with comprehensive error handling  
+
+## Installation
+
+### Swift Package Manager
+
+Add AsyncNet to your project through Xcode:
+
+1. File → Add Package Dependencies...
+2. Enter the repository URL: `https://github.com/convenience-init/async-net`
+3. Select your version requirements
+
+Or add it to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
+]
+```
+
+## Quick Start
+
+### Basic Network Request
+
+```swift
+import AsyncNet
+
+// Define your endpoint
+struct UsersEndpoint: Endpoint {
+    var scheme: URLScheme = .https
+    var host: String = "api.example.com"
+    var path: String = "/users"
+    var method: RequestMethod = .GET
+    var header: [String: String]? = ["Content-Type": "application/json"]
+    var body: [String: String]? = nil
+    var queryItems: [URLQueryItem]? = nil
+}
+
+// Create a service that implements AsyncRequestable
+class UserService: AsyncRequestable {
+    func getUsers() async throws -> [User] {
+        return try await sendRequest(endpoint: UsersEndpoint(), responseModel: [User].self)
+    }
+}
+```
+
+### Image Operations
+
+#### Download Images
+
+```swift
+import AsyncNet
+
+// Download an image
+let image = try await ImageService.shared.fetchImage(from: "https://example.com/image.jpg")
+
+// For SwiftUI
+let swiftUIImage = try await ImageService.shared.fetchSwiftUIImage(from: "https://example.com/image.jpg")
+
+// Check cache first
+if let cachedImage = ImageService.shared.cachedImage(forKey: "https://example.com/image.jpg") {
+    // Use cached image
+}
+```
+
+#### Upload Images
+
+```swift
+import AsyncNet
+
+// Multipart form upload
+let uploadConfig = ImageService.UploadConfiguration(
+    fieldName: "photo",
+    fileName: "profile.jpg",
+    compressionQuality: 0.8,
+    additionalFields: ["userId": "123"]
+)
+
+let responseData = try await ImageService.shared.uploadImageMultipart(
+    image,
+    to: URL(string: "https://api.example.com/upload")!,
+    configuration: uploadConfig
+)
+
+// Base64 upload
+let responseData = try await ImageService.shared.uploadImageBase64(
+    image,
+    to: URL(string: "https://api.example.com/upload")!,
+    configuration: uploadConfig
+)
+```
+
+### SwiftUI Integration
+
+#### Async Image Loading
+
+```swift
+import SwiftUI
+import AsyncNet
+
+struct ProfileView: View {
+    let imageURL: String
+    
+    var body: some View {
+        Rectangle()
+            .frame(width: 200, height: 200)
+            .asyncImage(
+                from: imageURL,
+                placeholder: ProgressView().controlSize(.large),
+                errorView: Image(systemName: "person.circle.fill")
+            )
+    }
+}
+```
+
+#### Complete Image Component
+
+```swift
+import SwiftUI
+import AsyncNet
+
+struct ImageGalleryView: View {
+    @State private var selectedImage: PlatformImage?
+    
+    var body: some View {
+        VStack {
+            AsyncNetImageView(
+                url: "https://example.com/gallery/1.jpg",
+                uploadURL: URL(string: "https://api.example.com/upload"),
+                uploadType: .multipart,
+                onUploadSuccess: { data in
+                    print("Upload successful: \(data)")
+                },
+                onUploadError: { error in
+                    print("Upload failed: \(error)")
+                }
+            )
+            .frame(height: 300)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+```
+
+#### Image Upload with Progress
+
+```swift
+import SwiftUI
+import AsyncNet
+
+struct PhotoUploadView: View {
+    @State private var selectedImage: PlatformImage?
+    @State private var uploadProgress: Double = 0
+    
+    var body: some View {
+        VStack {
+            if let image = selectedImage {
+                Image(platformImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 200)
+                    .imageUploader(
+                        uploadURL: URL(string: "https://api.example.com/photos")!,
+                        uploadType: .multipart,
+                        onSuccess: { data in
+                            print("Photo uploaded successfully")
+                        },
+                        onError: { error in
+                            print("Upload failed: \(error.localizedDescription)")
+                        }
+                    )
+            }
+            
+            Button("Select Photo") {
+                // Photo picker implementation
+            }
+        }
+    }
+}
+```
+
+## Advanced Usage
+
+### Custom Error Handling
+
+```swift
+import AsyncNet
+
+do {
+    let users = try await userService.getUsers()
+    // Handle success
+} catch let error as NetworkError {
+    switch error {
+    case .unauthorized:
+        // Handle auth error
+        break
+    case .invalidURL(let url):
+        print("Invalid URL: \(url)")
+    case .badMimeType(let type):
+        print("Unsupported image type: \(type)")
+    case .uploadFailed(let message):
+        print("Upload failed: \(message)")
+    default:
+        print("Network error: \(error.message())")
+    }
+} catch {
+    print("Unexpected error: \(error)")
+}
+```
+
+### Cache Management
+
+```swift
+import AsyncNet
+
+// Configure cache limits
+ImageService.shared.imageCache.countLimit = 200  // Max 200 images
+ImageService.shared.imageCache.totalCostLimit = 100 * 1024 * 1024  // Max 100MB
+
+// Clear cache
+ImageService.shared.clearCache()
+
+// Remove specific image
+ImageService.shared.removeFromCache(key: "https://example.com/image.jpg")
+```
+
+### Custom Upload Configuration
+
+```swift
+import AsyncNet
+
+let customConfig = ImageService.UploadConfiguration(
+    fieldName: "image_file",
+    fileName: "user_avatar.png",
+    compressionQuality: 0.9,
+    additionalFields: [
+        "user_id": "12345",
+        "category": "avatar",
+        "version": "2.0"
+    ]
+)
+
+let response = try await ImageService.shared.uploadImageMultipart(
+    userImage,
+    to: uploadEndpoint,
+    configuration: customConfig
+)
+```
+
+## Platform Support
+
+- **iOS**: 18.0+
+- **iPadOS**: 18.0+ 
+- **macOS**: 15.0+
+
+## Architecture
+
+AsyncNet follows a protocol-oriented design with these core components:
+
+- **`AsyncRequestable`**: Generic networking protocol for API requests
+- **`Endpoint`**: Protocol defining request structure  
+- **`ImageService`**: Comprehensive image service with dependency injection support
+- **`NetworkError`**: Comprehensive error handling
+- **SwiftUI Extensions**: Native SwiftUI integration
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## License
+
+AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for more info.
+
+## Documentation
+
+For complete documentation, visit our [Documentation Site](https://asyncnet.docs) or build the DocC documentation locally:
+
+```bash
+swift package generate-documentation
+``` 

@@ -7,6 +7,7 @@ DerivedData/
 .swiftpm/config/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
+.vscode/
 async-net-output.md
 async-net-output.txt
 Sources/AsyncNet/examples/
