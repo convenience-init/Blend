@@ -1,8 +1,10 @@
-#if canImport(UIKit)
 import Foundation
-#else
+#if os(iOS)
+import UIKit
+#endif
+#if os(macOS)
 import Cocoa
-
+#endif
 public final class ImageService {
 	
 	public static let shared = ImageService()
@@ -71,4 +73,3 @@ public final class ImageService {
 		return imageCache.object(forKey: key)
 	}
 }
-#endif
