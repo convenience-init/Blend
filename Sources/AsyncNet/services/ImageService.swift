@@ -1,4 +1,3 @@
-import Foundation
 #if canImport(UIKit)
 import UIKit
 public typealias PlatformImage = UIImage
@@ -6,26 +5,36 @@ public typealias PlatformImage = UIImage
 import Cocoa
 public typealias PlatformImage = NSImage
 #endif
-
 #if canImport(SwiftUI)
 import SwiftUI
 #endif
 
+@MainActor
+public func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat = 0.8) -> Data? {
+#if canImport(UIKit)
+    return image.jpegData(compressionQuality: compressionQuality)
+#elseif canImport(Cocoa)
+    guard let tiffData = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
+    return bitmap.representation(using: .jpeg, properties: [:])
+#else
+    return nil
+#endif
+}
+
+
+
 /// A comprehensive image service that provides downloading, uploading, and caching capabilities
 /// with support for both UIKit and SwiftUI platforms.
-@MainActor
-public final class ImageService: @unchecked Sendable {
-    
-    public static let shared = ImageService()
-    
+public actor ImageService {
     private let imageCache: NSCache<NSString, PlatformImage>
     private let urlSession: URLSession
-    
-    private init() {
+
+    public init(cacheCountLimit: Int = 100, cacheTotalCostLimit: Int = 50 * 1024 * 1024) {
         imageCache = NSCache<NSString, PlatformImage>()
-        imageCache.countLimit = 100 // max number of images
-        imageCache.totalCostLimit = 50 * 1024 * 1024 // max 50MB
-        
+        imageCache.countLimit = cacheCountLimit // max number of images
+        imageCache.totalCostLimit = cacheTotalCostLimit // max 50MB
+
         // Create custom URLSession with caching support
         let configuration = URLSessionConfiguration.default
         configuration.requestCachePolicy = .useProtocolCachePolicy
@@ -43,48 +52,59 @@ public final class ImageService: @unchecked Sendable {
     /// - Parameter urlString: The URL string for the image
     /// - Returns: A platform-specific image
     /// - Throws: NetworkError if the request fails
-    public func fetchImage(from urlString: String) async throws -> PlatformImage {
-        // Check cache first
+    /// Fetches image data from the specified URL with caching support
+    /// - Parameter urlString: The URL string for the image
+    /// - Returns: Image data
+    /// - Throws: NetworkError if the request fails
+    public func fetchImageData(from urlString: String) async throws -> Data {
         let cacheKey = urlString as NSString
-        if let cachedImage = imageCache.object(forKey: cacheKey) {
-            return cachedImage
+        // Check cache for image data
+        if let cachedImage = imageCache.object(forKey: cacheKey),
+           let imageData = cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 1.0) {
+            return imageData
         }
-        
+
         guard let url = URL(string: urlString) else {
             throw NetworkError.invalidURL(urlString)
         }
-        
+
         let request = URLRequest(url: url)
         let (data, response) = try await urlSession.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.decode
         }
-        
+
         switch httpResponse.statusCode {
         case 200...299:
             guard let mimeType = httpResponse.mimeType else {
                 throw NetworkError.badMimeType("no mimeType found")
             }
-            
+
             let validMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic"]
             guard validMimeTypes.contains(mimeType) else {
                 throw NetworkError.badMimeType(mimeType)
             }
-            
-            guard let image = PlatformImage(data: data) else {
-                throw NetworkError.decode
+
+            // Cache image as PlatformImage for future use
+            if let image = PlatformImage(data: data) {
+                imageCache.setObject(image, forKey: cacheKey)
             }
-            
-            // Cache the image
-            imageCache.setObject(image, forKey: cacheKey)
-            return image
-            
+            return data
+
         case 401:
             throw NetworkError.unauthorized
         default:
             throw NetworkError.unknown
         }
+    }
+
+    /// Converts image data to PlatformImage on the @MainActor (UI context)
+    /// - Parameter data: Image data
+    /// - Returns: PlatformImage (UIImage/NSImage)
+    @MainActor
+    public static func platformImage(from data: Data) -> PlatformImage? {
+        return PlatformImage(data: data)
     }
     
     /// Fetches an image and returns it as SwiftUI Image
@@ -92,8 +112,9 @@ public final class ImageService: @unchecked Sendable {
     /// - Returns: A SwiftUI Image
     /// - Throws: NetworkError if the request fails
     #if canImport(SwiftUI)
-    public func fetchSwiftUIImage(from urlString: String) async throws -> SwiftUI.Image {
-        let platformImage = try await fetchImage(from: urlString)
+    @MainActor
+    public static func swiftUIImage(from data: Data) -> SwiftUI.Image? {
+        guard let platformImage = PlatformImage(data: data) else { return nil }
         return SwiftUI.Image(platformImage: platformImage)
     }
     #endif
@@ -120,20 +141,18 @@ public final class ImageService: @unchecked Sendable {
         }
     }
     
-    /// Uploads an image using multipart form data
+    /// Uploads image data using multipart form data
     /// - Parameters:
-    ///   - image: The platform image to upload
+    ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
     ///   - configuration: Upload configuration options
     /// - Returns: The response data from the server
     /// - Throws: NetworkError if the upload fails
     public func uploadImageMultipart(
-        _ image: PlatformImage,
+        _ imageData: Data,
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
-        // Convert image to data
-        let imageData = try imageToData(image, compressionQuality: configuration.compressionQuality)
         
         // Create multipart request
         var request = URLRequest(url: url)
@@ -176,20 +195,19 @@ public final class ImageService: @unchecked Sendable {
         }
     }
     
-    /// Uploads an image as base64 string in JSON payload
+    /// Uploads image data as base64 string in JSON payload
     /// - Parameters:
-    ///   - image: The platform image to upload
+    ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
     ///   - configuration: Upload configuration options
     /// - Returns: The response data from the server
     /// - Throws: NetworkError if the upload fails
     public func uploadImageBase64(
-        _ image: PlatformImage,
+        _ imageData: Data,
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
         // Convert image to base64
-        let imageData = try imageToData(image, compressionQuality: configuration.compressionQuality)
         let base64String = imageData.base64EncodedString()
         
         // Create JSON payload
