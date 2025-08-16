@@ -32,9 +32,29 @@ extension URLSession: URLSessionProtocol {}
 
 
 
-/// A comprehensive image service that provides downloading, uploading, and caching capabilities
-/// with support for both UIKit and SwiftUI platforms.
-
+/// A comprehensive, actor-isolated image service for downloading, uploading, and caching images.
+///
+/// `ImageService` provides strict Swift 6 concurrency, dependency injection, platform abstraction (UIKit/SwiftUI), request/response interceptors, LRU caching, retry/backoff, and deduplication for all image operations.
+///
+/// - Important: All APIs are actor-isolated and Sendable for thread safety and strict concurrency compliance.
+/// - Note: Use dependency injection for testability and platform abstraction. Supports UIKit (UIImage) and macOS (NSImage).
+///
+/// ### Usage Example
+/// ```swift
+/// let imageService = ImageService()
+/// let image = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
+/// let swiftUIImage = try await ImageService.swiftUIImage(from: image)
+/// ```
+///
+/// ### Best Practices
+/// - Always inject `ImageService` for strict concurrency and testability.
+/// - Use interceptors for request/response customization.
+/// - Configure cache and retry policies for optimal performance.
+/// - Use platformImageToData for cross-platform image conversion.
+///
+/// ### Migration Notes
+/// - All legacy synchronous APIs are replaced by async/await and actor isolation.
+/// - Use SwiftUI.Image(platformImage:) for cross-platform SwiftUI integration.
 public actor ImageService {
     // MARK: - Request/Response Interceptor Support
     /// Protocol for request/response interceptors
@@ -275,7 +295,11 @@ public actor ImageService {
     @MainActor
     public static func swiftUIImage(from data: Data) -> SwiftUI.Image? {
         guard let platformImage = PlatformImage(data: data) else { return nil }
-        return SwiftUI.Image(platformImage: platformImage)
+    #if canImport(UIKit)
+    return SwiftUI.Image(uiImage: platformImage)
+    #elseif canImport(Cocoa)
+    return SwiftUI.Image(nsImage: platformImage)
+    #endif
     }
     #endif
     
@@ -325,17 +349,17 @@ public actor ImageService {
         
         // Add additional fields
         for (key, value) in configuration.additionalFields {
-            body.append("--\(boundary)\r\n")
-            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
-            body.append("\(value)\r\n")
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
         }
         
         // Add image data
-        body.append("--\(boundary)\r\n")
-        body.append("Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n")
-        body.append("Content-Type: image/jpeg\r\n\r\n")
-        body.append(imageData)
-        body.append("\r\n--\(boundary)--\r\n")
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append("Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n".data(using: .utf8)!)
+    body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+    body.append(imageData)
+    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         
         request.httpBody = body
         
@@ -492,13 +516,15 @@ public actor ImageService {
 }
 
 // MARK: - Data Extension for String Appending
-private extension Data {
+#if !os(Linux)
+extension Data {
     mutating func append(_ string: String) {
         if let data = string.data(using: .utf8) {
             append(data)
         }
     }
 }
+#endif
 
 // MARK: - SwiftUI Image Extension
 #if canImport(SwiftUI)
@@ -514,3 +540,4 @@ extension SwiftUI.Image {
     }
 }
 #endif
+

@@ -3,11 +3,29 @@ import SwiftUI
 import Foundation
 import Observation
 
+
+/// The upload type for image operations in AsyncNet SwiftUI extensions.
+///
+/// - multipart: Uploads image using multipart form data.
+/// - base64: Uploads image as base64 string in JSON payload.
 enum UploadType: String, Sendable {
     case multipart
     case base64
 }
 
+    /// Observable view model for async image loading and uploading in SwiftUI.
+    ///
+    /// Use `AsyncImageModel` with `AsyncNetImageView` for robust, actor-isolated image state management, including loading, error, and upload states.
+    ///
+    /// - Important: Always inject `ImageService` for strict concurrency and testability.
+    /// - Note: All state properties are actor-isolated and observable for SwiftUI.
+    ///
+    /// ### Usage Example
+    /// ```swift
+    /// @State var model = AsyncImageModel(imageService: imageService)
+    /// await model.loadImage(from: url)
+    /// await model.uploadImage(image, to: uploadURL, uploadType: .multipart, configuration: config)
+    /// ```
     @Observable
     @MainActor
     final class AsyncImageModel {
@@ -72,6 +90,25 @@ enum UploadType: String, Sendable {
         }
     }
 
+    /// A complete SwiftUI image view for async image loading and uploading, with progress and error handling.
+    ///
+    /// Use `AsyncNetImageView` for robust, cross-platform image display and upload in SwiftUI, with support for dependency injection, upload progress, and error states.
+    ///
+    /// - Important: Always inject `ImageService` for strict concurrency and testability.
+    /// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms.
+    ///
+    /// ### Usage Example
+    /// ```swift
+    /// AsyncNetImageView(
+    ///     url: "https://example.com/image.jpg",
+    ///     uploadURL: URL(string: "https://api.example.com/upload"),
+    ///     uploadType: .multipart,
+    ///     configuration: ImageService.UploadConfiguration(),
+    ///     onUploadSuccess: { data in print("Upload successful: \(data)") },
+    ///     onUploadError: { error in print("Upload failed: \(error)") },
+    ///     imageService: imageService
+    /// )
+    /// ```
     struct AsyncNetImageView: View {
         let url: String?
         let uploadURL: URL?

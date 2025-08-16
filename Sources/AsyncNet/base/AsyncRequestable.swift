@@ -1,11 +1,55 @@
 import Foundation
+/// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
+///
+/// Conform to `AsyncRequestable` to enable generic, type-safe API requests using async/await.
+///
+/// - Important: All implementations must use Swift 6 concurrency and actor isolation for thread safety.
+/// - Note: Use dependency injection for testability and strict concurrency compliance.
+///
+/// ### Usage Example
+/// ```swift
+/// struct UsersEndpoint: Endpoint {
+///     var scheme: URLScheme = .https
+///     var host: String = "api.example.com"
+///     var path: String = "/users"
+///     var method: RequestMethod = .GET
+/// }
+///
+/// class UserService: AsyncRequestable {
+///     func getUsers() async throws -> [User] {
+///         try await sendRequest(to: UsersEndpoint())
+///     }
+/// }
+/// ```
+///
+/// ### Migration Notes
+/// - Legacy body support is provided for backward compatibility. Migrate to `body: Data?` for strict compliance.
+/// - See `buildAsyncRequest(for:)` for migration details.
 
 public protocol AsyncRequestable {
+
+	/// Sends an asynchronous network request to the specified endpoint and decodes the response.
+	///
+	/// - Parameters:
+	///   - endPoint: The endpoint to send the request to.
+	/// - Returns: The decoded response model of type `ResponseModel`.
+	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
+	///
+	/// ### Example
+	/// ```swift
+	/// let users: [User] = try await sendRequest(to: UsersEndpoint())
+	/// ```
 	associatedtype ResponseModel
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable
 }
 
 public extension AsyncRequestable {
+	/// Default implementation for sending a network request using URLSession.
+	///
+	/// - Parameters:
+	///   - endPoint: The endpoint to send the request to.
+	/// - Returns: The decoded response model of type `ResponseModel`.
+	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
 	
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable {
 		guard var request = buildAsyncRequest(for: endPoint) else {
@@ -69,6 +113,12 @@ private extension AsyncRequestable {
 			return nil
 		}
 		var asyncRequest = URLRequest(url: url)
+	/// Builds a URLRequest from the given endpoint, supporting legacy migration.
+	///
+	/// - Parameter endPoint: The endpoint to build the request for.
+	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
+	///
+	/// - Important: Legacy body support is provided for backward compatibility. Migrate to `body: Data?` for strict compliance.
 		asyncRequest.allHTTPHeaderFields = endPoint.headers
 		asyncRequest.httpMethod = endPoint.method.rawValue
 		if let contentType = endPoint.contentType {

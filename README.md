@@ -326,10 +326,29 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for more info.
 
-## Documentation
 
-For complete documentation, visit our [Documentation Site](https://asyncnet.docs) or build the DocC documentation locally:
+## Best Practices & Migration Guide
+
+### Swift 6 Concurrency
+- Always use actor isolation and Sendable types for thread safety.
+- Inject services (e.g., `ImageService`) for strict concurrency and testability.
+- Use @MainActor for UI/image conversion in SwiftUI.
+
+### Platform Notes
+- Target iOS 18+, macOS 15+ for full feature support.
+- Use `PlatformImage` typealias for cross-platform image handling.
+- Validate URLs for scheme and host in all image/network requests.
+
+### Migration from Legacy Versions
+- Migrate all legacy body payloads to `body: Data?` in `Endpoint`.
+- Replace legacy error cases with specific `NetworkError` cases.
+- Use `sendRequestAdvanced` and inject `AdvancedNetworkManager` for advanced networking features.
+- Remove all singleton/global state; use dependency injection and actor isolation.
+- Update SwiftUI view models to use @Observable and @MainActor.
+
+### DocC Documentation
+For complete API documentation, migration guides, and advanced usage examples, visit our [Documentation Site](https://asyncnet.docs) or build the DocC documentation locally:
 
 ```bash
 swift package generate-documentation
-``` 
+```

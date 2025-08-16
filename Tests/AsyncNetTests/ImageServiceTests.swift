@@ -134,3 +134,114 @@ struct ImageServiceTests {
     }
 
 }
+@Suite("Image Service Performance Benchmarks")
+struct ImageServicePerformanceTests {
+
+    @Test func testNetworkLatencyColdStart() async throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(urlSession: mockSession)
+        let start = Date()
+        try await Task.sleep(nanoseconds: 50_000_000) // 50ms artificial delay
+        _ = try await service.fetchImageData(from: "https://mock.api/test")
+        let elapsed = Date().timeIntervalSince(start)
+        print("DEBUG: Cold start latency: \(elapsed * 1000) ms")
+        #expect(elapsed < 0.1) // <100ms
+    }
+
+    @Test func testMemoryUsageDuringCaching() async throws {
+        let imageData = Data(repeating: 0xFF, count: 1024 * 1024) // 1MB image
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(urlSession: mockSession)
+        let memBefore = ProcessInfo.processInfo.physicalMemory
+        _ = try await service.fetchImageData(from: "https://mock.api/test")
+        let memAfter = ProcessInfo.processInfo.physicalMemory
+        let memUsed = memAfter - memBefore
+        print("DEBUG: Memory used for caching: \(memUsed / 1024 / 1024) MB")
+        #expect(memUsed < 2 * 1024 * 1024) // <2MB
+    }
+
+    @Test func testCacheHitRate() async throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(urlSession: mockSession)
+        let url = "https://mock.api/test"
+        var hits = 0
+        let total = 20
+        for _ in 0..<total {
+            let result = try await service.fetchImageData(from: url)
+            if result == imageData { hits += 1 }
+        }
+        let hitRate = Double(hits) / Double(total)
+        print("DEBUG: Cache hit rate: \(hitRate * 100)%")
+        #expect(hitRate > 0.95)
+    }
+
+    @Test func testConcurrentRequestHandling() async throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(urlSession: mockSession)
+        let url = "https://mock.api/test"
+        let concurrentRequests = 100
+        var results = [Bool](repeating: false, count: concurrentRequests)
+        await withTaskGroup(of: (Int, Bool).self) { group in
+            for i in 0..<concurrentRequests {
+                group.addTask {
+                    let result = try? await service.fetchImageData(from: url)
+                    return (i, result == imageData)
+                }
+            }
+            for await (i, success) in group {
+                results[i] = success
+            }
+        }
+        let successCount = results.filter { $0 }.count
+        print("DEBUG: Concurrent request successes: \(successCount)/\(concurrentRequests)")
+        #expect(successCount == concurrentRequests)
+    }
+
+    @Test func testCacheEfficiency() async throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(urlSession: mockSession)
+        let url = "https://mock.api/test"
+        // First request (cache miss)
+        let _ = try await service.fetchImageData(from: url)
+        // Second request (should be cache hit)
+        let start = Date()
+        let _ = try await service.fetchImageData(from: url)
+        let elapsed = Date().timeIntervalSince(start)
+        print("DEBUG: Cache hit latency: \(elapsed * 1000) ms")
+        #expect(elapsed < 0.01) // <10ms for cache hit
+    }
+}

@@ -1,6 +1,48 @@
 
+
+/// Centralized error taxonomy for AsyncNet networking operations.
+///
+/// `NetworkError` provides comprehensive error handling for all network operations, including HTTP errors, decoding failures, connectivity issues, and migration helpers.
+///
+/// - Important: All error cases are `Sendable` and support strict Swift 6 concurrency.
+/// - Note: Legacy cases are deprecated and provided only for migration purposes. Migrate to specific error cases for strict compliance.
+///
+/// ### Usage Example
+/// ```swift
+/// do {
+///     let users: [User] = try await userService.getUsers()
+/// } catch let error as NetworkError {
+///     print("Network error: \(error.message())")
+/// }
+/// ```
+///
+/// ### Migration Notes
+/// - Migrate all legacy error cases to specific cases for strict concurrency and clarity.
+/// - Use `wrap(_:)` to convert generic errors to `NetworkError`.
+///
+/// Enhanced error system for AsyncNet (ASYNC-302)
 import Foundation
 
+/// Centralized error taxonomy for AsyncNet networking operations.
+///
+/// `NetworkError` provides comprehensive error handling for all network operations, including HTTP errors, decoding failures, connectivity issues, and migration helpers.
+///
+/// - Important: All error cases are `Sendable` and support strict Swift 6 concurrency.
+/// - Note: Legacy cases are deprecated and provided only for migration purposes. Migrate to specific error cases for strict compliance.
+///
+/// ### Usage Example
+/// ```swift
+/// do {
+///     let users: [User] = try await userService.getUsers()
+/// } catch let error as NetworkError {
+///     print("Network error: \(error.message())")
+/// }
+/// ```
+///
+/// ### Migration Notes
+/// - Migrate all legacy error cases to specific cases for strict concurrency and clarity.
+/// - Use `wrap(_:)` to convert generic errors to `NetworkError`.
+///
 /// Enhanced error system for AsyncNet (ASYNC-302)
 public enum NetworkError: Error, LocalizedError, Sendable {
     // MARK: - Specific Error Cases
