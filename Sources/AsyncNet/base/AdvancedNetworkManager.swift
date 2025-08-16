@@ -57,10 +57,16 @@ public actor AdvancedNetworkManager {
     private var inFlightTasks: [String: Task<Data, Error>] = [:]
     private let cache: NetworkCache
     private let interceptors: [NetworkInterceptor]
-    
-    public init(cache: NetworkCache = DefaultNetworkCache(), interceptors: [NetworkInterceptor] = []) {
+    private let urlSession: URLSessionProtocol
+
+    public init(cache: NetworkCache = DefaultNetworkCache(), interceptors: [NetworkInterceptor] = [], urlSession: URLSessionProtocol? = nil) {
         self.cache = cache
         self.interceptors = interceptors
+        if let urlSession = urlSession {
+            self.urlSession = urlSession
+        } else {
+            self.urlSession = URLSession.shared
+        }
     }
     
     // MARK: - Request Deduplication, Retry, Backoff, Interceptors
@@ -80,7 +86,7 @@ public actor AdvancedNetworkManager {
             var lastError: Error?
             for attempt in 0..<retryPolicy.maxRetries {
                 do {
-                    let (data, response) = try await URLSession.shared.data(for: interceptedRequest)
+                    let (data, response) = try await urlSession.data(for: interceptedRequest)
                     for interceptor in interceptors {
                         await interceptor.didReceive(response: response, data: data)
                     }
