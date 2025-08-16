@@ -77,15 +77,18 @@ public actor ImageService {
             return imageData
         }
 
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.invalidURL(urlString)
-        }
+                guard let url = URL(string: urlString),
+                            let scheme = url.scheme, !scheme.isEmpty,
+                            let host = url.host, !host.isEmpty else {
+                        print("DEBUG: Invalid URL detected in fetchImageData: \(urlString)")
+                        throw NetworkError.invalidEndpoint(reason: "Invalid image URL: \(urlString)")
+                }
 
         let request = URLRequest(url: url)
         let (data, response) = try await urlSession.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.decode
+            throw NetworkError.noResponse
         }
 
         switch httpResponse.statusCode {
@@ -108,7 +111,7 @@ public actor ImageService {
         case 401:
             throw NetworkError.unauthorized
         default:
-            throw NetworkError.unknown
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
         }
     }
 
@@ -195,16 +198,16 @@ public actor ImageService {
         let (data, response) = try await urlSession.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.decode
+            throw NetworkError.noResponse
         }
-        
+
         switch httpResponse.statusCode {
         case 200...299:
             return data
         case 401:
             throw NetworkError.unauthorized
         default:
-            throw NetworkError.unknown
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
         }
     }
     
@@ -242,16 +245,16 @@ public actor ImageService {
         let (data, response) = try await urlSession.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.decode
+            throw NetworkError.noResponse
         }
-        
+
         switch httpResponse.statusCode {
         case 200...299:
             return data
         case 401:
             throw NetworkError.unauthorized
         default:
-            throw NetworkError.unknown
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
         }
     }
     
@@ -280,14 +283,14 @@ public actor ImageService {
     private func imageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data {
         #if canImport(UIKit)
         guard let data = image.jpegData(compressionQuality: compressionQuality) else {
-            throw NetworkError.decode
+            throw NetworkError.imageProcessingFailed
         }
         return data
         #elseif canImport(Cocoa)
         guard let tiffData = image.tiffRepresentation,
               let bitmapRep = NSBitmapImageRep(data: tiffData),
               let data = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality]) else {
-            throw NetworkError.decode
+            throw NetworkError.imageProcessingFailed
         }
         return data
         #endif

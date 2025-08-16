@@ -30,8 +30,12 @@ public struct MockEndpoint: Endpoint {
     public var host: String = "mock.api"
     public var path: String = "/test"
     public var method: RequestMethod = .get
-    public var header: [String: String]? = ["Content-Type": "application/json"]
+    public var headers: [String: String]? = ["Content-Type": "application/json"]
     public var queryItems: [URLQueryItem]? = nil
-    public var body: [String: String]? = nil
+    public var body: Data? = nil
+    public var contentType: String? = "application/json"
+    public var timeout: TimeInterval? = nil
+    @available(*, deprecated, message: "Use body: Data? instead")
+    public var legacyBody: [String: String]? = nil
     public init() {}
 }

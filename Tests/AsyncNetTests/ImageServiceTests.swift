@@ -14,20 +14,26 @@ import SwiftUI
 extension NetworkError: Equatable {
     public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
         switch (lhs, rhs) {
-        case (.decode, .decode): return true
-        case (.offLine, .offLine): return true
-        case (.unauthorized, .unauthorized): return true
-        case (.custom(let l), .custom(let r)): return l == r
-        case (.unknown, .unknown): return true
-        case (.invalidURL(let l), .invalidURL(let r)): return l == r
-        case (.networkError, .networkError): return true // ignore error details
-        case (.noResponse, .noResponse): return true
+        case (.httpError(let lCode, _, _), .httpError(let rCode, _, _)): return lCode == rCode
         case (.decodingError, .decodingError): return true
-        case (.badStatusCode(let l), .badStatusCode(let r)): return l == r
+        case (.networkUnavailable, .networkUnavailable): return true
+        case (.requestTimeout, .requestTimeout): return true
+        case (.invalidEndpoint(let l), .invalidEndpoint(let r)): return l == r
+        case (.unauthorized, .unauthorized): return true
+        case (.noResponse, .noResponse): return true
         case (.badMimeType(let l), .badMimeType(let r)): return l == r
         case (.uploadFailed(let l), .uploadFailed(let r)): return l == r
         case (.imageProcessingFailed, .imageProcessingFailed): return true
         case (.cacheError(let l), .cacheError(let r)): return l == r
+        // Legacy cases
+        case (.decode, .decode): return true
+        case (.offLine, .offLine): return true
+        case (.custom(let l), .custom(let r)): return l == r
+        case (.unknown, .unknown): return true
+        case (.invalidURL(let l), .invalidURL(let r)): return l == r
+        case (.networkError, .networkError): return true
+        case (.badStatusCode(let l), .badStatusCode(let r)): return l == r
+        case (.decodingErrorLegacy, .decodingErrorLegacy): return true
         default: return false
         }
     }
@@ -58,7 +64,8 @@ struct ImageServiceTests {
             _ = try await service.fetchImageData(from: "not a url")
             #expect(Bool(false))
         } catch let error as NetworkError {
-            #expect(error == .noResponse)
+            print("DEBUG: testFetchImageDataInvalidURL caught error: \(error)")
+            #expect(error == .invalidEndpoint(reason: "Invalid image URL: not a url"))
         }
     }
 
