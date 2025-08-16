@@ -124,15 +124,39 @@ struct ProfileView: View {
 }
 ```
 
-#### Complete Image Component
+
+#### Async Image Loading (Modern Pattern)
+
+```swift
+import SwiftUI
+import AsyncNet
+
+struct ProfileView: View {
+    let imageURL: String
+    let imageService = ImageService() // Dependency injection recommended
+
+    var body: some View {
+        Rectangle()
+            .frame(width: 200, height: 200)
+            .asyncImage(
+                from: imageURL,
+                imageService: imageService,
+                placeholder: ProgressView().controlSize(.large),
+                errorView: Image(systemName: "person.circle.fill")
+            )
+    }
+}
+```
+
+#### Complete Image Component (ObservableObject ViewModel)
 
 ```swift
 import SwiftUI
 import AsyncNet
 
 struct ImageGalleryView: View {
-    @State private var selectedImage: PlatformImage?
-    
+    let imageService = ImageService()
+
     var body: some View {
         VStack {
             AsyncNetImageView(
@@ -144,7 +168,8 @@ struct ImageGalleryView: View {
                 },
                 onUploadError: { error in
                     print("Upload failed: \(error)")
-                }
+                },
+                imageService: imageService
             )
             .frame(height: 300)
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -153,7 +178,7 @@ struct ImageGalleryView: View {
 }
 ```
 
-#### Image Upload with Progress
+#### Image Upload with Progress (Modern Pattern)
 
 ```swift
 import SwiftUI
@@ -161,7 +186,7 @@ import AsyncNet
 
 struct PhotoUploadView: View {
     @State private var selectedImage: PlatformImage?
-    @State private var uploadProgress: Double = 0
+    let imageService = ImageService()
     
     var body: some View {
         VStack {
@@ -172,6 +197,7 @@ struct PhotoUploadView: View {
                     .frame(height: 200)
                     .imageUploader(
                         uploadURL: URL(string: "https://api.example.com/photos")!,
+                        imageService: imageService,
                         uploadType: .multipart,
                         onSuccess: { data in
                             print("Photo uploaded successfully")
@@ -190,28 +216,12 @@ struct PhotoUploadView: View {
 }
 ```
 
-## Advanced Usage
+---
+#### Migration Notes
 
-### Custom Error Handling
-
-```swift
-import AsyncNet
-
-do {
-    let users = try await userService.getUsers()
-    // Handle success
-} catch let error as NetworkError {
-    switch error {
-    case .unauthorized:
-        // Handle auth error
-        break
-    case .invalidURL(let url):
-        print("Invalid URL: \(url)")
-    case .badMimeType(let type):
-        print("Unsupported image type: \(type)")
-    case .uploadFailed(let message):
-        print("Upload failed: \(message)")
-    default:
+- Legacy state variables and methods (e.g., `isLoading`, `hasError`, `loadImage`) are now managed by the `AsyncImageViewModel` ObservableObject.
+- Always inject `ImageService` for strict concurrency and testability.
+- Use `.asyncImage()`, `.imageUploader()`, and `AsyncNetImageView` for robust SwiftUI integration.
         print("Network error: \(error.message())")
     }
 } catch {
