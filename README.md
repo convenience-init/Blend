@@ -148,7 +148,7 @@ struct ProfileView: View {
 }
 ```
 
-#### Complete Image Component (ObservableObject ViewModel)
+#### Complete Image Component (AsyncImageModel @Observable)
 
 ```swift
 import SwiftUI
@@ -163,6 +163,7 @@ struct ImageGalleryView: View {
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload"),
                 uploadType: .multipart,
+                configuration: ImageService.UploadConfiguration(),
                 onUploadSuccess: { data in
                     print("Upload successful: \(data)")
                 },
@@ -218,15 +219,21 @@ struct PhotoUploadView: View {
 
 ---
 #### Migration Notes
+**Migration Notes**
 
-- Legacy state variables and methods (e.g., `isLoading`, `hasError`, `loadImage`) are now managed by the `AsyncImageViewModel` ObservableObject.
+- Legacy state variables and methods (e.g., `isLoading`, `hasError`, `loadImage`) are now managed by the `AsyncImageModel` using the new `@Observable` macro and async/await methods.
 - Always inject `ImageService` for strict concurrency and testability.
-- Use `.asyncImage()`, `.imageUploader()`, and `AsyncNetImageView` for robust SwiftUI integration.
-        print("Network error: \(error.message())")
-    }
+- Use `.asyncImage()`, `.imageUploader()`, and `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
+```swift
+do {
+    // Modern error handling with NetworkError
+    let image = try await imageService.fetchImageData(from: url)
+} catch let error as NetworkError {
+    print("Network error: \(error.message())")
 } catch {
     print("Unexpected error: \(error)")
 }
+```
 ```
 
 ### Cache Management
