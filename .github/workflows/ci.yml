@@ -1,7 +1,5 @@
 # AsyncNet CI/CD Pipeline
 
-This workflow runs tests and reports coverage for all PRs and pushes to main.
-
 name: AsyncNet CI
 
 on:
@@ -13,18 +11,39 @@ on:
 jobs:
   build-test:
     runs-on: macos-latest
+
+    strategy:
+      matrix:
+        platform: [macOS-15, macOS-16, iOS-18, iPadOS-18]
+        swift-version: [6.0]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
       - name: Set up Swift
         uses: swift-actions/setup-swift@v1
         with:
-          swift-version: '6.0'
+          swift-version: ${{ matrix.swift-version }}
+
       - name: Build
-        run: swift build -Xswiftc -strict-concurrency=complete
+        run: |
+          if [[ "${{ matrix.platform }}" == macOS* ]]; then
+            swift build -Xswiftc -strict-concurrency=complete
+          else
+            xcodebuild -scheme AsyncNet -destination "platform=${{ matrix.platform }},OS=latest,name=iPhone 14" build
+          fi
+
       - name: Run tests
-        run: swift test --enable-code-coverage
+        run: |
+          if [[ "${{ matrix.platform }}" == macOS* ]]; then
+            swift test --enable-code-coverage
+          else
+            xcodebuild test -scheme AsyncNet -destination "platform=${{ matrix.platform }},OS=latest,name=iPhone 14"
+          fi
+
       - name: Upload coverage
+        if: matrix.platform == 'macOS-16'
         uses: actions/upload-artifact@v3
         with:
           name: coverage
