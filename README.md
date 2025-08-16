@@ -258,6 +258,40 @@ let response = try await ImageService.shared.uploadImageMultipart(
 )
 ```
 
+
+## Testing & Coverage
+
+AsyncNet uses strict Swift 6 concurrency and comprehensive unit tests for all public APIs, error paths, and platform-specific features (iOS 18+, macOS 15+). Tests use protocol-based mocking for networking and cover:
+
+- AsyncRequestable protocol
+- Endpoint protocol
+- NetworkError enum
+- ImageService actor (fetch, upload, cache)
+- PlatformImage conversion (UIImage/NSImage)
+- SwiftUI integration (Image conversion)
+
+### Running Tests
+
+```bash
+swift test --enable-code-coverage
+```
+
+### CI/CD
+
+All PRs and pushes to main run tests and report coverage via GitHub Actions (see `.github/workflows/ci.yml`).
+
+### Coverage Goals
+- 50%+ coverage in Phase 1
+- 90%+ coverage in Phase 4
+
+### Test Strategy
+- Protocol-based mocking for network layer
+- Platform-specific tests for iOS/macOS
+- SwiftUI integration tests
+- Error path validation
+
+See `DevDocs/AsyncNet_Jira_Tickets.md` for detailed ticket-based test requirements and strategy.
+
 ## Platform Support
 
 - **iOS**: 18.0+
@@ -272,7 +306,7 @@ AsyncNet follows a protocol-oriented design with these core components:
 - **`Endpoint`**: Protocol defining request structure  
 - **`ImageService`**: Comprehensive image service with dependency injection support
 - **`NetworkError`**: Comprehensive error handling
-- **SwiftUI Extensions**: Native SwiftUI integration
+- SwiftUI Extensions**: Native SwiftUI integration
 
 ## Contributing
 

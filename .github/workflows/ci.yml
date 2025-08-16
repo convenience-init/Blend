@@ -1,0 +1,31 @@
+# AsyncNet CI/CD Pipeline
+
+This workflow runs tests and reports coverage for all PRs and pushes to main.
+
+name: AsyncNet CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v1
+        with:
+          swift-version: '6.0'
+      - name: Build
+        run: swift build -Xswiftc -strict-concurrency=complete
+      - name: Run tests
+        run: swift test --enable-code-coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage
+          path: .build/debug/codecov/

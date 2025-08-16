@@ -9,6 +9,7 @@ public typealias PlatformImage = NSImage
 import SwiftUI
 #endif
 
+
 @MainActor
 public func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat = 0.8) -> Data? {
 #if canImport(UIKit)
@@ -22,28 +23,40 @@ public func platformImageToData(_ image: PlatformImage, compressionQuality: CGFl
 #endif
 }
 
+/// Protocol abstraction for URLSession to enable mocking in tests
+public protocol URLSessionProtocol: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+extension URLSession: URLSessionProtocol {}
+
 
 
 /// A comprehensive image service that provides downloading, uploading, and caching capabilities
 /// with support for both UIKit and SwiftUI platforms.
+
 public actor ImageService {
     private let imageCache: NSCache<NSString, PlatformImage>
-    private let urlSession: URLSession
+    private let urlSession: URLSessionProtocol
 
-    public init(cacheCountLimit: Int = 100, cacheTotalCostLimit: Int = 50 * 1024 * 1024) {
+    public init(cacheCountLimit: Int = 100, cacheTotalCostLimit: Int = 50 * 1024 * 1024, urlSession: URLSessionProtocol? = nil) {
         imageCache = NSCache<NSString, PlatformImage>()
         imageCache.countLimit = cacheCountLimit // max number of images
         imageCache.totalCostLimit = cacheTotalCostLimit // max 50MB
 
-        // Create custom URLSession with caching support
-        let configuration = URLSessionConfiguration.default
-        configuration.requestCachePolicy = .useProtocolCachePolicy
-        configuration.urlCache = URLCache(
-            memoryCapacity: 10 * 1024 * 1024, // 10MB memory cache
-            diskCapacity: 100 * 1024 * 1024,  // 100MB disk cache
-            diskPath: nil
-        )
-        urlSession = URLSession(configuration: configuration)
+        if let urlSession = urlSession {
+            self.urlSession = urlSession
+        } else {
+            // Create custom URLSession with caching support
+            let configuration = URLSessionConfiguration.default
+            configuration.requestCachePolicy = .useProtocolCachePolicy
+            configuration.urlCache = URLCache(
+                memoryCapacity: 10 * 1024 * 1024, // 10MB memory cache
+                diskCapacity: 100 * 1024 * 1024,  // 100MB disk cache
+                diskPath: nil
+            )
+            self.urlSession = URLSession(configuration: configuration)
+        }
     }
     
     // MARK: - Image Fetching

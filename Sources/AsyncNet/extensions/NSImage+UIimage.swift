@@ -12,10 +12,6 @@ public extension NSImage {
         return cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
     }
     
-    /// Creates an NSImage from a named resource (UIImage-compatible API)
-    convenience init?(named name: String) {
-        self.init(named: Name(name))
-    }
     
     /// Creates JPEG data representation with compression quality
     /// - Parameter compressionQuality: Quality factor (0.0 to 1.0)
