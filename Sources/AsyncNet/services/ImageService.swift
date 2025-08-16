@@ -36,13 +36,114 @@ extension URLSession: URLSessionProtocol {}
 /// with support for both UIKit and SwiftUI platforms.
 
 public actor ImageService {
+    // MARK: - Request/Response Interceptor Support
+    /// Protocol for request/response interceptors
+    public protocol RequestInterceptor: Sendable {
+        /// Called before a request is sent. Can modify the request.
+        func willSend(request: URLRequest) async -> URLRequest
+        /// Called after a response is received. Can inspect/modify response/data.
+        func didReceive(response: URLResponse, data: Data?) async
+    }
+
+    private var interceptors: [RequestInterceptor] = []
+
+    /// Set interceptors (replaces existing)
+    public func setInterceptors(_ interceptors: [RequestInterceptor]) {
+        self.interceptors = interceptors
+    }
+    // MARK: - Enhanced Caching Configuration
+    public struct CacheConfiguration: Sendable {
+        public let maxAge: TimeInterval // seconds
+        public let maxLRUCount: Int
+        public init(maxAge: TimeInterval = 3600, maxLRUCount: Int = 100) {
+            self.maxAge = maxAge
+            self.maxLRUCount = maxLRUCount
+        }
+    }
+
+    private var cacheConfig: CacheConfiguration
+    // LRU tracker: key -> (timestamp, accessIndex)
+    private var lruTracker: [NSString: (timestamp: TimeInterval, accessIndex: Int)] = [:]
+    private var lruOrder: [NSString] = [] // ordered by most recent access (front = most recent)
+    private var lruCounter: Int = 0
+    // Retry/backoff configuration
+    /// Configuration for retry/backoff logic
+    public struct RetryConfiguration: Sendable {
+        public let maxAttempts: Int
+        public let baseDelay: TimeInterval
+        public let jitter: TimeInterval
+        /// Optional error filter: only retry for errors matching this predicate
+    public let shouldRetry: (@Sendable (Error) -> Bool)?
+    /// Optional custom backoff strategy: returns delay for given attempt
+    public let backoff: (@Sendable (Int) -> TimeInterval)?
+
+        public init(
+            maxAttempts: Int = 3,
+            baseDelay: TimeInterval = 0.5,
+            jitter: TimeInterval = 0.5,
+            shouldRetry: (@Sendable (Error) -> Bool)? = nil,
+            backoff: (@Sendable (Int) -> TimeInterval)? = nil
+        ) {
+            self.maxAttempts = maxAttempts
+            self.baseDelay = baseDelay
+            self.jitter = jitter
+            self.shouldRetry = shouldRetry
+            self.backoff = backoff
+        }
+    }
+
+    // Helper for exponential backoff with jitter
+    private func withRetry<T: Sendable>(
+        config: RetryConfiguration = RetryConfiguration(),
+        operation: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        var attempt = 0
+        var lastError: Error?
+        while attempt < config.maxAttempts {
+            do {
+                return try await operation()
+            } catch {
+                lastError = error
+                // Custom error filter
+                if let shouldRetry = config.shouldRetry {
+                    if !shouldRetry(error) { throw error }
+                } else if let netErr = error as? NetworkError {
+                    switch netErr {
+                    case .networkUnavailable, .requestTimeout:
+                        break // eligible for retry
+                    default:
+                        throw error
+                    }
+                } else {
+                    throw error
+                }
+                // Custom backoff strategy
+                let delay: TimeInterval
+                if let backoff = config.backoff {
+                    delay = backoff(attempt)
+                } else {
+                    delay = config.baseDelay * pow(2.0, Double(attempt))
+                }
+                let jitter = Double.random(in: 0...config.jitter)
+                try? await Task.sleep(nanoseconds: UInt64((delay + jitter) * 1_000_000_000))
+                attempt += 1
+                continue
+            }
+        }
+        throw lastError ?? NetworkError.networkUnavailable
+    }
     private let imageCache: NSCache<NSString, PlatformImage>
     private let urlSession: URLSessionProtocol
+    // Deduplication: Track in-flight fetchImageData requests by URL string
+    private var inFlightImageTasks: [String: Task<Data, Error>] = [:]
 
     public init(cacheCountLimit: Int = 100, cacheTotalCostLimit: Int = 50 * 1024 * 1024, urlSession: URLSessionProtocol? = nil) {
         imageCache = NSCache<NSString, PlatformImage>()
         imageCache.countLimit = cacheCountLimit // max number of images
         imageCache.totalCostLimit = cacheTotalCostLimit // max 50MB
+        self.cacheConfig = CacheConfiguration(maxLRUCount: cacheCountLimit)
+
+    self.interceptors = []
 
         if let urlSession = urlSession {
             self.urlSession = urlSession
@@ -70,50 +171,93 @@ public actor ImageService {
     /// - Returns: Image data
     /// - Throws: NetworkError if the request fails
     public func fetchImageData(from urlString: String) async throws -> Data {
+        return try await fetchImageData(from: urlString, retryConfig: RetryConfiguration())
+
+    }
+
+    /// Fetches image data with configurable retry policy
+    /// - Parameters:
+    ///   - urlString: The URL string for the image
+    ///   - retryConfig: Retry/backoff configuration
+    /// - Returns: Image data
+    /// - Throws: NetworkError if the request fails
+    public func fetchImageData(from urlString: String, retryConfig: RetryConfiguration) async throws -> Data {
         let cacheKey = urlString as NSString
-        // Check cache for image data
+        // Check cache for image data, evict expired
+        evictExpiredCache()
         if let cachedImage = imageCache.object(forKey: cacheKey),
-           let imageData = cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 1.0) {
+           let imageData = cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 1.0),
+           let lruInfo = lruTracker[cacheKey],
+           Date().timeIntervalSince1970 - lruInfo.timestamp < cacheConfig.maxAge {
+            updateLRUOrder(for: cacheKey)
             return imageData
         }
 
+        // Deduplication: Check for in-flight task
+        if let existingTask = inFlightImageTasks[urlString] {
+            return try await existingTask.value
+        }
+
+        // Create new task for this request, with retry/backoff
+        let fetchTask = Task<Data, Error> {
+            let cacheKey = urlString as NSString
+            let data = try await withRetry(config: retryConfig) {
                 guard let url = URL(string: urlString),
-                            let scheme = url.scheme, !scheme.isEmpty,
-                            let host = url.host, !host.isEmpty else {
-                        print("DEBUG: Invalid URL detected in fetchImageData: \(urlString)")
-                        throw NetworkError.invalidEndpoint(reason: "Invalid image URL: \(urlString)")
+                      let scheme = url.scheme, !scheme.isEmpty,
+                      let host = url.host, !host.isEmpty else {
+                    print("DEBUG: Invalid URL detected in fetchImageData: \(urlString)")
+                    throw NetworkError.invalidEndpoint(reason: "Invalid image URL: \(urlString)")
                 }
 
-        let request = URLRequest(url: url)
-        let (data, response) = try await urlSession.data(for: request)
+                var request = URLRequest(url: url)
+                // Interceptor: willSend
+                for interceptor in await self.interceptors {
+                    request = await interceptor.willSend(request: request)
+                }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.noResponse
-        }
+                let (data, response) = try await self.urlSession.data(for: request)
 
-        switch httpResponse.statusCode {
-        case 200...299:
-            guard let mimeType = httpResponse.mimeType else {
-                throw NetworkError.badMimeType("no mimeType found")
+                // Interceptor: didReceive
+                for interceptor in await self.interceptors {
+                    await interceptor.didReceive(response: response, data: data)
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw NetworkError.noResponse
+                }
+
+                switch httpResponse.statusCode {
+                case 200...299:
+                    guard let mimeType = httpResponse.mimeType else {
+                        throw NetworkError.badMimeType("no mimeType found")
+                    }
+
+                    let validMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic"]
+                    guard validMimeTypes.contains(mimeType) else {
+                        throw NetworkError.badMimeType(mimeType)
+                    }
+                    return data
+
+                case 401:
+                    throw NetworkError.unauthorized
+                default:
+                    throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
+                }
             }
-
-            let validMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic"]
-            guard validMimeTypes.contains(mimeType) else {
-                throw NetworkError.badMimeType(mimeType)
-            }
-
-            // Cache image as PlatformImage for future use
+            // Cache image as PlatformImage for future use (actor context)
             if let image = PlatformImage(data: data) {
-                imageCache.setObject(image, forKey: cacheKey)
+                self.imageCache.setObject(image, forKey: cacheKey)
+                updateLRUOrder(for: cacheKey)
             }
             return data
-
-        case 401:
-            throw NetworkError.unauthorized
-        default:
-            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
         }
+        inFlightImageTasks[urlString] = fetchTask
+        defer { inFlightImageTasks.removeValue(forKey: urlString) }
+        return try await fetchTask.value
     }
+
+
+
 
     /// Converts image data to PlatformImage on the @MainActor (UI context)
     /// - Parameter data: Image data
@@ -122,7 +266,7 @@ public actor ImageService {
     public static func platformImage(from data: Data) -> PlatformImage? {
         return PlatformImage(data: data)
     }
-    
+
     /// Fetches an image and returns it as SwiftUI Image
     /// - Parameter urlString: The URL string for the image
     /// - Returns: A SwiftUI Image
@@ -264,18 +408,68 @@ public actor ImageService {
     /// - Parameter key: The cache key (typically the URL string)
     /// - Returns: The cached image if available
     public func cachedImage(forKey key: String) -> PlatformImage? {
-        return imageCache.object(forKey: key as NSString)
+        let cacheKey = key as NSString
+        evictExpiredCache()
+        if let lruInfo = lruTracker[cacheKey], Date().timeIntervalSince1970 - lruInfo.timestamp < cacheConfig.maxAge {
+            updateLRUOrder(for: cacheKey)
+            return imageCache.object(forKey: cacheKey)
+        }
+        return nil
     }
     
     /// Clears all cached images
     public func clearCache() {
-        imageCache.removeAllObjects()
+    imageCache.removeAllObjects()
+    lruTracker.removeAll()
+    lruOrder.removeAll()
     }
     
     /// Removes a specific image from cache
     /// - Parameter key: The cache key to remove
     public func removeFromCache(key: String) {
-        imageCache.removeObject(forKey: key as NSString)
+        let cacheKey = key as NSString
+        imageCache.removeObject(forKey: cacheKey)
+        lruTracker.removeValue(forKey: cacheKey)
+        lruOrder.removeAll { $0 == cacheKey }
+    }
+
+    /// Update LRU order and timestamp for a cache key
+    private func updateLRUOrder(for cacheKey: NSString) {
+        lruCounter += 1
+        lruTracker[cacheKey] = (timestamp: Date().timeIntervalSince1970, accessIndex: lruCounter)
+        lruOrder.removeAll { $0 == cacheKey }
+        lruOrder.insert(cacheKey, at: 0)
+        // Evict if over LRU count
+        while lruOrder.count > cacheConfig.maxLRUCount {
+            if let oldest = lruOrder.popLast() {
+                imageCache.removeObject(forKey: oldest)
+                lruTracker.removeValue(forKey: oldest)
+            }
+        }
+    }
+
+    /// Evict expired cache entries based on maxAge
+    private func evictExpiredCache() {
+        let now = Date().timeIntervalSince1970
+        let expiredKeys = lruTracker.filter { now - $0.value.timestamp >= cacheConfig.maxAge }.map { $0.key }
+        for key in expiredKeys {
+            imageCache.removeObject(forKey: key)
+            lruTracker.removeValue(forKey: key)
+            lruOrder.removeAll { $0 == key }
+        }
+    }
+
+    /// Update cache configuration (maxAge, maxLRUCount)
+    public func updateCacheConfiguration(_ config: CacheConfiguration) {
+        self.cacheConfig = config
+        // Evict if new config is more strict
+        evictExpiredCache()
+        while lruOrder.count > cacheConfig.maxLRUCount {
+            if let oldest = lruOrder.popLast() {
+                imageCache.removeObject(forKey: oldest)
+                lruTracker.removeValue(forKey: oldest)
+            }
+        }
     }
     
     // MARK: - Private Helpers
