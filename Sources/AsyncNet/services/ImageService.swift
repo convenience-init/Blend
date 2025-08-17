@@ -84,10 +84,23 @@ public actor ImageService {
     }
 
     private var cacheConfig: CacheConfiguration
-    // LRU tracker: key -> (timestamp, accessIndex)
-    private var lruTracker: [NSString: (timestamp: TimeInterval, accessIndex: Int)] = [:]
-    private var lruOrder: [NSString] = [] // ordered by most recent access (front = most recent)
-    private var lruCounter: Int = 0
+    // Efficient O(1) LRU cache tracking
+    private class LRUNode {
+        let key: NSString
+        var prev: LRUNode?
+        var next: LRUNode?
+        var timestamp: TimeInterval
+        init(key: NSString, timestamp: TimeInterval) {
+            self.key = key
+            self.timestamp = timestamp
+        }
+    }
+    private var lruDict: [NSString: LRUNode] = [:]
+    private var lruHead: LRUNode?
+    private var lruTail: LRUNode?
+    // Cache metrics
+    private(set) var cacheHits: Int = 0
+    private(set) var cacheMisses: Int = 0
     // Retry/backoff configuration
     /// Configuration for retry/backoff logic
     public struct RetryConfiguration: Sendable {
@@ -211,12 +224,13 @@ public actor ImageService {
         let cacheKey = urlString as NSString
         // Check cache for image data, evict expired
         evictExpiredCache()
-        if let cachedData = dataCache.object(forKey: cacheKey) {
-            if let lruInfo = lruTracker[cacheKey], Date().timeIntervalSince1970 - lruInfo.timestamp < cacheConfig.maxAge {
-                updateLRUOrder(for: cacheKey)
-                return cachedData as Data
-            }
+        if let cachedData = dataCache.object(forKey: cacheKey),
+           let node = lruDict[cacheKey], Date().timeIntervalSince1970 - node.timestamp < cacheConfig.maxAge {
+            moveLRUNodeToHead(node)
+            cacheHits += 1
+            return cachedData as Data
         }
+        cacheMisses += 1
 
         // Deduplication: Check for in-flight task
         if let existingTask = inFlightImageTasks[urlString] {
@@ -271,7 +285,7 @@ public actor ImageService {
             }
             // Cache raw data for future use, assign cost as data length
             self.dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
-            updateLRUOrder(for: cacheKey)
+            addOrUpdateLRUNode(for: cacheKey)
             return data
         }
         inFlightImageTasks[urlString] = fetchTask
@@ -456,10 +470,12 @@ public actor ImageService {
     public func cachedImage(forKey key: String) -> PlatformImage? {
         let cacheKey = key as NSString
         evictExpiredCache()
-        if let lruInfo = lruTracker[cacheKey], Date().timeIntervalSince1970 - lruInfo.timestamp < cacheConfig.maxAge {
-            updateLRUOrder(for: cacheKey)
+        if let node = lruDict[cacheKey], Date().timeIntervalSince1970 - node.timestamp < cacheConfig.maxAge {
+            moveLRUNodeToHead(node)
+            cacheHits += 1
             return imageCache.object(forKey: cacheKey)
         }
+        cacheMisses += 1
         return nil
     }
     
@@ -467,45 +483,40 @@ public actor ImageService {
     public func clearCache() {
     imageCache.removeAllObjects()
     dataCache.removeAllObjects()
-    lruTracker.removeAll()
-    lruOrder.removeAll()
+    lruDict.removeAll()
+    lruHead = nil
+    lruTail = nil
+    cacheHits = 0
+    cacheMisses = 0
     }
     
     /// Removes a specific image from cache
     /// - Parameter key: The cache key to remove
     public func removeFromCache(key: String) {
-    let cacheKey = key as NSString
-    imageCache.removeObject(forKey: cacheKey)
-    dataCache.removeObject(forKey: cacheKey)
-    lruTracker.removeValue(forKey: cacheKey)
-    lruOrder.removeAll { $0 == cacheKey }
+        let cacheKey = key as NSString
+        imageCache.removeObject(forKey: cacheKey)
+        dataCache.removeObject(forKey: cacheKey)
+        if let node = lruDict.removeValue(forKey: cacheKey) {
+            removeLRUNode(node)
+        }
     }
 
     /// Update LRU order and timestamp for a cache key
     private func updateLRUOrder(for cacheKey: NSString) {
-        lruCounter += 1
-        lruTracker[cacheKey] = (timestamp: Date().timeIntervalSince1970, accessIndex: lruCounter)
-        lruOrder.removeAll { $0 == cacheKey }
-        lruOrder.insert(cacheKey, at: 0)
-        // Evict if over LRU count
-        while lruOrder.count > cacheConfig.maxLRUCount {
-            if let oldest = lruOrder.popLast() {
-                imageCache.removeObject(forKey: oldest)
-                dataCache.removeObject(forKey: oldest)
-                lruTracker.removeValue(forKey: oldest)
-            }
-        }
+    // Replaced by O(1) LRU logic
+    // No longer used
     }
 
     /// Evict expired cache entries based on maxAge
     private func evictExpiredCache() {
         let now = Date().timeIntervalSince1970
-        let expiredKeys = lruTracker.filter { now - $0.value.timestamp >= cacheConfig.maxAge }.map { $0.key }
+        let expiredKeys = lruDict.filter { now - $0.value.timestamp >= cacheConfig.maxAge }.map { $0.key }
         for key in expiredKeys {
             imageCache.removeObject(forKey: key)
             dataCache.removeObject(forKey: key)
-            lruTracker.removeValue(forKey: key)
-            lruOrder.removeAll { $0 == key }
+            if let node = lruDict.removeValue(forKey: key) {
+                removeLRUNode(node)
+            }
         }
     }
 
@@ -514,14 +525,18 @@ public actor ImageService {
         self.cacheConfig = config
         // Evict if new config is more strict
         evictExpiredCache()
-        while lruOrder.count > cacheConfig.maxLRUCount {
-            if let oldest = lruOrder.popLast() {
-                imageCache.removeObject(forKey: oldest)
-                dataCache.removeObject(forKey: oldest)
-                lruTracker.removeValue(forKey: oldest)
+        while lruDict.count > cacheConfig.maxLRUCount {
+            if let tail = lruTail {
+                imageCache.removeObject(forKey: tail.key)
+                dataCache.removeObject(forKey: tail.key)
+                lruDict.removeValue(forKey: tail.key)
+                removeLRUNode(tail)
             }
         }
-    }
+    // LRU helpers moved to correct scope below
+}
+
+    // MARK: - LRU Helpers
     
     // MARK: - Private Helpers
     
@@ -542,7 +557,54 @@ public actor ImageService {
     }
 }
 
-// MARK: - Data Extension for String Appending
+
+// MARK: - LRU Helpers (ImageService)
+extension ImageService {
+    private func addOrUpdateLRUNode(for key: NSString) {
+        let now = Date().timeIntervalSince1970
+        if let node = lruDict[key] {
+            node.timestamp = now
+            moveLRUNodeToHead(node)
+        } else {
+            let node = LRUNode(key: key, timestamp: now)
+            lruDict[key] = node
+            insertLRUNodeAtHead(node)
+            if lruDict.count > cacheConfig.maxLRUCount, let tail = lruTail {
+                imageCache.removeObject(forKey: tail.key)
+                dataCache.removeObject(forKey: tail.key)
+                lruDict.removeValue(forKey: tail.key)
+                removeLRUNode(tail)
+            }
+        }
+    }
+    private func moveLRUNodeToHead(_ node: LRUNode) {
+        removeLRUNode(node)
+        insertLRUNodeAtHead(node)
+    }
+    private func insertLRUNodeAtHead(_ node: LRUNode) {
+        node.next = lruHead
+        node.prev = nil
+        lruHead?.prev = node
+        lruHead = node
+        if lruTail == nil {
+            lruTail = node
+        }
+    }
+    private func removeLRUNode(_ node: LRUNode) {
+        if node.prev != nil {
+            node.prev?.next = node.next
+        } else {
+            lruHead = node.next
+        }
+        if node.next != nil {
+            node.next?.prev = node.prev
+        } else {
+            lruTail = node.prev
+        }
+        node.prev = nil
+        node.next = nil
+    }
+}
 #if !os(Linux)
 extension Data {
     mutating func append(_ string: String) {
