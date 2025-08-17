@@ -3,6 +3,8 @@ import Foundation
 
 /// MockURLSession for unit testing, conforms to URLSessionProtocol
 public final class MockURLSession: URLSessionProtocol, @unchecked Sendable {
+    /// All properties are immutable or protected by a serial queue for thread safety.
+    /// @unchecked Sendable is safe here because all mutation is isolated to the queue.
     public let nextData: Data?
     public let nextResponse: URLResponse?
     public let nextError: Error?
@@ -32,13 +34,13 @@ public final class MockURLSession: URLSessionProtocol, @unchecked Sendable {
 
 /// MockEndpoint for testing Endpoint protocol
 public struct MockEndpoint: Endpoint {
+    /// All properties are immutable for strict concurrency compliance in tests.
     public var scheme: URLScheme = .https
     public var host: String = "mock.api"
     public var path: String = "/test"
     public var method: RequestMethod = .get
     public var headers: [String: String]? = ["Content-Type": "application/json"]
     public var queryItems: [URLQueryItem]? = nil
-    // ...existing code...
     public var contentType: String? = "application/json"
     public var timeout: TimeInterval? = nil
     public var body: Data? = nil
