@@ -47,5 +47,66 @@ struct SwiftUIIntegrationTests {
     #expect(model.hasError == true)
     #expect(model.error is NetworkError)
     }
+
+    @Test func testAsyncNetImageViewConcurrentLoad() async {
+        let minimalPNG: [UInt8] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82
+        ]
+        let mockSession = MockURLSession(nextData: Data(minimalPNG), nextResponse: HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+        ))
+        let service = ImageService(urlSession: mockSession)
+        let model = AsyncImageModel(imageService: service)
+        async let load1 = model.loadImage(from: "https://mock.api/test")
+        async let load2 = model.loadImage(from: "https://mock.api/test")
+        async let load3 = model.loadImage(from: "https://mock.api/test")
+        _ = await (load1, load2, load3)
+        #expect(model.loadedImage != nil)
+        #expect(model.hasError == false)
+        #expect(model.isLoading == false)
+    }
+    
+    @Test func testAsyncNetImageViewUploadErrorState() async {
+        let minimalPNG: [UInt8] = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82
+        ]
+        let mockSession = MockURLSession(nextData: Data(minimalPNG), nextResponse: HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+        ))
+        let service = ImageService(urlSession: mockSession)
+        let model = AsyncImageModel(imageService: service)
+        // Simulate upload error (invalid URL)
+        await model.uploadImage(
+            ImageService.platformImage(from: Data(minimalPNG))!,
+            to: nil,
+            uploadType: .multipart,
+            configuration: ImageService.UploadConfiguration(),
+            onSuccess: { _ in },
+            onError: { error in #expect(error == NetworkError.imageProcessingFailed) }
+        )
+        #expect(model.isUploading == false)
+    }
 }
 #endif

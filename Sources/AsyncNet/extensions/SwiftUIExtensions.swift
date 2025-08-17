@@ -47,11 +47,11 @@ enum UploadType: String, Sendable {
     /// Use with @StateObject in views for correct lifecycle management.
     @MainActor
     class AsyncImageModel: ObservableObject {
-        var loadedImage: PlatformImage?
-        var isLoading: Bool = false
-        var hasError: Bool = false
-        var isUploading: Bool = false
-            var error: NetworkError?
+    @MainActor @Published var loadedImage: PlatformImage?
+    @Published var isLoading: Bool = false
+    @Published var hasError: Bool = false
+    @Published var isUploading: Bool = false
+    @Published var error: NetworkError?
 
         private let imageService: ImageService
 
@@ -61,19 +61,25 @@ enum UploadType: String, Sendable {
 
         func loadImage(from url: String?) async {
             guard let url = url else {
-                hasError = true
+                await MainActor.run { self.hasError = true }
                 return
             }
-            isLoading = true
-            hasError = false
+            await MainActor.run {
+                self.isLoading = true
+                self.hasError = false
+            }
             do {
                 let data = try await imageService.fetchImageData(from: url)
-                loadedImage = ImageService.platformImage(from: data)
+                await MainActor.run {
+                    self.loadedImage = ImageService.platformImage(from: data)
+                }
             } catch {
-                hasError = true
+                await MainActor.run {
+                    self.hasError = true
                     self.error = error as? NetworkError ?? NetworkError.wrap(error)
+                }
             }
-            isLoading = false
+            await MainActor.run { self.isLoading = false }
         }
 
             /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
