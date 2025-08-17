@@ -146,6 +146,6 @@ public extension NetworkError {
             }
         }
         // Fallback to custom error
-        return .custom(message: "Unknown error", details: error.localizedDescription)
+    return .custom(message: "Unknown error", details: String(describing: error))
     }
 }
