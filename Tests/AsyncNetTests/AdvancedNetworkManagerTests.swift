@@ -105,7 +105,7 @@ struct NetworkErrorTests {
             #expect(message == "Unknown error")
             #expect(details?.contains("Dummy failure") == true)
         } else {
-            #expect(false)
+            #expect(Bool(false))
         }
     }
     @Test func testCustomErrorMessage() {
@@ -134,7 +134,7 @@ struct NetworkErrorTests {
             #expect(message == "Unknown error")
             #expect(details?.contains("Corrupted") == true)
         } else {
-            #expect(false)
+            #expect(Bool(false))
         }
     }
 }
