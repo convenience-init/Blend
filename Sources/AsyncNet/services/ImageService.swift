@@ -58,6 +58,16 @@ extension URLSession: URLSessionProtocol {}
 /// - All legacy synchronous APIs are replaced by async/await and actor isolation.
 /// - Use SwiftUI.Image(platformImage:) for cross-platform SwiftUI integration.
 public actor ImageService {
+    /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
+    public func isImageCached(forKey key: String) async -> Bool {
+    let cacheKey = key as NSString
+    evictExpiredCache()
+    let inLRU = lruDict[cacheKey] != nil
+    let inImageCache = imageCache.object(forKey: cacheKey) != nil
+    let inDataCache = dataCache.object(forKey: cacheKey) != nil
+    return inLRU && (inImageCache || inDataCache)
+    }
+    // cacheHits and cacheMisses are public actor variables for test access
     // MARK: - Request/Response Interceptor Support
     /// Protocol for request/response interceptors
     public protocol RequestInterceptor: Sendable {
@@ -99,8 +109,8 @@ public actor ImageService {
     private var lruHead: LRUNode?
     private var lruTail: LRUNode?
     // Cache metrics
-    private(set) var cacheHits: Int = 0
-    private(set) var cacheMisses: Int = 0
+    public var cacheHits: Int = 0
+    public var cacheMisses: Int = 0
     // Retry/backoff configuration
     /// Configuration for retry/backoff logic
     public struct RetryConfiguration: Sendable {
@@ -523,15 +533,30 @@ public actor ImageService {
     /// Update cache configuration (maxAge, maxLRUCount)
     public func updateCacheConfiguration(_ config: CacheConfiguration) {
         self.cacheConfig = config
-        // Evict if new config is more strict
+        // Evict expired entries first
         evictExpiredCache()
-        while lruDict.count > cacheConfig.maxLRUCount {
-            if let tail = lruTail {
-                imageCache.removeObject(forKey: tail.key)
-                dataCache.removeObject(forKey: tail.key)
-                lruDict.removeValue(forKey: tail.key)
-                removeLRUNode(tail)
+        // Retain only the most recently used items
+        var node = lruHead
+        var count = 0
+        var nodesToEvict: [LRUNode] = []
+        var retainedKeys: [NSString] = []
+        // Traverse from head, keep first maxLRUCount nodes, collect nodes to evict
+        while let current = node {
+            count += 1
+            if count <= cacheConfig.maxLRUCount {
+                retainedKeys.append(current.key)
+            } else {
+                nodesToEvict.append(current)
             }
+            node = current.next
+        }
+        // Remove evicted nodes after traversal
+        for node in nodesToEvict {
+            let key = node.key
+            imageCache.removeObject(forKey: key)
+            dataCache.removeObject(forKey: key)
+            lruDict.removeValue(forKey: key)
+            removeLRUNode(node)
         }
     // LRU helpers moved to correct scope below
 }
