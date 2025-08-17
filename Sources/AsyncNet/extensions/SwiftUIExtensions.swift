@@ -51,7 +51,7 @@ enum UploadType: String, Sendable {
         var isLoading: Bool = false
         var hasError: Bool = false
         var isUploading: Bool = false
-        var error: Error?
+            var error: NetworkError?
 
         private let imageService: ImageService
 
@@ -71,12 +71,13 @@ enum UploadType: String, Sendable {
                 loadedImage = ImageService.platformImage(from: data)
             } catch {
                 hasError = true
-                self.error = error
+                    self.error = error as? NetworkError ?? NetworkError.wrap(error)
             }
             isLoading = false
         }
 
-        func uploadImage(_ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType, configuration: ImageService.UploadConfiguration, onSuccess: ((Data) -> Void)? = nil, onError: ((Error) -> Void)? = nil) async {
+            /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
+            func uploadImage(_ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType, configuration: ImageService.UploadConfiguration, onSuccess: ((Data) -> Void)? = nil, onError: ((NetworkError) -> Void)? = nil) async {
             guard let uploadURL = uploadURL else { return }
             isUploading = true
             guard let imageData = platformImageToData(image, compressionQuality: configuration.compressionQuality) else {
@@ -101,9 +102,10 @@ enum UploadType: String, Sendable {
                     )
                 }
                 onSuccess?(responseData)
-            } catch {
-                onError?(error)
-            }
+                } catch {
+                    let netError = error as? NetworkError ?? NetworkError.wrap(error)
+                    onError?(netError)
+                }
             isUploading = false
         }
     }
@@ -132,8 +134,9 @@ enum UploadType: String, Sendable {
         let uploadURL: URL?
         let uploadType: UploadType
         let configuration: ImageService.UploadConfiguration
-        let onUploadSuccess: ((Data) -> Void)?
-        let onUploadError: ((Error) -> Void)?
+    let onUploadSuccess: ((Data) -> Void)?
+    /// Error callback always receives NetworkError
+    let onUploadError: ((NetworkError) -> Void)?
         let imageService: ImageService
     /// Use @StateObject for correct SwiftUI lifecycle management of ObservableObject
     @StateObject private var model: AsyncImageModel
@@ -144,7 +147,7 @@ enum UploadType: String, Sendable {
             uploadType: UploadType = .multipart,
             configuration: ImageService.UploadConfiguration = ImageService.UploadConfiguration(),
             onUploadSuccess: ((Data) -> Void)? = nil,
-            onUploadError: ((Error) -> Void)? = nil,
+            onUploadError: ((NetworkError) -> Void)? = nil,
             imageService: ImageService
         ) {
             self.url = url
