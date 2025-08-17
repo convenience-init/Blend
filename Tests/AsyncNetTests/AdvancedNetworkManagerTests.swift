@@ -101,7 +101,12 @@ struct NetworkErrorTests {
         }
         let dummy = DummyError(message: "Dummy failure")
         let wrapped = NetworkError.wrap(dummy)
-        #expect(wrapped == .unknown(underlying: dummy))
+        if case let .custom(message, details) = wrapped {
+            #expect(message == "Unknown error")
+            #expect(details?.contains("Dummy failure") == true)
+        } else {
+            #expect(false)
+        }
     }
     @Test func testCustomErrorMessage() {
         let error = NetworkError.customError("Endpoint error", details: "Details")
@@ -125,6 +130,11 @@ struct NetworkErrorTests {
         }
         let dummy = DummyDecodingError(message: "Corrupted")
         let error = NetworkError.wrap(dummy)
-        #expect(error == .unknown(underlying: dummy))
+        if case let .custom(message, details) = error {
+            #expect(message == "Unknown error")
+            #expect(details?.contains("Corrupted") == true)
+        } else {
+            #expect(false)
+        }
     }
 }

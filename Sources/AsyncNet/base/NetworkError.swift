@@ -45,22 +45,7 @@ public enum NetworkError: Error, LocalizedError, Sendable {
         ///   - code: The URLError.Code associated with the transport error.
         ///   - underlying: The original URLError instance.
         case transportError(code: URLError.Code, underlying: URLError)
-    // MARK: - Legacy Cases (deprecated, for migration)
-    @available(*, deprecated, message: "Use specific error cases instead.")
-    case decode
-    @available(*, deprecated, message: "Use networkUnavailable instead.")
-    case offLine
-    @available(*, deprecated, message: "Use invalidEndpoint instead.")
-    case invalidURL(String)
-    @available(*, deprecated, message: "Use httpError instead.")
-    case badStatusCode(String)
-    @available(*, deprecated, message: "Use decodingError instead.")
-    case decodingErrorLegacy(any Error & Sendable)
-    // Removed legacy custom(msg:) case; use custom(message:details:) only
-    /// Represents an unknown error, preserving the underlying error value.
-    case unknown(underlying: any Error & Sendable)
-    @available(*, deprecated, message: "Use httpError/networkUnavailable instead.")
-    case networkError(any Error & Sendable)
+    // Legacy/deprecated cases removed for strict compliance
 
     // MARK: - LocalizedError Conformance
     public var errorDescription: String? {
@@ -89,27 +74,12 @@ public enum NetworkError: Error, LocalizedError, Sendable {
             return "Cache error: \(message)"
         case .transportError(let code, let underlying):
             return "Transport error: \(code) - \(underlying.localizedDescription)"
-        // Legacy cases
-        case .decode:
-            return "Decoding error (legacy)."
-        case .offLine:
-            return "Network unavailable (legacy)."
-        case .invalidURL(let message):
-            return "Invalid URL: \(message)"
-        case .badStatusCode(let message):
-            return "Bad status code: \(message)"
-        case .decodingErrorLegacy(let error):
-            return "Decoding error (legacy): \(error.localizedDescription)"
         case .custom(let message, let details):
             if let details = details {
                 return "\(message): \(details)"
             } else {
                 return message
             }
-        case .unknown(let underlying):
-            return "Unknown error: \(underlying.localizedDescription)"
-        case .networkError(let error):
-            return error.localizedDescription
         }
     }
 
@@ -122,7 +92,7 @@ public enum NetworkError: Error, LocalizedError, Sendable {
             return "Check the request and try again."
         case .decodingError:
             return "Ensure the response format matches the expected model."
-        case .networkUnavailable, .offLine:
+        case .networkUnavailable:
             return "Check your internet connection."
         case .requestTimeout:
             return "Try again with a better connection or increase timeout duration."
@@ -175,7 +145,7 @@ public extension NetworkError {
                 return .transportError(code: urlError.code, underlying: urlError)
             }
         }
-    // Fallback to unknown error preserving underlying value
-    return .unknown(underlying: error as any Error & Sendable)
+        // Fallback to custom error
+        return .custom(message: "Unknown error", details: error.localizedDescription)
     }
 }

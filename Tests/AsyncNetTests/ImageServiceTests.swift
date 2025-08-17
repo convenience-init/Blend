@@ -27,18 +27,9 @@ extension NetworkError: Equatable {
         case (.imageProcessingFailed, .imageProcessingFailed): return true
         case (.cacheError(let l), .cacheError(let r)): return l == r
             case (.transportError(let lCode, _), .transportError(let rCode, _)): return lCode == rCode
-        // Legacy cases
-        case (.decode, .decode): return true
-        case (.offLine, .offLine): return true
         case (.custom(let lMsg, let lDetails), .custom(let rMsg, let rDetails)):
             return lMsg == rMsg && lDetails == rDetails
-        case (.unknown(let l), .unknown(let r)):
-            return l.localizedDescription == r.localizedDescription
-        case (.invalidURL(let l), .invalidURL(let r)): return l == r
-        case (.networkError, .networkError): return true
-        case (.badStatusCode(let l), .badStatusCode(let r)): return l == r
-        case (.decodingErrorLegacy, .decodingErrorLegacy): return true
-        default: return false
+    default: return false
         }
     }
 }

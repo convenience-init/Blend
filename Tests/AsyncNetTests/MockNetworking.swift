@@ -38,10 +38,9 @@ public struct MockEndpoint: Endpoint {
     public var method: RequestMethod = .get
     public var headers: [String: String]? = ["Content-Type": "application/json"]
     public var queryItems: [URLQueryItem]? = nil
-    public var body: Data? = nil
+    // ...existing code...
     public var contentType: String? = "application/json"
     public var timeout: TimeInterval? = nil
-    @available(*, deprecated, message: "Use body: Data? instead")
-    public var legacyBody: [String: String]? = nil
+    public var body: Data? = nil
     public init() {}
 }

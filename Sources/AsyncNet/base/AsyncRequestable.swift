@@ -101,12 +101,10 @@ public extension AsyncRequestable {
 
 private extension AsyncRequestable {
 	
-	/// Builds a URLRequest from the given endpoint, supporting legacy migration.
+	/// Builds a URLRequest from the given endpoint.
 	///
 	/// - Parameter endPoint: The endpoint to build the request for.
 	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
-	///
-	/// - Important: Legacy body support is provided for backward compatibility. Migrate to `body: Data?` for strict compliance.
 	private func buildAsyncRequest(for endPoint: Endpoint) -> URLRequest? {
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
@@ -131,19 +129,6 @@ private extension AsyncRequestable {
 				asyncRequest.httpBody = body
 			}
 		}
-		// Migration: Support legacyBody for backward compatibility
-		// WARNING: The following block uses a deprecated property (legacyBody) for migration purposes only.
-		// The deprecation warning is expected and safe to ignore until migration is complete.
-		// Remove this block and legacyBody property after all clients have migrated to body: Data?
-		#if swift(>=6.0)
-		if let legacyBody = endPoint.legacyBody, endPoint.body == nil, endPoint.method != .get {
-			do {
-				asyncRequest.httpBody = try JSONSerialization.data(withJSONObject: legacyBody, options: [])
-			} catch {
-				print("[AsyncNet] ERROR: Failed to serialize legacyBody for endpoint \(url.absoluteString) with method \(endPoint.method.rawValue): \(error)")
-			}
-		}
-		#endif
 		return asyncRequest
 	}
 }
