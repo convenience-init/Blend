@@ -14,8 +14,8 @@ struct AdvancedNetworkManagerTests {
         ))
         let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
         let request = URLRequest(url: URL(string: "https://mock.api/test")!)
-        async let first: Data = try await manager.fetchData(for: request, cacheKey: "key1")
-        async let second: Data = try await manager.fetchData(for: request, cacheKey: "key1")
+    async let first: Data = try manager.fetchData(for: request, cacheKey: "key1")
+    async let second: Data = try manager.fetchData(for: request, cacheKey: "key1")
         let result1 = try await first
         let result2 = try await second
         #expect(result1 == result2)
@@ -94,17 +94,37 @@ struct AsyncRequestableTests {
 
 @Suite("NetworkError Tests")
 struct NetworkErrorTests {
+    @Test func testWrapUnknownFallback() {
+        struct DummyError: Error, Sendable {
+            let message: String
+            var localizedDescription: String { message }
+        }
+        let dummy = DummyError(message: "Dummy failure")
+        let wrapped = NetworkError.wrap(dummy)
+        #expect(wrapped == .unknown(underlying: dummy))
+    }
     @Test func testCustomErrorMessage() {
         let error = NetworkError.customError("Endpoint error", details: "Details")
-        #expect(error.errorDescription?.contains("Invalid endpoint") == true)
+        #expect(error.errorDescription?.contains("Endpoint error") == true)
+        #expect(error.errorDescription?.contains("Details") == true)
     }
     @Test func testWrapURLError() {
         let urlError = URLError(.notConnectedToInternet)
         let wrapped = NetworkError.wrap(urlError)
         #expect(wrapped == .networkUnavailable)
     }
+    @Test func testWrapUnknownURLError() {
+        let urlError = URLError(.cannotFindHost)
+        let wrapped = NetworkError.wrap(urlError)
+        #expect(wrapped == .transportError(code: .cannotFindHost, underlying: urlError))
+    }
     @Test func testWrapDecodingError() {
-        let error = NetworkError.wrap(DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Corrupted")))
-        #expect(error.errorDescription?.contains("Decoding error") == true)
+        struct DummyDecodingError: Error, Sendable {
+            let message: String
+            var localizedDescription: String { message }
+        }
+        let dummy = DummyDecodingError(message: "Corrupted")
+        let error = NetworkError.wrap(dummy)
+        #expect(error == .unknown(underlying: dummy))
     }
 }

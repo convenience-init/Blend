@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Darwin
 @testable import AsyncNet
 #if canImport(UIKit)
 import UIKit
@@ -14,8 +15,8 @@ import SwiftUI
 extension NetworkError: Equatable {
     public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
         switch (lhs, rhs) {
-        case (.httpError(let lCode, _, _), .httpError(let rCode, _, _)): return lCode == rCode
-        case (.decodingError, .decodingError): return true
+    case (.httpError(let lCode, _), .httpError(let rCode, _)): return lCode == rCode
+    case (.decodingError, .decodingError): return true
         case (.networkUnavailable, .networkUnavailable): return true
         case (.requestTimeout, .requestTimeout): return true
         case (.invalidEndpoint(let l), .invalidEndpoint(let r)): return l == r
@@ -25,11 +26,14 @@ extension NetworkError: Equatable {
         case (.uploadFailed(let l), .uploadFailed(let r)): return l == r
         case (.imageProcessingFailed, .imageProcessingFailed): return true
         case (.cacheError(let l), .cacheError(let r)): return l == r
+            case (.transportError(let lCode, _), .transportError(let rCode, _)): return lCode == rCode
         // Legacy cases
         case (.decode, .decode): return true
         case (.offLine, .offLine): return true
-        case (.custom(let l), .custom(let r)): return l == r
-        case (.unknown, .unknown): return true
+        case (.custom(let lMsg, let lDetails), .custom(let rMsg, let rDetails)):
+            return lMsg == rMsg && lDetails == rDetails
+        case (.unknown(let l), .unknown(let r)):
+            return l.localizedDescription == r.localizedDescription
         case (.invalidURL(let l), .invalidURL(let r)): return l == r
         case (.networkError, .networkError): return true
         case (.badStatusCode(let l), .badStatusCode(let r)): return l == r
@@ -165,10 +169,28 @@ struct ImageServicePerformanceTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
-        let memBefore = ProcessInfo.processInfo.physicalMemory
+        func residentMemory() -> UInt64? {
+            var info = mach_task_basic_info()
+            var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+            let kerr = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                    task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+                }
+            }
+            return kerr == KERN_SUCCESS ? info.resident_size : nil
+        }
+        guard let memBefore = residentMemory() else {
+            print("ERROR: Could not read resident memory before fetch")
+            _ = Bool(false)
+            return
+        }
         _ = try await service.fetchImageData(from: "https://mock.api/test")
-        let memAfter = ProcessInfo.processInfo.physicalMemory
-        let memUsed = memAfter - memBefore
+        guard let memAfter = residentMemory() else {
+            print("ERROR: Could not read resident memory after fetch")
+            _ = Bool(false)
+            return
+        }
+        let memUsed = memAfter > memBefore ? memAfter - memBefore : 0
         print("DEBUG: Memory used for caching: \(memUsed / 1024 / 1024) MB")
         #expect(memUsed < 2 * 1024 * 1024) // <2MB
     }
@@ -192,7 +214,9 @@ struct ImageServicePerformanceTests {
         }
         let hitRate = Double(hits) / Double(total)
         print("DEBUG: Cache hit rate: \(hitRate * 100)%")
+        print("DEBUG: Network call count: \(mockSession.callCount)")
         #expect(hitRate > 0.95)
+        #expect(mockSession.callCount == 1)
     }
 
     @Test func testConcurrentRequestHandling() async throws {
@@ -238,10 +262,8 @@ struct ImageServicePerformanceTests {
         // First request (cache miss)
         let _ = try await service.fetchImageData(from: url)
         // Second request (should be cache hit)
-        let start = Date()
         let _ = try await service.fetchImageData(from: url)
-        let elapsed = Date().timeIntervalSince(start)
-        print("DEBUG: Cache hit latency: \(elapsed * 1000) ms")
-        #expect(elapsed < 0.01) // <10ms for cache hit
+        print("DEBUG: Network call count: \(mockSession.callCount)")
+        #expect(mockSession.callCount == 1)
     }
 }

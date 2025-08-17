@@ -1,26 +1,5 @@
 
 
-/// Centralized error taxonomy for AsyncNet networking operations.
-///
-/// `NetworkError` provides comprehensive error handling for all network operations, including HTTP errors, decoding failures, connectivity issues, and migration helpers.
-///
-/// - Important: All error cases are `Sendable` and support strict Swift 6 concurrency.
-/// - Note: Legacy cases are deprecated and provided only for migration purposes. Migrate to specific error cases for strict compliance.
-///
-/// ### Usage Example
-/// ```swift
-/// do {
-///     let users: [User] = try await userService.getUsers()
-/// } catch let error as NetworkError {
-///     print("Network error: \(error.message())")
-/// }
-/// ```
-///
-/// ### Migration Notes
-/// - Migrate all legacy error cases to specific cases for strict concurrency and clarity.
-/// - Use `wrap(_:)` to convert generic errors to `NetworkError`.
-///
-/// Enhanced error system for AsyncNet (ASYNC-302)
 import Foundation
 
 /// Centralized error taxonomy for AsyncNet networking operations.
@@ -42,12 +21,16 @@ import Foundation
 /// ### Migration Notes
 /// - Migrate all legacy error cases to specific cases for strict concurrency and clarity.
 /// - Use `wrap(_:)` to convert generic errors to `NetworkError`.
+/// - Transport errors (connection, DNS, etc) are mapped to `.transportError` for strict separation from HTTP status errors.
 ///
 /// Enhanced error system for AsyncNet (ASYNC-302)
 public enum NetworkError: Error, LocalizedError, Sendable {
+    case custom(message: String, details: String?)
     // MARK: - Specific Error Cases
-    case httpError(statusCode: Int, data: Data?, request: URLRequest?)
-    case decodingError(underlying: Error, data: Data?)
+    /// HTTP error with status code and optional response data (Sendable)
+    case httpError(statusCode: Int, data: Data?)
+    /// Decoding error with underlying error description and optional data (Sendable)
+    case decodingError(underlyingDescription: String, data: Data?)
     case networkUnavailable
     case requestTimeout(duration: TimeInterval)
     case invalidEndpoint(reason: String)
@@ -57,6 +40,11 @@ public enum NetworkError: Error, LocalizedError, Sendable {
     case uploadFailed(String)
     case imageProcessingFailed
     case cacheError(String)
+        /// Represents a transport-level error (e.g., connection, timeout, DNS) not classified as HTTP status error.
+        /// - Parameters:
+        ///   - code: The URLError.Code associated with the transport error.
+        ///   - underlying: The original URLError instance.
+        case transportError(code: URLError.Code, underlying: URLError)
     // MARK: - Legacy Cases (deprecated, for migration)
     @available(*, deprecated, message: "Use specific error cases instead.")
     case decode
@@ -67,21 +55,20 @@ public enum NetworkError: Error, LocalizedError, Sendable {
     @available(*, deprecated, message: "Use httpError instead.")
     case badStatusCode(String)
     @available(*, deprecated, message: "Use decodingError instead.")
-    case decodingErrorLegacy(Error)
-    @available(*, deprecated, message: "Use customError instead.")
-    case custom(msg: String?)
-    @available(*, deprecated, message: "Use specific error cases instead.")
-    case unknown
+    case decodingErrorLegacy(any Error & Sendable)
+    // Removed legacy custom(msg:) case; use custom(message:details:) only
+    /// Represents an unknown error, preserving the underlying error value.
+    case unknown(underlying: any Error & Sendable)
     @available(*, deprecated, message: "Use httpError/networkUnavailable instead.")
-    case networkError(Error)
+    case networkError(any Error & Sendable)
 
     // MARK: - LocalizedError Conformance
     public var errorDescription: String? {
-        switch self {
-        case .httpError(let statusCode, _, _):
+    switch self {
+        case .httpError(let statusCode, _):
             return "HTTP error: Status code \(statusCode)"
-        case .decodingError(let underlying, _):
-            return "Decoding error: \(underlying.localizedDescription)"
+        case .decodingError(let underlyingDescription, _):
+            return "Decoding error: \(underlyingDescription)"
         case .networkUnavailable:
             return "Network unavailable."
         case .requestTimeout(let duration):
@@ -100,6 +87,8 @@ public enum NetworkError: Error, LocalizedError, Sendable {
             return "Failed to process image data."
         case .cacheError(let message):
             return "Cache error: \(message)"
+        case .transportError(let code, let underlying):
+            return "Transport error: \(code) - \(underlying.localizedDescription)"
         // Legacy cases
         case .decode:
             return "Decoding error (legacy)."
@@ -111,10 +100,14 @@ public enum NetworkError: Error, LocalizedError, Sendable {
             return "Bad status code: \(message)"
         case .decodingErrorLegacy(let error):
             return "Decoding error (legacy): \(error.localizedDescription)"
-        case .custom(let msg):
-            return msg ?? "Custom error."
-        case .unknown:
-            return "Unknown error."
+        case .custom(let message, let details):
+            if let details = details {
+                return "\(message): \(details)"
+            } else {
+                return message
+            }
+        case .unknown(let underlying):
+            return "Unknown error: \(underlying.localizedDescription)"
         case .networkError(let error):
             return error.localizedDescription
         }
@@ -122,7 +115,7 @@ public enum NetworkError: Error, LocalizedError, Sendable {
 
     public var recoverySuggestion: String? {
         switch self {
-        case .httpError(let statusCode, _, _):
+    case .httpError(let statusCode, _):
             if statusCode == 401 { return "Check your credentials and try again." }
             if statusCode == 404 { return "Verify the endpoint URL." }
             if statusCode >= 500 { return "Try again later. Server may be down." }
@@ -160,14 +153,10 @@ public enum NetworkError: Error, LocalizedError, Sendable {
 
 // MARK: - Error Convenience Extensions
 public extension NetworkError {
-    /// Creates a custom error with a formatted message
+    /// Creates a custom error with a formatted message and optional details
     static func customError(_ message: String, details: String? = nil) -> NetworkError {
-        let fullMessage = details != nil ? "\(message): \(details!)" : message
-        // Use invalidEndpoint for endpoint errors, otherwise fallback to httpError 400
-        if message.lowercased().contains("endpoint") {
-            return .invalidEndpoint(reason: fullMessage)
-        }
-        return .httpError(statusCode: 400, data: nil, request: nil)
+    // Use a dedicated custom error case for non-arbitrary error information
+    return .custom(message: message, details: details)
     }
 
     /// Wraps a generic error as a network error
@@ -183,10 +172,10 @@ public extension NetworkError {
             case .timedOut:
                 return .requestTimeout(duration: 60.0) // Default timeout duration
             default:
-                return .httpError(statusCode: urlError.errorCode, data: nil, request: nil)
+                return .transportError(code: urlError.code, underlying: urlError)
             }
         }
-        // Fallback to decodingError
-        return .decodingError(underlying: error, data: nil)
+    // Fallback to unknown error preserving underlying value
+    return .unknown(underlying: error as any Error & Sendable)
     }
 }

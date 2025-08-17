@@ -43,7 +43,7 @@ struct UsersEndpoint: Endpoint {
     var path: String = "/users"
     var method: RequestMethod = .GET
     var header: [String: String]? = ["Content-Type": "application/json"]
-    var body: [String: String]? = nil
+    var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
 }
 
@@ -79,7 +79,12 @@ if let cachedImage = ImageService.shared.cachedImage(forKey: "https://example.co
 ```swift
 import AsyncNet
 
-// Multipart form upload
+// Dependency-injected image service
+let imageService = injectedImageService
+
+// Example PlatformImage (replace with actual image loading)
+let image: PlatformImage = ... // Load or create your PlatformImage here
+
 let uploadConfig = ImageService.UploadConfiguration(
     fieldName: "photo",
     fileName: "profile.jpg",
@@ -87,14 +92,15 @@ let uploadConfig = ImageService.UploadConfiguration(
     additionalFields: ["userId": "123"]
 )
 
-let responseData = try await ImageService.shared.uploadImageMultipart(
+// Multipart form upload
+let multipartResponse = try await imageService.uploadImageMultipart(
     image,
     to: URL(string: "https://api.example.com/upload")!,
     configuration: uploadConfig
 )
 
 // Base64 upload
-let responseData = try await ImageService.shared.uploadImageBase64(
+let base64Response = try await imageService.uploadImageBase64(
     image,
     to: URL(string: "https://api.example.com/upload")!,
     configuration: uploadConfig
@@ -353,8 +359,9 @@ AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for
 - Remove all singleton/global state; use dependency injection and actor isolation.
 - Update SwiftUI view models to use @Observable and @MainActor.
 
+
 ### DocC Documentation
-For complete API documentation, migration guides, and advanced usage examples, visit our [Documentation Site](https://asyncnet.docs) or build the DocC documentation locally:
+For complete API documentation, migration guides, and advanced usage examples, build the DocC documentation locally:
 
 ```bash
 swift package generate-documentation

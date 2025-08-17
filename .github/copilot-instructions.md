@@ -7,7 +7,7 @@ This codebase is a Swift networking library with comprehensive image handling, b
 AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and these core service boundaries:
 
 - **Network Layer**: `AsyncRequestable` protocol + `Endpoint` definitions in `/base/` and `/endpoints/`
-- **Image Operations**: `ImageService` singleton in `/services/` with comprehensive upload/download, caching, and SwiftUI integration
+- **Image Operations**: `ImageService` (dependency-injected, actor-based) in `/services/` with comprehensive upload/download, caching, and SwiftUI integration
 - **SwiftUI Integration**: Complete view modifier suite in `/extensions/SwiftUIExtensions.swift` with async state management
 - **Error Handling**: Centralized `NetworkError` enum with Sendable conformance and upload-specific cases
 - **Platform Abstraction**: Cross-platform support via `PlatformImage` typealias and conditional compilation
@@ -18,9 +18,9 @@ AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and
 
 **Platform Abstraction**: Uses `PlatformImage` typealias (`UIImage` on iOS, `NSImage` on macOS) with conditional compilation via `#if canImport(UIKit)` blocks. NSImage extensions provide UIImage-compatible APIs.
 
-**Concurrency Model**: `ImageService` will be converted to a full actor for proper isolation and thread safety. All image operations happen through actor-isolated methods with custom URLSession for background networking.
+**Concurrency Model**: `ImageService` is actor-based for proper isolation and thread safety. All image operations happen through actor-isolated methods with custom URLSession for background networking.
 
-**Service Pattern**: `ImageService` uses dependency injection rather than singletons, while networking uses protocol composition through `AsyncRequestable` with Sendable constraints. Services are designed for testability and proper isolation.
+**Service Pattern**: `ImageService` uses dependency injection and actor isolation, while networking uses protocol composition through `AsyncRequestable` with Sendable constraints. Services are designed for testability and proper isolation.
 
 ## Critical Development Patterns
 
@@ -40,8 +40,8 @@ struct YourEndpoint: Endpoint {
 ### 2. Service Implementation Pattern (Swift 6 Compliant)
 ```swift
 class YourService: AsyncRequestable {
-    func fetchData() async throws -> YourModel where YourModel: Decodable & Sendable {
-        return try await sendRequest(to: YourEndpoint(), responseModel: YourModel.self)
+    func fetchData<T: Decodable & Sendable>() async throws -> T {
+        return try await sendRequest(to: YourEndpoint(), responseModel: T.self)
     }
 }
 ```
@@ -54,6 +54,9 @@ View modifiers follow this naming: `.asyncImage()`, `.imageUploader()`, `AsyncNe
 
 ### 5. Image Upload Patterns
 ```swift
+// Dependency-injected image service (actor-based)
+let imageService = injectedImageService
+
 // Multipart form upload
 let config = ImageService.UploadConfiguration(
     fieldName: "photo",
@@ -61,10 +64,10 @@ let config = ImageService.UploadConfiguration(
     compressionQuality: 0.8,
     additionalFields: ["userId": "123"]
 )
-let responseData = try await ImageService.shared.uploadImageMultipart(image, to: url, configuration: config)
+let multipartResponse = try await imageService.uploadImageMultipart(image, to: url, configuration: config)
 
 // Base64 JSON upload
-let responseData = try await ImageService.shared.uploadImageBase64(image, to: url, configuration: config)
+let base64Response = try await imageService.uploadImageBase64(image, to: url, configuration: config)
 ```
 
 ### 6. Swift 6 Actor Patterns (Phase 2 Target Architecture)
@@ -72,27 +75,47 @@ The library is transitioning from singleton to proper actor isolation and depend
 ```swift
 // Target pattern for ImageService actor conversion
 public actor ImageService {
-    private let imageCache: NSCache<NSString, PlatformImage>
+    private let imageCache: NSCache<NSString, NSData>
     private let urlSession: URLSession
-    
+
     public init(cacheConfiguration: CacheConfiguration = .default) {
         // Dependency-injectable initialization
     }
-    
-    public func fetchImage(from urlString: String) async throws -> PlatformImage {
+
+    // Concurrency-safe: return Data (Sendable)
+    public func fetchImageData(from urlString: String) async throws -> Data {
         // Actor-isolated implementation
     }
 }
 
-// Usage with dependency injection
+// MainActor helper for UI conversion
+@MainActor
+func platformImage(from data: Data) -> PlatformImage? {
+    PlatformImage(data: data)
+}
+
+// Usage with dependency injection and UI conversion
 struct ContentView: View {
     let imageService: ImageService
-    
+
+    @State private var image: PlatformImage?
+
     init(imageService: ImageService = ImageService()) {
         self.imageService = imageService
     }
+
+    var body: some View {
+        // ...existing code...
+        // Example async image loading
+        Task {
+            let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
+            image = await platformImage(from: data)
+        }
+        // ...existing code...
+    }
 }
 ```
+// Note: Always cross actor boundaries with Sendable types (Data, CGImage, etc). Use @MainActor helpers for UI conversion to PlatformImage.
 
 ## Error Handling Conventions
 
@@ -189,18 +212,30 @@ swift build -Xswiftc -strict-concurrency=complete
 // ❌ Avoid singleton patterns
 ImageService.shared.fetchImage(from: url)
 
-// ✅ Use dependency injection
+
+// ✅ Use dependency injection and strict Sendable boundaries
 class ImageRepository {
     private let imageService: ImageService
-    
+
     init(imageService: ImageService) {
         self.imageService = imageService
     }
-    
-    func loadImage(from url: String) async throws -> PlatformImage {
-        return try await imageService.fetchImage(from: url)
+
+    // Return Data (Sendable) from actor/service context
+    func loadImageData(from url: String) async throws -> Data {
+        return try await imageService.fetchImageData(from: url)
     }
 }
+
+// At the call site, convert Data to PlatformImage on the main actor:
+@MainActor
+func platformImage(from data: Data) -> PlatformImage? {
+    PlatformImage(data: data)
+}
+
+// Usage:
+let data = try await imageRepository.loadImageData(from: url)
+let image = await platformImage(from: data)
 ```
 
 **Upload Configuration**: Always use `ImageService.UploadConfiguration` for structured upload parameters - supports both multipart and base64 uploads with additional fields.

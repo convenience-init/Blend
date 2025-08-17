@@ -10,14 +10,16 @@ import SwiftUI
 #endif
 
 
-@MainActor
 public func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat = 0.8) -> Data? {
 #if canImport(UIKit)
     return image.jpegData(compressionQuality: compressionQuality)
 #elseif canImport(Cocoa)
     guard let tiffData = image.tiffRepresentation,
           let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
-    return bitmap.representation(using: .jpeg, properties: [:])
+    let properties: [NSBitmapImageRep.PropertyKey: Any] = [
+        .compressionFactor: NSNumber(value: Double(compressionQuality))
+    ]
+    return bitmap.representation(using: .jpeg, properties: properties)
 #else
     return nil
 #endif
@@ -153,14 +155,18 @@ public actor ImageService {
         throw lastError ?? NetworkError.networkUnavailable
     }
     private let imageCache: NSCache<NSString, PlatformImage>
+    private let dataCache: NSCache<NSString, NSData>
     private let urlSession: URLSessionProtocol
     // Deduplication: Track in-flight fetchImageData requests by URL string
     private var inFlightImageTasks: [String: Task<Data, Error>] = [:]
 
     public init(cacheCountLimit: Int = 100, cacheTotalCostLimit: Int = 50 * 1024 * 1024, urlSession: URLSessionProtocol? = nil) {
-        imageCache = NSCache<NSString, PlatformImage>()
-        imageCache.countLimit = cacheCountLimit // max number of images
-        imageCache.totalCostLimit = cacheTotalCostLimit // max 50MB
+    imageCache = NSCache<NSString, PlatformImage>()
+    imageCache.countLimit = cacheCountLimit // max number of images
+    imageCache.totalCostLimit = cacheTotalCostLimit // max 50MB
+    dataCache = NSCache<NSString, NSData>()
+    dataCache.countLimit = cacheCountLimit
+    dataCache.totalCostLimit = cacheTotalCostLimit
         self.cacheConfig = CacheConfiguration(maxLRUCount: cacheCountLimit)
 
     self.interceptors = []
@@ -205,12 +211,11 @@ public actor ImageService {
         let cacheKey = urlString as NSString
         // Check cache for image data, evict expired
         evictExpiredCache()
-        if let cachedImage = imageCache.object(forKey: cacheKey),
-           let imageData = cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 1.0),
-           let lruInfo = lruTracker[cacheKey],
-           Date().timeIntervalSince1970 - lruInfo.timestamp < cacheConfig.maxAge {
-            updateLRUOrder(for: cacheKey)
-            return imageData
+        if let cachedData = dataCache.object(forKey: cacheKey) {
+            if let lruInfo = lruTracker[cacheKey], Date().timeIntervalSince1970 - lruInfo.timestamp < cacheConfig.maxAge {
+                updateLRUOrder(for: cacheKey)
+                return cachedData as Data
+            }
         }
 
         // Deduplication: Check for in-flight task
@@ -261,14 +266,12 @@ public actor ImageService {
                 case 401:
                     throw NetworkError.unauthorized
                 default:
-                    throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
+                    throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
                 }
             }
-            // Cache image as PlatformImage for future use (actor context)
-            if let image = PlatformImage(data: data) {
-                self.imageCache.setObject(image, forKey: cacheKey)
-                updateLRUOrder(for: cacheKey)
-            }
+            // Cache raw data for future use, assign cost as data length
+            self.dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
+            updateLRUOrder(for: cacheKey)
             return data
         }
         inFlightImageTasks[urlString] = fetchTask
@@ -282,7 +285,6 @@ public actor ImageService {
     /// Converts image data to PlatformImage on the @MainActor (UI context)
     /// - Parameter data: Image data
     /// - Returns: PlatformImage (UIImage/NSImage)
-    @MainActor
     public static func platformImage(from data: Data) -> PlatformImage? {
         return PlatformImage(data: data)
     }
@@ -292,7 +294,6 @@ public actor ImageService {
     /// - Returns: A SwiftUI Image
     /// - Throws: NetworkError if the request fails
     #if canImport(SwiftUI)
-    @MainActor
     public static func swiftUIImage(from data: Data) -> SwiftUI.Image? {
         guard let platformImage = PlatformImage(data: data) else { return nil }
     #if canImport(UIKit)
@@ -349,17 +350,38 @@ public actor ImageService {
         
         // Add additional fields
         for (key, value) in configuration.additionalFields {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(value)\r\n".data(using: .utf8)!)
+            guard let boundaryData = "--\(boundary)\r\n".data(using: .utf8) else {
+                throw NetworkError.imageProcessingFailed
+            }
+            body.append(boundaryData)
+            guard let dispositionData = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8) else {
+                throw NetworkError.imageProcessingFailed
+            }
+            body.append(dispositionData)
+            guard let valueData = "\(value)\r\n".data(using: .utf8) else {
+                throw NetworkError.imageProcessingFailed
+            }
+            body.append(valueData)
         }
         
         // Add image data
-    body.append("--\(boundary)\r\n".data(using: .utf8)!)
-    body.append("Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n".data(using: .utf8)!)
-    body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+    guard let imageBoundaryData = "--\(boundary)\r\n".data(using: .utf8) else {
+        throw NetworkError.imageProcessingFailed
+    }
+    body.append(imageBoundaryData)
+    guard let imageDispositionData = "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n".data(using: .utf8) else {
+        throw NetworkError.imageProcessingFailed
+    }
+    body.append(imageDispositionData)
+    guard let imageTypeData = "Content-Type: image/jpeg\r\n\r\n".data(using: .utf8) else {
+        throw NetworkError.imageProcessingFailed
+    }
+    body.append(imageTypeData)
     body.append(imageData)
-    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+    guard let closingBoundaryData = "\r\n--\(boundary)--\r\n".data(using: .utf8) else {
+        throw NetworkError.imageProcessingFailed
+    }
+    body.append(closingBoundaryData)
         
         request.httpBody = body
         
@@ -375,7 +397,7 @@ public actor ImageService {
         case 401:
             throw NetworkError.unauthorized
         default:
-            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
     }
     
@@ -422,7 +444,7 @@ public actor ImageService {
         case 401:
             throw NetworkError.unauthorized
         default:
-            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
     }
     
@@ -444,6 +466,7 @@ public actor ImageService {
     /// Clears all cached images
     public func clearCache() {
     imageCache.removeAllObjects()
+    dataCache.removeAllObjects()
     lruTracker.removeAll()
     lruOrder.removeAll()
     }
@@ -451,10 +474,11 @@ public actor ImageService {
     /// Removes a specific image from cache
     /// - Parameter key: The cache key to remove
     public func removeFromCache(key: String) {
-        let cacheKey = key as NSString
-        imageCache.removeObject(forKey: cacheKey)
-        lruTracker.removeValue(forKey: cacheKey)
-        lruOrder.removeAll { $0 == cacheKey }
+    let cacheKey = key as NSString
+    imageCache.removeObject(forKey: cacheKey)
+    dataCache.removeObject(forKey: cacheKey)
+    lruTracker.removeValue(forKey: cacheKey)
+    lruOrder.removeAll { $0 == cacheKey }
     }
 
     /// Update LRU order and timestamp for a cache key
@@ -467,6 +491,7 @@ public actor ImageService {
         while lruOrder.count > cacheConfig.maxLRUCount {
             if let oldest = lruOrder.popLast() {
                 imageCache.removeObject(forKey: oldest)
+                dataCache.removeObject(forKey: oldest)
                 lruTracker.removeValue(forKey: oldest)
             }
         }
@@ -478,6 +503,7 @@ public actor ImageService {
         let expiredKeys = lruTracker.filter { now - $0.value.timestamp >= cacheConfig.maxAge }.map { $0.key }
         for key in expiredKeys {
             imageCache.removeObject(forKey: key)
+            dataCache.removeObject(forKey: key)
             lruTracker.removeValue(forKey: key)
             lruOrder.removeAll { $0 == key }
         }
@@ -491,6 +517,7 @@ public actor ImageService {
         while lruOrder.count > cacheConfig.maxLRUCount {
             if let oldest = lruOrder.popLast() {
                 imageCache.removeObject(forKey: oldest)
+                dataCache.removeObject(forKey: oldest)
                 lruTracker.removeValue(forKey: oldest)
             }
         }

@@ -2,10 +2,15 @@ import Foundation
 @testable import AsyncNet
 
 /// MockURLSession for unit testing, conforms to URLSessionProtocol
-public final class MockURLSession: URLSessionProtocol, Sendable {
+public final class MockURLSession: URLSessionProtocol, @unchecked Sendable {
     public let nextData: Data?
     public let nextResponse: URLResponse?
     public let nextError: Error?
+    private let callCountQueue = DispatchQueue(label: "MockURLSession.callCountQueue")
+    private var _callCount: Int = 0
+    public var callCount: Int {
+        callCountQueue.sync { _callCount }
+    }
 
     public init(nextData: Data? = nil, nextResponse: URLResponse? = nil, nextError: Error? = nil) {
         self.nextData = nextData
@@ -14,6 +19,7 @@ public final class MockURLSession: URLSessionProtocol, Sendable {
     }
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        callCountQueue.sync { _callCount += 1 }
         if let error = nextError {
             throw error
         }

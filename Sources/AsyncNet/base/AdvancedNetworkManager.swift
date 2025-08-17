@@ -84,6 +84,7 @@ public actor AdvancedNetworkManager {
                 interceptedRequest = await interceptor.willSend(request: interceptedRequest)
             }
             var lastError: Error?
+            // maxRetries means total number of attempts (including the first)
             for attempt in 0..<retryPolicy.maxRetries {
                 do {
                     let (data, response) = try await urlSession.data(for: interceptedRequest)
@@ -94,6 +95,7 @@ public actor AdvancedNetworkManager {
                     return data
                 } catch {
                     lastError = error
+                    // shouldRetry and backoff use the attempt index (0-based)
                     if let shouldRetry = retryPolicy.shouldRetry, !shouldRetry(error, attempt) {
                         break
                     }
@@ -117,7 +119,7 @@ public struct RetryPolicy: Sendable {
     
     public static let `default` = RetryPolicy(
         maxRetries: 3,
-        shouldRetry: { _, attempt in attempt < 3 },
+        shouldRetry: { _, _ in true }, // Always allow retry; maxRetries controls total attempts
         backoff: { attempt in pow(2.0, Double(attempt)) + Double.random(in: 0...0.5) }
     )
     

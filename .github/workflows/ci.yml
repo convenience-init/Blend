@@ -10,40 +10,76 @@ on:
 
 jobs:
   build-test:
-    runs-on: macos-latest
+    runs-on: macos-14
 
     strategy:
       matrix:
         platform: [macOS-15, macOS-16, iOS-18, iPadOS-18]
         swift-version: [6.0]
+        build: [spm, xcode]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Swift
+      - name: Set up Swift (macOS)
+        if: runner.os == 'macOS' && startsWith(matrix.platform, 'macOS')
         uses: swift-actions/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
+      - name: Set up Xcode 16 (macOS only)
+        if: runner.os == 'macOS'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16'
 
-      - name: Build
-        run: |
-          if [[ "${{ matrix.platform }}" == macOS* ]]; then
-            swift build -Xswiftc -strict-concurrency=complete
-          else
-            xcodebuild -scheme AsyncNet -destination "platform=${{ matrix.platform }},OS=latest,name=iPhone 14" build
-          fi
+      - name: Build (macOS SPM)
+        if: startsWith(matrix.platform, 'macOS') && matrix.build == 'spm'
+        run: swift build -Xswiftc -strict-concurrency=complete
+
+      - name: Build (macOS Xcode)
+        if: startsWith(matrix.platform, 'macOS') && matrix.build == 'xcode'
+        run: xcodebuild -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Build (iOS)
+        if: startsWith(matrix.platform, 'iOS')
+        run: xcodebuild -scheme AsyncNet -destination "platform=iOS Simulator,name=iPhone 14,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Build (iPadOS)
+        if: startsWith(matrix.platform, 'iPadOS')
+        run: xcodebuild -scheme AsyncNet -destination "platform=iOS Simulator,name=iPad Pro (11-inch) (4th generation),OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Run tests
         run: |
           if [[ "${{ matrix.platform }}" == macOS* ]]; then
-            swift test --enable-code-coverage
+            if [[ "${{ matrix.build }}" == "spm" ]]; then
+              swift test --enable-code-coverage
+            else
+              xcodebuild test -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+            fi
+          elif [[ "${{ matrix.platform }}" == iOS* ]]; then
+            xcodebuild test -scheme AsyncNet -destination "platform=iOS Simulator,name=iPhone 14,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          elif [[ "${{ matrix.platform }}" == iPadOS* ]]; then
+            xcodebuild test -scheme AsyncNet -destination "platform=iOS Simulator,name=iPad Pro (12.9-inch) (6th generation),OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          elif [[ "${{ matrix.platform }}" == tvOS* ]]; then
+            xcodebuild test -scheme AsyncNet -destination "platform=tvOS Simulator,name=Apple TV,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
           else
-            xcodebuild test -scheme AsyncNet -destination "platform=${{ matrix.platform }},OS=latest,name=iPhone 14"
+            echo "Unknown platform: ${{ matrix.platform }}"
+            exit 1
+          fi
+
+      - name: Check coverage directory
+        if: matrix.platform == 'macOS-16' && matrix.build == 'spm'
+        id: coverage_dir_check
+        run: |
+          if [ -d .build/debug/codecov ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload coverage
-        if: matrix.platform == 'macOS-16'
+        if: matrix.platform == 'macOS-16' && matrix.build == 'spm' && steps.coverage_dir_check.outputs.exists == 'true'
         uses: actions/upload-artifact@v3
         with:
           name: coverage

@@ -1,3 +1,20 @@
+import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+extension Image {
+    /// Cross-platform initializer for PlatformImage
+    static func from(platformImage: PlatformImage) -> Image {
+#if os(macOS)
+        return Image(nsImage: platformImage)
+#else
+        return Image(uiImage: platformImage)
+#endif
+    }
+}
 #if canImport(SwiftUI)
 import SwiftUI
 import Foundation
@@ -26,9 +43,10 @@ enum UploadType: String, Sendable {
     /// await model.loadImage(from: url)
     /// await model.uploadImage(image, to: uploadURL, uploadType: .multipart, configuration: config)
     /// ```
-    @Observable
+    /// ObservableObject for async image loading and uploading in SwiftUI.
+    /// Use with @StateObject in views for correct lifecycle management.
     @MainActor
-    final class AsyncImageModel {
+    class AsyncImageModel: ObservableObject {
         var loadedImage: PlatformImage?
         var isLoading: Bool = false
         var hasError: Bool = false
@@ -117,7 +135,8 @@ enum UploadType: String, Sendable {
         let onUploadSuccess: ((Data) -> Void)?
         let onUploadError: ((Error) -> Void)?
         let imageService: ImageService
-        @State var model: AsyncImageModel
+    /// Use @StateObject for correct SwiftUI lifecycle management of ObservableObject
+    @StateObject private var model: AsyncImageModel
 
         init(
             url: String? = nil,
@@ -135,13 +154,13 @@ enum UploadType: String, Sendable {
             self.onUploadSuccess = onUploadSuccess
             self.onUploadError = onUploadError
             self.imageService = imageService
-            _model = State(initialValue: AsyncImageModel(imageService: imageService))
+            _model = StateObject(wrappedValue: AsyncImageModel(imageService: imageService))
         }
 
         var body: some View {
             Group {
                 if let loadedImage = model.loadedImage {
-                    SwiftUI.Image(platformImage: loadedImage)
+                    Image.from(platformImage: loadedImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 } else if model.hasError {

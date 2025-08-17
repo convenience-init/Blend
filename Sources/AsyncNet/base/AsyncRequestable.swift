@@ -68,12 +68,12 @@ public extension AsyncRequestable {
 			do {
 				return try JSONDecoder().decode(ResponseModel.self, from: data)
 			} catch {
-				throw NetworkError.decodingError(underlying: error, data: data)
+				throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
 			}
 		case 401:
 			throw NetworkError.unauthorized
 		default:
-			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data, request: request)
+			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		}
 	}
 	
@@ -94,13 +94,19 @@ public extension AsyncRequestable {
 		do {
 			return try JSONDecoder().decode(ResponseModel.self, from: data)
 		} catch {
-			throw NetworkError.decodingError(underlying: error, data: data)
+			throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
 		}
 	}
 }
 
 private extension AsyncRequestable {
 	
+	/// Builds a URLRequest from the given endpoint, supporting legacy migration.
+	///
+	/// - Parameter endPoint: The endpoint to build the request for.
+	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
+	///
+	/// - Important: Legacy body support is provided for backward compatibility. Migrate to `body: Data?` for strict compliance.
 	private func buildAsyncRequest(for endPoint: Endpoint) -> URLRequest? {
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
@@ -113,27 +119,29 @@ private extension AsyncRequestable {
 			return nil
 		}
 		var asyncRequest = URLRequest(url: url)
-	/// Builds a URLRequest from the given endpoint, supporting legacy migration.
-	///
-	/// - Parameter endPoint: The endpoint to build the request for.
-	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
-	///
-	/// - Important: Legacy body support is provided for backward compatibility. Migrate to `body: Data?` for strict compliance.
 		asyncRequest.allHTTPHeaderFields = endPoint.headers
 		asyncRequest.httpMethod = endPoint.method.rawValue
 		if let contentType = endPoint.contentType {
 			asyncRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
 		}
-		if let body = endPoint.body, endPoint.method != .get {
-			asyncRequest.httpBody = body
+		if let body = endPoint.body {
+			if endPoint.method == .get {
+				print("[AsyncNet] WARNING: GET request to \(url.absoluteString) with non-nil body will be ignored.")
+			} else {
+				asyncRequest.httpBody = body
+			}
 		}
 		// Migration: Support legacyBody for backward compatibility
 		// WARNING: The following block uses a deprecated property (legacyBody) for migration purposes only.
 		// The deprecation warning is expected and safe to ignore until migration is complete.
 		// Remove this block and legacyBody property after all clients have migrated to body: Data?
-		#if compiler(>=5.6)
+		#if swift(>=6.0)
 		if let legacyBody = endPoint.legacyBody, endPoint.body == nil, endPoint.method != .get {
-			asyncRequest.httpBody = try? JSONSerialization.data(withJSONObject: legacyBody, options: [])
+			do {
+				asyncRequest.httpBody = try JSONSerialization.data(withJSONObject: legacyBody, options: [])
+			} catch {
+				print("[AsyncNet] ERROR: Failed to serialize legacyBody for endpoint \(url.absoluteString) with method \(endPoint.method.rawValue): \(error)")
+			}
 		}
 		#endif
 		return asyncRequest
