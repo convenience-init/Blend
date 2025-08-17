@@ -148,19 +148,18 @@ public actor ImageService {
             do {
                 return try await operation()
             } catch {
-                lastError = error
+                let wrappedError = NetworkError.wrap(error)
+                lastError = wrappedError
                 // Custom error filter
                 if let shouldRetry = config.shouldRetry {
-                    if !shouldRetry(error) { throw error }
-                } else if let netErr = error as? NetworkError {
-                    switch netErr {
+                    if !shouldRetry(wrappedError) { throw wrappedError }
+                } else {
+                    switch wrappedError {
                     case .networkUnavailable, .requestTimeout:
                         break // eligible for retry
                     default:
-                        throw error
+                        throw wrappedError
                     }
-                } else {
-                    throw error
                 }
                 // Custom backoff strategy
                 let delay: TimeInterval
