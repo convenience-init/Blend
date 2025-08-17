@@ -127,7 +127,7 @@ private extension AsyncRequestable {
 			asyncRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
 		}
 		if let body = endPoint.body {
-			if endPoint.method.rawValue == "GET" {
+			if endPoint.method == .get {
 				#if DEBUG
 				#if canImport(OSLog)
 				asyncNetLogger.warning("GET request to \(url.absoluteString, privacy: .public) with non-nil body will be ignored.")
