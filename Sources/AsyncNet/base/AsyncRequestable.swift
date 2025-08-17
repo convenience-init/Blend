@@ -1,4 +1,8 @@
 import Foundation
+#if canImport(OSLog)
+import OSLog
+private let asyncNetLogger = Logger(subsystem: "com.your.bundleid.asyncnet", category: "network")
+#endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
 ///
 /// Conform to `AsyncRequestable` to enable generic, type-safe API requests using async/await.
@@ -123,8 +127,16 @@ private extension AsyncRequestable {
 			asyncRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
 		}
 		if let body = endPoint.body {
-			if endPoint.method == .get {
+			if endPoint.method.rawValue == "GET" {
+				#if DEBUG
+				#if canImport(OSLog)
+				asyncNetLogger.warning("GET request to \(url.absoluteString, privacy: .public) with non-nil body will be ignored.")
+				#else
 				print("[AsyncNet] WARNING: GET request to \(url.absoluteString) with non-nil body will be ignored.")
+				#endif
+				#endif
+				// Ensure no misleading Content-Type header is sent without a body.
+				asyncRequest.setValue(nil, forHTTPHeaderField: "Content-Type")
 			} else {
 				asyncRequest.httpBody = body
 			}

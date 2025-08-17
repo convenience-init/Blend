@@ -48,9 +48,15 @@ struct PlatformAbstractionTests {
 
     @Test func testPlatformImageToData() {
         #if canImport(UIKit)
-        let image = UIImage()
+        // Render a 1x1 pixel image using UIGraphicsImageRenderer
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
+        let image = renderer.image { ctx in
+            UIColor.green.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
         let data = platformImageToData(image)
         #expect(data != nil)
+        #expect(data?.count ?? 0 > 0)
         #elseif canImport(Cocoa)
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
@@ -59,6 +65,7 @@ struct PlatformAbstractionTests {
         image.unlockFocus()
         let data = platformImageToData(image)
         #expect(data != nil)
+        #expect(data?.count ?? 0 > 0)
         #endif
     }
 }

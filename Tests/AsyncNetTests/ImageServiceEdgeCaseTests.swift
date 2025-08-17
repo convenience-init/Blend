@@ -87,12 +87,11 @@ struct ImageServiceEdgeCaseTests {
         _ = try await service.fetchImageData(from: "https://mock.api/test4")
         // Update config to stricter limit
         await service.updateCacheConfiguration(ImageService.CacheConfiguration(maxAge: 3600, maxLRUCount: 2))
-        // Only 2 should remain (test3 and test4)
-        var count = 0
-        for i in 0..<5 {
-            let url = "https://mock.api/test\(i)"
-            if await service.isImageCached(forKey: url) { count += 1 }
-        }
-        #expect(count == 2)
+        // Explicitly check MRU survivors and evicted items
+        #expect(await service.isImageCached(forKey: "https://mock.api/test3") == true)
+        #expect(await service.isImageCached(forKey: "https://mock.api/test4") == true)
+        #expect(await service.isImageCached(forKey: "https://mock.api/test0") == false)
+        #expect(await service.isImageCached(forKey: "https://mock.api/test1") == false)
+        #expect(await service.isImageCached(forKey: "https://mock.api/test2") == false)
     }
 }
