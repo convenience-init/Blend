@@ -210,7 +210,14 @@ swift build -Xswiftc -strict-concurrency=complete
 **Dependency Injection**: Design services for injection rather than global access:
 ```swift
 // ❌ Avoid singleton patterns
-ImageService.shared.fetchImage(from: url)
+
+// ❌ Avoid singleton patterns
+// ImageService.shared.fetchImage(from: url)
+
+// ✅ Use dependency injection and strict Sendable boundaries
+let imageService = ImageService()
+let data = try await imageService.fetchImageData(from: url)
+let image = await platformImage(from: data)
 
 
 // ✅ Use dependency injection and strict Sendable boundaries

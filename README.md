@@ -63,13 +63,15 @@ class UserService: AsyncRequestable {
 import AsyncNet
 
 // Download an image
-let image = try await ImageService.shared.fetchImage(from: "https://example.com/image.jpg")
+let imageService = ImageService()
+let image = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 
 // For SwiftUI
-let swiftUIImage = try await ImageService.shared.fetchSwiftUIImage(from: "https://example.com/image.jpg")
+let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
+let swiftUIImage = ImageService.swiftUIImage(from: data)
 
 // Check cache first
-if let cachedImage = ImageService.shared.cachedImage(forKey: "https://example.com/image.jpg") {
+if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image.jpg") {
     // Use cached image
 }
 ```
@@ -248,14 +250,14 @@ do {
 import AsyncNet
 
 // Configure cache limits
-ImageService.shared.imageCache.countLimit = 200  // Max 200 images
-ImageService.shared.imageCache.totalCostLimit = 100 * 1024 * 1024  // Max 100MB
+imageService.imageCache.countLimit = 200  // Max 200 images
+imageService.imageCache.totalCostLimit = 100 * 1024 * 1024  // Max 100MB
 
 // Clear cache
-ImageService.shared.clearCache()
+imageService.clearCache()
 
 // Remove specific image
-ImageService.shared.removeFromCache(key: "https://example.com/image.jpg")
+imageService.removeFromCache(key: "https://example.com/image.jpg")
 ```
 
 ### Custom Upload Configuration
@@ -274,7 +276,7 @@ let customConfig = ImageService.UploadConfiguration(
     ]
 )
 
-let response = try await ImageService.shared.uploadImageMultipart(
+let response = try await imageService.uploadImageMultipart(
     userImage,
     to: uploadEndpoint,
     configuration: customConfig
@@ -356,7 +358,7 @@ AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for
 - Migrate all legacy body payloads to `body: Data?` in `Endpoint`.
 - Replace legacy error cases with specific `NetworkError` cases.
 - Use `sendRequestAdvanced` and inject `AdvancedNetworkManager` for advanced networking features.
-- Remove all singleton/global state; use dependency injection and actor isolation.
+- Remove all singleton/global state; use dependency injection and actor isolation. All examples now use dependency-injected ImageService and actor isolation.
 - Update SwiftUI view models to use @Observable and @MainActor.
 
 
