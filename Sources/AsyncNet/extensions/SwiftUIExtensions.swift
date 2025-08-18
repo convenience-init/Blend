@@ -43,15 +43,16 @@ enum UploadType: String, Sendable {
     /// await model.loadImage(from: url)
     /// await model.uploadImage(image, to: uploadURL, uploadType: .multipart, configuration: config)
     /// ```
-    /// ObservableObject for async image loading and uploading in SwiftUI.
-    /// Use with @StateObject in views for correct lifecycle management.
+    /// Observable model for async image loading and uploading in SwiftUI.
+    /// Use with @State in views for correct lifecycle management.
+    @Observable
     @MainActor
-    class AsyncImageModel: ObservableObject {
-    @MainActor @Published var loadedImage: PlatformImage?
-    @Published var isLoading: Bool = false
-    @Published var hasError: Bool = false
-    @Published var isUploading: Bool = false
-    @Published var error: NetworkError?
+    class AsyncImageModel {
+        var loadedImage: PlatformImage?
+        var isLoading: Bool = false
+        var hasError: Bool = false
+        var isUploading: Bool = false
+        var error: NetworkError?
 
         private let imageService: ImageService
 
@@ -144,8 +145,8 @@ enum UploadType: String, Sendable {
     /// Error callback always receives NetworkError
     let onUploadError: ((NetworkError) -> Void)?
         let imageService: ImageService
-    /// Use @StateObject for correct SwiftUI lifecycle management of ObservableObject
-    @StateObject private var model: AsyncImageModel
+    /// Use @State for correct SwiftUI lifecycle management of @Observable model
+    @State private var model: AsyncImageModel
 
         init(
             url: String? = nil,
@@ -163,7 +164,7 @@ enum UploadType: String, Sendable {
             self.onUploadSuccess = onUploadSuccess
             self.onUploadError = onUploadError
             self.imageService = imageService
-            _model = StateObject(wrappedValue: AsyncImageModel(imageService: imageService))
+            _model = State(wrappedValue: AsyncImageModel(imageService: imageService))
         }
 
         var body: some View {
