@@ -70,10 +70,10 @@ let config = ImageService.UploadConfiguration(
     compressionQuality: 0.8,
     additionalFields: ["userId": "123"]
 )
-let multipartResponse = try await imageService.uploadImageMultipart(_ imageData: Data, to url: URL, configuration: ImageService.UploadConfiguration) async throws -> MultipartResponse
+let multipartResponse = try await imageService.uploadImageMultipart(imageData, to: url, configuration: config)
 
 // Base64 JSON upload (Data-based)
-let base64Response = try await imageService.uploadImageBase64(_ imageData: Data, to url: URL, configuration: ImageService.UploadConfiguration) async throws -> Base64Response
+let base64Response = try await imageService.uploadImageBase64(imageData, to: url, configuration: config)
 ```
 
 ### 6. Swift 6 Actor Patterns

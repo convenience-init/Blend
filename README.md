@@ -349,4 +349,6 @@ AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for
 
 ```bash
 swift package generate-documentation
- // Use `PlatformImage` typealias for cross-platform image handling.
+```
+
+Use `PlatformImage` typealias for cross-platform image handling.
