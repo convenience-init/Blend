@@ -1,7 +1,7 @@
 import Foundation
 #if canImport(OSLog)
 import OSLog
-private let asyncNetLogger = Logger(subsystem: "com.your.bundleid.asyncnet", category: "network")
+private let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
 #endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
 ///

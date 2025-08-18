@@ -58,9 +58,70 @@ extension URLSession: URLSessionProtocol {}
 /// - All legacy synchronous APIs are replaced by async/await and actor isolation.
 /// - Use SwiftUI.Image(platformImage:) for cross-platform SwiftUI integration.
 public actor ImageService {
+    /// Uploads image data using base64-encoded JSON
+    /// - Parameters:
+    ///   - imageData: The image data to upload
+    ///   - url: The upload endpoint URL
+    ///   - configuration: Upload configuration options
+    /// - Returns: The response data from the server
+    /// - Throws: NetworkError if the upload fails
+    public func uploadImageBase64(
+        _ imageData: Data,
+        to url: URL,
+        configuration: UploadConfiguration = UploadConfiguration()
+    ) async throws -> Data {
+        // Encode image data as base64 string
+        let base64String = imageData.base64EncodedString()
+        // Build JSON payload
+        var payload: [String: Any] = configuration.additionalFields
+        payload[configuration.fieldName] = base64String
+        payload["fileName"] = configuration.fileName
+        payload["compressionQuality"] = configuration.compressionQuality
+        // Create JSON request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.noResponse
+        }
+        switch httpResponse.statusCode {
+        case 200...299:
+            return data
+        case 401:
+            throw NetworkError.unauthorized
+        default:
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+        }
+    }
+    // --- BEGIN: Move methods inside actor scope ---
+    // MARK: - Image Uploading
+
+    // --- END: Move methods inside actor scope ---
+    /// Configuration for image upload operations
+    public struct UploadConfiguration: Sendable {
+        public let compressionQuality: CGFloat
+        public let fieldName: String
+        public let fileName: String
+        public let additionalFields: [String: String]
+
+        public init(
+            compressionQuality: CGFloat = 0.8,
+            fieldName: String = "file",
+            fileName: String = "image.jpg",
+            additionalFields: [String: String] = [:]
+        ) {
+            self.compressionQuality = compressionQuality
+            self.fieldName = fieldName
+            self.fileName = fileName
+            self.additionalFields = additionalFields
+        }
+    }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
     public func isImageCached(forKey key: String) async -> Bool {
     let cacheKey = key as NSString
+    // Atomically perform eviction and all cache lookups within actor context
     evictExpiredCache()
     let inLRU = lruDict[cacheKey] != nil
     let inImageCache = imageCache.object(forKey: cacheKey) != nil
@@ -250,12 +311,11 @@ public actor ImageService {
         let fetchTask = Task<Data, Error> {
             let cacheKey = urlString as NSString
             let data = try await withRetry(config: retryConfig) {
-                guard let url = URL(string: urlString),
-                      let scheme = url.scheme, !scheme.isEmpty,
-                      let host = url.host, !host.isEmpty else {
-                    print("DEBUG: Invalid URL detected in fetchImageData: \(urlString)")
-                    throw NetworkError.invalidEndpoint(reason: "Invalid image URL: \(urlString)")
-                }
+                                guard let url = URL(string: urlString),
+                                            let scheme = url.scheme, !scheme.isEmpty,
+                                            let host = url.host, !host.isEmpty else {
+                                        throw NetworkError.invalidEndpoint(reason: "Invalid image URL: \(urlString)")
+                                }
 
                 var request = URLRequest(url: url)
                 // Interceptor: willSend
@@ -327,28 +387,6 @@ public actor ImageService {
     }
     #endif
     
-    // MARK: - Image Uploading
-    
-    /// Configuration for image upload operations
-    public struct UploadConfiguration: Sendable {
-        public let fieldName: String
-        public let fileName: String
-        public let compressionQuality: CGFloat
-        public let additionalFields: [String: String]
-        
-        public init(
-            fieldName: String = "image",
-            fileName: String = "image.jpg",
-            compressionQuality: CGFloat = 0.8,
-            additionalFields: [String: String] = [:]
-        ) {
-            self.fieldName = fieldName
-            self.fileName = fileName
-            self.compressionQuality = compressionQuality
-            self.additionalFields = additionalFields
-        }
-    }
-    
     /// Uploads image data using multipart form data
     /// - Parameters:
     ///   - imageData: The image data to upload
@@ -407,53 +445,6 @@ public actor ImageService {
     body.append(closingBoundaryData)
         
         request.httpBody = body
-        
-        let (data, response) = try await urlSession.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.noResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200...299:
-            return data
-        case 401:
-            throw NetworkError.unauthorized
-        default:
-            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
-        }
-    }
-    
-    /// Uploads image data as base64 string in JSON payload
-    /// - Parameters:
-    ///   - imageData: The image data to upload
-    ///   - url: The upload endpoint URL
-    ///   - configuration: Upload configuration options
-    /// - Returns: The response data from the server
-    /// - Throws: NetworkError if the upload fails
-    public func uploadImageBase64(
-        _ imageData: Data,
-        to url: URL,
-        configuration: UploadConfiguration = UploadConfiguration()
-    ) async throws -> Data {
-        // Convert image to base64
-        let base64String = imageData.base64EncodedString()
-        
-        // Create JSON payload
-        var payload: [String: Any] = [
-            configuration.fieldName: base64String
-        ]
-        
-        // Add additional fields
-        for (key, value) in configuration.additionalFields {
-            payload[key] = value
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         
         let (data, response) = try await urlSession.data(for: request)
         

@@ -15,9 +15,10 @@ extension Image {
 #endif
     }
 }
-#if canImport(SwiftUI)
 import SwiftUI
 import Foundation
+
+
 import Observation
 
 
@@ -25,7 +26,7 @@ import Observation
 ///
 /// - multipart: Uploads image using multipart form data.
 /// - base64: Uploads image as base64 string in JSON payload.
-enum UploadType: String, Sendable {
+public enum UploadType: String, Sendable {
     case multipart
     case base64
 }
@@ -48,11 +49,12 @@ enum UploadType: String, Sendable {
     @Observable
     @MainActor
     class AsyncImageModel {
-        var loadedImage: PlatformImage?
-        var isLoading: Bool = false
-        var hasError: Bool = false
-        var isUploading: Bool = false
-        var error: NetworkError?
+    var loadedImage: PlatformImage?
+    var isLoading: Bool = false
+    var hasError: Bool = false
+    var isUploading: Bool = false
+    var error: NetworkError?
+    private var loadToken: UUID? = nil
 
         private let imageService: ImageService
 
@@ -61,26 +63,42 @@ enum UploadType: String, Sendable {
         }
 
         func loadImage(from url: String?) async {
+            let token = UUID()
+            self.loadToken = token
             guard let url = url else {
-                await MainActor.run { self.hasError = true }
+                await MainActor.run {
+                    if self.loadToken == token {
+                        self.hasError = true
+                    }
+                }
                 return
             }
             await MainActor.run {
-                self.isLoading = true
-                self.hasError = false
+                if self.loadToken == token {
+                    self.isLoading = true
+                    self.hasError = false
+                }
             }
             do {
                 let data = try await imageService.fetchImageData(from: url)
                 await MainActor.run {
-                    self.loadedImage = ImageService.platformImage(from: data)
+                    if self.loadToken == token {
+                        self.loadedImage = ImageService.platformImage(from: data)
+                    }
                 }
             } catch {
                 await MainActor.run {
-                    self.hasError = true
-                    self.error = error as? NetworkError ?? NetworkError.wrap(error)
+                    if self.loadToken == token {
+                        self.hasError = true
+                        self.error = error as? NetworkError ?? NetworkError.wrap(error)
+                    }
                 }
             }
-            await MainActor.run { self.isLoading = false }
+            await MainActor.run {
+                if self.loadToken == token {
+                    self.isLoading = false
+                }
+            }
         }
 
             /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -136,7 +154,7 @@ enum UploadType: String, Sendable {
     ///     imageService: imageService
     /// )
     /// ```
-    struct AsyncNetImageView: View {
+    public struct AsyncNetImageView: View {
         let url: String?
         let uploadURL: URL?
         let uploadType: UploadType
@@ -148,7 +166,7 @@ enum UploadType: String, Sendable {
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
     @State private var model: AsyncImageModel
 
-        init(
+        public init(
             url: String? = nil,
             uploadURL: URL? = nil,
             uploadType: UploadType = .multipart,
@@ -167,7 +185,7 @@ enum UploadType: String, Sendable {
             _model = State(wrappedValue: AsyncImageModel(imageService: imageService))
         }
 
-        var body: some View {
+    public var body: some View {
             Group {
                 if let loadedImage = model.loadedImage {
                     Image.from(platformImage: loadedImage)
@@ -206,4 +224,3 @@ enum UploadType: String, Sendable {
             }
         }
     }
-#endif

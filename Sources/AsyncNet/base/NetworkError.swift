@@ -1,3 +1,25 @@
+// Equatable conformance for NetworkError for testing and production
+extension NetworkError: Equatable {
+    public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
+        switch (lhs, rhs) {
+        case (.httpError(let lCode, _), .httpError(let rCode, _)): return lCode == rCode
+        case (.decodingError, .decodingError): return true
+        case (.networkUnavailable, .networkUnavailable): return true
+        case (.requestTimeout, .requestTimeout): return true
+        case (.invalidEndpoint(let l), .invalidEndpoint(let r)): return l == r
+        case (.unauthorized, .unauthorized): return true
+        case (.noResponse, .noResponse): return true
+        case (.badMimeType(let l), .badMimeType(let r)): return l == r
+        case (.uploadFailed(let l), .uploadFailed(let r)): return l == r
+        case (.imageProcessingFailed, .imageProcessingFailed): return true
+        case (.cacheError(let l), .cacheError(let r)): return l == r
+        case (.transportError(let lCode, _), .transportError(let rCode, _)): return lCode == rCode
+        case (.custom(let lMsg, let lDetails), .custom(let rMsg, let rDetails)):
+            return lMsg == rMsg && lDetails == rDetails
+        default: return false
+        }
+    }
+}
 
 
 import Foundation

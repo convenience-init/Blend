@@ -1,6 +1,9 @@
 import Testing
 import Foundation
+// Platform-specific imports for memory usage
+#if canImport(Darwin)
 import Darwin
+#endif
 @testable import AsyncNet
 #if canImport(UIKit)
 import UIKit
@@ -11,28 +14,6 @@ import Cocoa
 import SwiftUI
 #endif
 
-// Equatable conformance for NetworkError for testing
-extension NetworkError: Equatable {
-    public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
-        switch (lhs, rhs) {
-    case (.httpError(let lCode, _), .httpError(let rCode, _)): return lCode == rCode
-    case (.decodingError, .decodingError): return true
-        case (.networkUnavailable, .networkUnavailable): return true
-        case (.requestTimeout, .requestTimeout): return true
-        case (.invalidEndpoint(let l), .invalidEndpoint(let r)): return l == r
-        case (.unauthorized, .unauthorized): return true
-        case (.noResponse, .noResponse): return true
-        case (.badMimeType(let l), .badMimeType(let r)): return l == r
-        case (.uploadFailed(let l), .uploadFailed(let r)): return l == r
-        case (.imageProcessingFailed, .imageProcessingFailed): return true
-        case (.cacheError(let l), .cacheError(let r)): return l == r
-            case (.transportError(let lCode, _), .transportError(let rCode, _)): return lCode == rCode
-        case (.custom(let lMsg, let lDetails), .custom(let rMsg, let rDetails)):
-            return lMsg == rMsg && lDetails == rDetails
-    default: return false
-        }
-    }
-}
 
 @Suite("Image Service Tests")
 struct ImageServiceTests {
@@ -161,6 +142,7 @@ struct ImageServicePerformanceTests {
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
         func residentMemory() -> UInt64? {
+        #if canImport(Darwin)
             var info = mach_task_basic_info()
             var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
             let kerr = withUnsafeMutablePointer(to: &info) {
@@ -169,16 +151,17 @@ struct ImageServicePerformanceTests {
                 }
             }
             return kerr == KERN_SUCCESS ? info.resident_size : nil
+        #else
+            return nil
+        #endif
         }
         guard let memBefore = residentMemory() else {
-            print("ERROR: Could not read resident memory before fetch")
-            _ = Bool(false)
+            #expect(Bool(false), "ERROR: Could not read resident memory before fetch")
             return
         }
         _ = try await service.fetchImageData(from: "https://mock.api/test")
         guard let memAfter = residentMemory() else {
-            print("ERROR: Could not read resident memory after fetch")
-            _ = Bool(false)
+            #expect(Bool(false), "ERROR: Could not read resident memory after fetch")
             return
         }
         let memUsed = memAfter > memBefore ? memAfter - memBefore : 0

@@ -23,27 +23,36 @@ struct PlatformAbstractionTests {
     }
 
     @Test func testNSImageExtensionJPEGData() {
-        #if canImport(Cocoa) && !canImport(UIKit)
-        let image = NSImage(size: NSSize(width: 1, height: 1))
-        image.lockFocus()
-        NSColor.red.setFill()
-        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
-        image.unlockFocus()
-        let jpeg = image.jpegData(compressionQuality: 0.8)
-        #expect(jpeg != nil)
-        #endif
+    #if canImport(AppKit) && !canImport(UIKit)
+    let size = NSSize(width: 1, height: 1)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSColor.red.setFill()
+    NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1, height: 1)).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    let image = NSImage(size: size)
+    image.addRepresentation(rep)
+    let jpeg = image.jpegData(compressionQuality: 0.8)
+    #expect(jpeg != nil)
+    #endif
     }
 
     @Test func testNSImageExtensionPNGData() {
-        #if canImport(Cocoa) && !canImport(UIKit)
-        let image = NSImage(size: NSSize(width: 1, height: 1))
-        image.lockFocus()
-        NSColor.blue.setFill()
-        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
-        image.unlockFocus()
-        let png = image.pngData()
-        #expect(png != nil)
-        #endif
+    #if canImport(Cocoa) && !canImport(UIKit)
+    let size = NSSize(width: 1, height: 1)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSColor.blue.setFill()
+    let rect = NSRect(x: 0, y: 0, width: 1, height: 1)
+    NSBezierPath(rect: rect).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    let image = NSImage(size: size)
+    image.addRepresentation(rep)
+    let png = image.pngData()
+    #expect(png != nil)
+    #endif
     }
 
     @Test func testPlatformImageToData() {
@@ -57,15 +66,20 @@ struct PlatformAbstractionTests {
         let data = platformImageToData(image)
         #expect(data != nil)
         #expect(data?.count ?? 0 > 0)
-        #elseif canImport(Cocoa)
-        let image = NSImage(size: NSSize(width: 1, height: 1))
-        image.lockFocus()
-        NSColor.green.setFill()
-        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
-        image.unlockFocus()
-        let data = platformImageToData(image)
-        #expect(data != nil)
-        #expect(data?.count ?? 0 > 0)
+    #elseif canImport(Cocoa)
+    let size = NSSize(width: 1, height: 1)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSColor.green.setFill()
+    let rect = NSRect(x: 0, y: 0, width: 1, height: 1)
+    NSBezierPath(rect: rect).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    let image = NSImage(size: size)
+    image.addRepresentation(rep)
+    let data = platformImageToData(image)
+    #expect(data != nil)
+    #expect(data?.count ?? 0 > 0)
         #endif
     }
 }

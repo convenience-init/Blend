@@ -7,7 +7,7 @@ This codebase is a Swift networking library with comprehensive image handling, b
 AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and these core service boundaries:
 
 - **Network Layer**: `AsyncRequestable` protocol + `Endpoint` definitions in `/base/` and `/endpoints/`
-- **Image Operations**: `ImageService` (dependency-injected, actor-based) in `/services/` with comprehensive upload/download, caching, and SwiftUI integration
+-- **Image Operations**: `ImageService` is actor-based and provided via dependency injection in `/services/`, with comprehensive upload/download, caching, and SwiftUI integration
 - **SwiftUI Integration**: Complete view modifier suite in `/extensions/SwiftUIExtensions.swift` with async state management
 - **Error Handling**: Centralized `NetworkError` enum with Sendable conformance and upload-specific cases
 - **Platform Abstraction**: Cross-platform support via `PlatformImage` typealias and conditional compilation
@@ -53,27 +53,32 @@ Always use `PlatformImage` type, never `UIImage`/`NSImage` directly. The codebas
 View modifiers follow this naming: `.asyncImage()`, `.imageUploader()`, `AsyncNetImageView` - they wrap underlying `ImageService` calls with proper state management and loading states.
 
 ### 5. Image Upload Patterns
+// Note: ImageService upload APIs are Data-based. Always convert PlatformImage (UIImage/NSImage) to Data before sending to the actor. Crossing actor boundaries with non-Sendable types (such as PlatformImage) is not allowed; use Data or a Sendable CGImage wrapper for all actor interactions.
 ```swift
 // Dependency-injected image service (actor-based)
 let imageService = injectedImageService
 
-// Multipart form upload
+// Convert PlatformImage to Data before upload
+guard let imageData = platformImage.jpegData(compressionQuality: 0.8) else {
+    throw NetworkError.imageProcessingFailed
+}
+
+// Multipart form upload (Data-based)
 let config = ImageService.UploadConfiguration(
     fieldName: "photo",
     fileName: "image.jpg",
     compressionQuality: 0.8,
     additionalFields: ["userId": "123"]
 )
-let multipartResponse = try await imageService.uploadImageMultipart(image, to: url, configuration: config)
+let multipartResponse = try await imageService.uploadImageMultipart(_ imageData: Data, to url: URL, configuration: ImageService.UploadConfiguration) async throws -> MultipartResponse
 
-// Base64 JSON upload
-let base64Response = try await imageService.uploadImageBase64(image, to: url, configuration: config)
+// Base64 JSON upload (Data-based)
+let base64Response = try await imageService.uploadImageBase64(_ imageData: Data, to url: URL, configuration: ImageService.UploadConfiguration) async throws -> Base64Response
 ```
 
-### 6. Swift 6 Actor Patterns (Phase 2 Target Architecture)
-The library is transitioning from singleton to proper actor isolation and dependency injection:
+### 6. Swift 6 Actor Patterns
+`ImageService` is actor-based and provided via dependency injection. All image operations are actor-isolated and concurrency-safe. Example usage:
 ```swift
-// Target pattern for ImageService actor conversion
 public actor ImageService {
     private let imageCache: NSCache<NSString, NSData>
     private let urlSession: URLSession
@@ -88,13 +93,11 @@ public actor ImageService {
     }
 }
 
-// MainActor helper for UI conversion
 @MainActor
 func platformImage(from data: Data) -> PlatformImage? {
     PlatformImage(data: data)
 }
 
-// Usage with dependency injection and UI conversion
 struct ContentView: View {
     let imageService: ImageService
 
@@ -106,10 +109,24 @@ struct ContentView: View {
 
     var body: some View {
         // ...existing code...
-        // Example async image loading
-        Task {
-            let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
-            image = await platformImage(from: data)
+        VStack {
+            if let image = image {
+                Image(platformImage: image)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            do {
+                let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
+                if Task.isCancelled { return }
+                let loadedImage = await platformImage(from: data)
+                await MainActor.run {
+                    image = loadedImage
+                }
+            } catch {
+                // Handle error (e.g., show error UI)
+            }
         }
         // ...existing code...
     }
@@ -185,7 +202,7 @@ swift build -Xswiftc -strict-concurrency=complete
 
 ## Development Gotchas
 
-**Actor Isolation**: `ImageService` will be converted to a proper actor in Phase 2 - avoid singleton patterns and design for dependency injection instead.
+**Actor Isolation**: `ImageService` is actor-based and provided via dependency injection. Avoid singleton patterns and always use dependency injection for strict concurrency and testability.
 
 **Platform Compilation**: Use conditional compilation blocks for platform-specific code, never runtime checks:
 ```swift

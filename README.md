@@ -132,7 +132,6 @@ struct ProfileView: View {
 }
 ```
 
-
 #### Async Image Loading (Modern Pattern)
 
 ```swift
@@ -223,25 +222,23 @@ struct PhotoUploadView: View {
         }
     }
 }
-```
 
 ---
 #### Migration Notes
-**Migration Notes**
 
 - Legacy state variables and methods (e.g., `isLoading`, `hasError`, `loadImage`) are now managed by the `AsyncImageModel` using the new `@Observable` macro and async/await methods.
 - Always inject `ImageService` for strict concurrency and testability.
 - Use `.asyncImage()`, `.imageUploader()`, and `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
+
 ```swift
 do {
     // Modern error handling with NetworkError
     let image = try await imageService.fetchImageData(from: url)
 } catch let error as NetworkError {
-    print("Network error: \(error.message())")
+    print("Network error: \(error.message)")
 } catch {
     print("Unexpected error: \(error)")
 }
-```
 ```
 
 ### Cache Management
@@ -283,7 +280,6 @@ let response = try await imageService.uploadImageMultipart(
 )
 ```
 
-
 ## Testing & Coverage
 
 AsyncNet uses strict Swift 6 concurrency and comprehensive unit tests for all public APIs, error paths, and platform-specific features (iOS 18+, macOS 15+). Tests use protocol-based mocking for networking and cover:
@@ -306,10 +302,12 @@ swift test --enable-code-coverage
 All PRs and pushes to main run tests and report coverage via GitHub Actions (see `.github/workflows/ci.yml`).
 
 ### Coverage Goals
+
 - 50%+ coverage in Phase 1
 - 90%+ coverage in Phase 4
 
 ### Test Strategy
+
 - Protocol-based mocking for network layer
 - Platform-specific tests for iOS/macOS
 - SwiftUI integration tests
@@ -320,7 +318,7 @@ See `DevDocs/AsyncNet_Jira_Tickets.md` for detailed ticket-based test requiremen
 ## Platform Support
 
 - **iOS**: 18.0+
-- **iPadOS**: 18.0+ 
+- **iPadOS**: 18.0+
 - **macOS**: 15.0+
 
 ## Architecture
@@ -331,7 +329,7 @@ AsyncNet follows a protocol-oriented design with these core components:
 - **`Endpoint`**: Protocol defining request structure  
 - **`ImageService`**: Comprehensive image service with dependency injection support
 - **`NetworkError`**: Comprehensive error handling
-- SwiftUI Extensions**: Native SwiftUI integration
+- SwiftUI Extensions: Native SwiftUI integration
 
 ## Contributing
 
@@ -341,30 +339,14 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for more info.
 
-
 ## Best Practices & Migration Guide
 
 ### Swift 6 Concurrency
+
 - Always use actor isolation and Sendable types for thread safety.
 - Inject services (e.g., `ImageService`) for strict concurrency and testability.
 - Use @MainActor for UI/image conversion in SwiftUI.
 
-### Platform Notes
-- Target iOS 18+, macOS 15+ for full feature support.
-- Use `PlatformImage` typealias for cross-platform image handling.
-- Validate URLs for scheme and host in all image/network requests.
-
-### Migration from Legacy Versions
-- Migrate all legacy body payloads to `body: Data?` in `Endpoint`.
-- Replace legacy error cases with specific `NetworkError` cases.
-- Use `sendRequestAdvanced` and inject `AdvancedNetworkManager` for advanced networking features.
-- Remove all singleton/global state; use dependency injection and actor isolation. All examples now use dependency-injected ImageService and actor isolation.
-- Update SwiftUI view models to use @Observable and @MainActor.
-
-
-### DocC Documentation
-For complete API documentation, migration guides, and advanced usage examples, build the DocC documentation locally:
-
 ```bash
 swift package generate-documentation
-```
+ // Use `PlatformImage` typealias for cross-platform image handling.

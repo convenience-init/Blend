@@ -59,7 +59,31 @@ struct AsyncRequestableTests {
         typealias ResponseModel = TestModel
         let urlSession: URLSessionProtocol
         func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
-            let data = Data("{\"value\":42}".utf8)
+            // Build URL from Endpoint properties
+            var components = URLComponents()
+            components.scheme = endPoint.scheme.rawValue
+            components.host = endPoint.host
+            components.path = endPoint.path
+            components.queryItems = endPoint.queryItems
+            guard let url = components.url else {
+                throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = endPoint.method.rawValue
+            if let headers = endPoint.headers {
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+            if let body = endPoint.body {
+                request.httpBody = body
+            }
+            // Perform network call
+            let (data, response) = try await urlSession.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+                throw NetworkError.customError("HTTP error", details: "Status code: \(httpResponse.statusCode)")
+            }
+            // Decode Data into TestModel
             return try JSONDecoder().decode(TestModel.self, from: data)
         }
     }

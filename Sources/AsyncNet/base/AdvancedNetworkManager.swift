@@ -14,39 +14,41 @@ public protocol NetworkCache: Sendable {
     func clear() async
 }
 
-// MARK: - Default LRU Cache Implementation
-public actor DefaultNetworkCache: NetworkCache {
+// MARK: - Default Network Cache Implementation
+public final class DefaultNetworkCache: @unchecked Sendable, NetworkCache {
     private var cache: [String: (data: Data, timestamp: Date)] = [:]
     private let maxSize: Int
     private let expiration: TimeInterval
-    
+
     public init(maxSize: Int = 100, expiration: TimeInterval = 600) {
         self.maxSize = maxSize
         self.expiration = expiration
     }
-    
+
     public func get(forKey key: String) async -> Data? {
         guard let entry = cache[key], Date().timeIntervalSince(entry.timestamp) < expiration else {
             cache.removeValue(forKey: key)
             return nil
         }
+        // Update timestamp to mark as recently used
+        cache[key] = (entry.data, Date())
         return entry.data
     }
-    
+
     public func set(_ data: Data, forKey key: String) async {
-        cache[key] = (data, Date())
-        if cache.count > maxSize {
+        if cache.count >= maxSize {
             let oldestKey = cache.min(by: { $0.value.timestamp < $1.value.timestamp })?.key
             if let oldestKey = oldestKey {
                 cache.removeValue(forKey: oldestKey)
             }
         }
+        cache[key] = (data, Date())
     }
-    
+
     public func remove(forKey key: String) async {
         cache.removeValue(forKey: key)
     }
-    
+
     public func clear() async {
         cache.removeAll()
     }
@@ -84,8 +86,8 @@ public actor AdvancedNetworkManager {
                 interceptedRequest = await interceptor.willSend(request: interceptedRequest)
             }
             var lastError: Error?
-            // maxRetries means total number of attempts (including the first)
-            for attempt in 0..<retryPolicy.maxRetries {
+            // Initial attempt plus maxRetries additional attempts
+            for attempt in 0...(retryPolicy.maxRetries) {
                 do {
                     let (data, response) = try await urlSession.data(for: interceptedRequest)
                     for interceptor in interceptors {
@@ -102,6 +104,10 @@ public actor AdvancedNetworkManager {
                     let delay = retryPolicy.backoff?(attempt) ?? 0.0
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
+            }
+            // If last error is a cancellation, propagate it
+            if let lastError = lastError as? CancellationError {
+                throw lastError
             }
             throw lastError ?? NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
         }

@@ -10,17 +10,16 @@ on:
 
 jobs:
   build-test:
-    runs-on: macos-14
-
+    runs-on: ${{ matrix.platform }}
     strategy:
       matrix:
-        platform: [macOS-15, macOS-16, iOS-18, iPadOS-18]
+        platform: [macos-latest, macos-13, macos-14]
         swift-version: [6.0]
         build: [spm, xcode]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Swift (macOS)
         if: runner.os == 'macOS' && startsWith(matrix.platform, 'macOS')
@@ -68,19 +67,19 @@ jobs:
             exit 1
           fi
 
-      - name: Check coverage directory
+      - name: Check coverage profdata
         if: matrix.platform == 'macOS-16' && matrix.build == 'spm'
-        id: coverage_dir_check
+        id: coverage_profdata_check
         run: |
-          if [ -d .build/debug/codecov ]; then
+          if ls .build/debug/codecov/*.profdata 1> /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload coverage
-        if: matrix.platform == 'macOS-16' && matrix.build == 'spm' && steps.coverage_dir_check.outputs.exists == 'true'
-        uses: actions/upload-artifact@v3
+      - name: Upload coverage profdata
+        if: matrix.platform == 'macOS-16' && matrix.build == 'spm' && steps.coverage_profdata_check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
         with:
-          name: coverage
-          path: .build/debug/codecov/
+          name: coverage-profdata
+          path: .build/debug/codecov/*.profdata
