@@ -63,7 +63,7 @@ class UserService: AsyncRequestable {
 import AsyncNet
 
 // Download an image
-let imageService = ImageService()
+let imageService = injectedImageService
 let image = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 
 // For SwiftUI
@@ -85,7 +85,11 @@ import AsyncNet
 let imageService = injectedImageService
 
 // Example PlatformImage (replace with actual image loading)
-let image: PlatformImage = ... // Load or create your PlatformImage here
+let platformImage: PlatformImage = ... // Load or create your PlatformImage here
+
+guard let imageData = platformImage.jpegData(compressionQuality: 0.8) else {
+    throw NetworkError.imageProcessingFailed
+}
 
 let uploadConfig = ImageService.UploadConfiguration(
     fieldName: "photo",
@@ -94,19 +98,11 @@ let uploadConfig = ImageService.UploadConfiguration(
     additionalFields: ["userId": "123"]
 )
 
-// Multipart form upload
-let multipartResponse = try await imageService.uploadImageMultipart(
-    image,
-    to: URL(string: "https://api.example.com/upload")!,
-    configuration: uploadConfig
-)
+// Multipart form upload (Data-based)
+let multipartResponse = try await imageService.uploadImageMultipart(imageData, to: URL(string: "https://api.example.com/upload")!, configuration: uploadConfig)
 
-// Base64 upload
-let base64Response = try await imageService.uploadImageBase64(
-    image,
-    to: URL(string: "https://api.example.com/upload")!,
-    configuration: uploadConfig
-)
+// Base64 upload (Data-based)
+let base64Response = try await imageService.uploadImageBase64(imageData, to: URL(string: "https://api.example.com/upload")!, configuration: uploadConfig)
 ```
 
 ### SwiftUI Integration
@@ -140,7 +136,7 @@ import AsyncNet
 
 struct ProfileView: View {
     let imageURL: String
-    let imageService = ImageService() // Dependency injection recommended
+    let imageService: ImageService // Dependency injection required
 
     var body: some View {
         Rectangle()
@@ -162,7 +158,7 @@ import SwiftUI
 import AsyncNet
 
 struct ImageGalleryView: View {
-    let imageService = ImageService()
+    let imageService: ImageService // Dependency injection required
 
     var body: some View {
         VStack {
@@ -194,7 +190,7 @@ import AsyncNet
 
 struct PhotoUploadView: View {
     @State private var selectedImage: PlatformImage?
-    let imageService = ImageService()
+    let imageService: ImageService // Dependency injection required
     
     var body: some View {
         VStack {
@@ -273,8 +269,12 @@ let customConfig = ImageService.UploadConfiguration(
     ]
 )
 
+guard let imageData = platformImage.jpegData(compressionQuality: 0.9) else {
+    throw NetworkError.imageProcessingFailed
+}
+
 let response = try await imageService.uploadImageMultipart(
-    userImage,
+    imageData,
     to: uploadEndpoint,
     configuration: customConfig
 )
@@ -312,8 +312,6 @@ All PRs and pushes to main run tests and report coverage via GitHub Actions (see
 - Platform-specific tests for iOS/macOS
 - SwiftUI integration tests
 - Error path validation
-
-See `DevDocs/AsyncNet_Jira_Tickets.md` for detailed ticket-based test requirements and strategy.
 
 ## Platform Support
 
