@@ -85,10 +85,17 @@ import AsyncNet
 let imageService = injectedImageService
 
 // Example PlatformImage (replace with actual image loading)
+let uploadURL = URL(string: "https://api.example.com/upload")!
 let platformImage: PlatformImage = ... // Load or create your PlatformImage here
 
-guard let imageData = platformImage.jpegData(compressionQuality: 0.8) else {
-    throw NetworkError.imageProcessingFailed
+// Cross-platform helpers: jpegData and pngData are available on PlatformImage (UIImage/NSImage)
+let imageData: Data
+if let jpeg = platformImage.jpegData(compressionQuality: 0.8) {
+    imageData = jpeg
+} else if let png = platformImage.pngData() {
+    imageData = png
+} else {
+    throw NetworkError.imageProcessingFailed(reason: "Could not convert PlatformImage to JPEG or PNG data.")
 }
 
 let uploadConfig = ImageService.UploadConfiguration(
@@ -99,10 +106,10 @@ let uploadConfig = ImageService.UploadConfiguration(
 )
 
 // Multipart form upload (Data-based)
-let multipartResponse = try await imageService.uploadImageMultipart(imageData, to: URL(string: "https://api.example.com/upload")!, configuration: uploadConfig)
+let multipartResponse = try await imageService.uploadImageMultipart(imageData, to: uploadURL, configuration: uploadConfig)
 
 // Base64 upload (Data-based)
-let base64Response = try await imageService.uploadImageBase64(imageData, to: URL(string: "https://api.example.com/upload")!, configuration: uploadConfig)
+let base64Response = try await imageService.uploadImageBase64(imageData, to: uploadURL, configuration: uploadConfig)
 ```
 
 ### SwiftUI Integration
@@ -136,6 +143,9 @@ import AsyncNet
 
 struct ProfileView: View {
     let imageURL: String
+    // Recommended DI: pass via init (constructor injection), or use Environment
+    // Example: init(imageService: ImageService) { self.imageService = imageService }
+    // Or: @Environment(ImageService.self) var imageService
     let imageService: ImageService // Dependency injection required
 
     var body: some View {
@@ -163,6 +173,7 @@ struct ImageGalleryView: View {
     var body: some View {
         VStack {
             AsyncNetImageView(
+                imageService: imageService,
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload"),
                 uploadType: .multipart,
@@ -172,8 +183,7 @@ struct ImageGalleryView: View {
                 },
                 onUploadError: { error in
                     print("Upload failed: \(error)")
-                },
-                imageService: imageService
+                }
             )
             .frame(height: 300)
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -347,6 +357,3 @@ AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for
 
 ```bash
 swift package generate-documentation
-```
-
-Use `PlatformImage` typealias for cross-platform image handling.
