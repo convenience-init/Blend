@@ -33,7 +33,7 @@ public enum URLScheme: String {
 /// ### Migration Notes
 /// - Migrate all legacy payloads to use `body: Data?` for strict concurrency and type safety.
 /// - Remove usage of `legacyBody` after migration is complete.
-public protocol Endpoint {
+public protocol Endpoint: Sendable {
 	var scheme: URLScheme { get }
 	var host: String { get }
 	var path: String { get }
