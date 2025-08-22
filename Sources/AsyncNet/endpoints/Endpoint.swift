@@ -40,7 +40,6 @@ public protocol Endpoint: Sendable {
 	var method: RequestMethod { get }
 	var headers: [String: String]? { get }
 	var queryItems: [URLQueryItem]? { get }
-	// ...existing code...
 	var contentType: String? { get }
 	var timeout: TimeInterval? { get }
 	var body: Data? { get }
