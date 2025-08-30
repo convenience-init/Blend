@@ -15,12 +15,6 @@ extension Image {
 #endif
     }
 }
-import SwiftUI
-import Foundation
-
-
-import Observation
-
 
 /// The upload type for image operations in AsyncNet SwiftUI extensions.
 ///
