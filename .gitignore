@@ -10,4 +10,4 @@ DerivedData/
 .vscode/*
 !/.vscode/settings.json
 async-net-output.*
-/DevDocs
+/DevDocs/
