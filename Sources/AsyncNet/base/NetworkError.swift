@@ -26,10 +26,9 @@ import Foundation
 
 /// Centralized error taxonomy for AsyncNet networking operations.
 ///
-/// `NetworkError` provides comprehensive error handling for all network operations, including HTTP errors, decoding failures, connectivity issues, and migration helpers.
+/// `NetworkError` provides comprehensive error handling for all network operations, including HTTP errors, decoding failures, connectivity issues, and transport errors.
 ///
 /// - Important: All error cases are `Sendable` and support strict Swift 6 concurrency.
-/// - Note: Legacy cases are deprecated and provided only for migration purposes. Migrate to specific error cases for strict compliance.
 ///
 /// ### Usage Example
 /// ```swift
@@ -43,7 +42,6 @@ import Foundation
 /// ### Migration Notes
 /// - Migrate all legacy error cases to specific cases for strict concurrency and clarity.
 /// - Use `wrap(_:)` to convert generic errors to `NetworkError`.
-/// - Transport errors (connection, DNS, etc) are mapped to `.transportError` for strict separation from HTTP status errors.
 ///
 /// Enhanced error system for AsyncNet (ASYNC-302)
 public enum NetworkError: Error, LocalizedError, Sendable {
@@ -67,7 +65,6 @@ public enum NetworkError: Error, LocalizedError, Sendable {
         ///   - code: The URLError.Code associated with the transport error.
         ///   - underlying: The original URLError instance.
         case transportError(code: URLError.Code, underlying: URLError)
-    // Legacy/deprecated cases removed for strict compliance
 
     // MARK: - LocalizedError Conformance
     public var errorDescription: String? {

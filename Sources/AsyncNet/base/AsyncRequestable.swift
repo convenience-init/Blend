@@ -25,10 +25,7 @@ private let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", c
 ///     }
 /// }
 /// ```
-///
-/// ### Migration Notes
-/// - Legacy body support is provided for backward compatibility. Migrate to `body: Data?` for strict compliance.
-/// - See `buildAsyncRequest(for:)` for migration details.
+
 
 public protocol AsyncRequestable {
 

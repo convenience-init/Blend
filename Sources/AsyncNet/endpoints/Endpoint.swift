@@ -13,7 +13,7 @@ public enum URLScheme: String {
 /// Conform to `Endpoint` to specify all necessary components for a network request, including scheme, host, path, method, headers, query items, and body.
 ///
 /// - Important: All properties must be thread-safe and immutable for strict Swift 6 concurrency compliance.
-/// - Note: Use `body: Data?` for request payloads. `legacyBody` is deprecated and provided only for migration purposes.
+/// - Note: Use `body: Data?` for request payloads.
 ///
 /// ### Usage Example
 /// ```swift
@@ -29,10 +29,6 @@ public enum URLScheme: String {
 ///     var timeout: TimeInterval? = 30
 /// }
 /// ```
-///
-/// ### Migration Notes
-/// - Migrate all legacy payloads to use `body: Data?` for strict concurrency and type safety.
-/// - Remove usage of `legacyBody` after migration is complete.
 public protocol Endpoint: Sendable {
 	var scheme: URLScheme { get }
 	var host: String { get }

@@ -29,6 +29,11 @@ dependencies: [
 ]
 ```
 
+## Platform Support
+
+- **iOS**: 18.0+ (includes iPadOS 18.0+)
+- **macOS**: 15.0+
+
 ## Quick Start
 
 ### Basic Network Request
@@ -42,15 +47,17 @@ struct UsersEndpoint: Endpoint {
     var host: String = "api.example.com"
     var path: String = "/users"
     var method: RequestMethod = .GET
-    var header: [String: String]? = ["Content-Type": "application/json"]
+    var headers: [String: String]? = ["Content-Type": "application/json"]
     var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
+    var contentType: String? = "application/json"
+    var timeout: TimeInterval? = 30
 }
 
 // Create a service that implements AsyncRequestable
 class UserService: AsyncRequestable {
     func getUsers() async throws -> [User] {
-        return try await sendRequest(endpoint: UsersEndpoint(), responseModel: [User].self)
+        return try await sendRequest(to: UsersEndpoint())
     }
 }
 ```
@@ -63,8 +70,8 @@ class UserService: AsyncRequestable {
 import AsyncNet
 
 // Download an image
-let imageService = injectedImageService
-let image = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
+let imageService = ImageService()
+let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 
 // For SwiftUI
 let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
@@ -82,7 +89,7 @@ if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image
 import AsyncNet
 
 // Dependency-injected image service
-let imageService = injectedImageService
+let imageService = ImageService()
 
 // Example PlatformImage (replace with actual image loading)
 let uploadURL = URL(string: "https://api.example.com/upload")!
@@ -95,7 +102,7 @@ if let jpeg = platformImage.jpegData(compressionQuality: 0.8) {
 } else if let png = platformImage.pngData() {
     imageData = png
 } else {
-    throw NetworkError.imageProcessingFailed(reason: "Could not convert PlatformImage to JPEG or PNG data.")
+    throw NetworkError.imageProcessingFailed
 }
 
 let uploadConfig = ImageService.UploadConfiguration(
@@ -122,15 +129,14 @@ import AsyncNet
 
 struct ProfileView: View {
     let imageURL: String
+    let imageService: ImageService // Dependency injection required
     
     var body: some View {
-        Rectangle()
-            .frame(width: 200, height: 200)
-            .asyncImage(
-                from: imageURL,
-                placeholder: ProgressView().controlSize(.large),
-                errorView: Image(systemName: "person.circle.fill")
-            )
+        AsyncNetImageView(
+            url: imageURL,
+            imageService: imageService
+        )
+        .frame(width: 200, height: 200)
     }
 }
 ```
@@ -161,7 +167,174 @@ struct ProfileView: View {
 }
 ```
 
-#### Complete Image Component (AsyncImageModel @Observable)
+#### Environment-Based Dependency Injection
+
+```swift
+import SwiftUI
+import AsyncNet
+
+// Define environment key
+private struct ImageServiceKey: EnvironmentKey {
+    static let defaultValue: ImageService = ImageService()
+}
+
+extension EnvironmentValues {
+    var imageService: ImageService {
+        get { self[ImageServiceKey.self] }
+        set { self[ImageServiceKey.self] = newValue }
+    }
+}
+
+// Usage in views
+struct ProfileView: View {
+    @Environment(\.imageService) private var imageService
+    
+    var body: some View {
+        AsyncNetImageView(
+            url: "https://example.com/profile.jpg",
+            imageService: imageService
+        )
+        .frame(width: 200, height: 200)
+    }
+}
+
+// Setup in App with dependency injection
+@main
+struct MyApp: App {
+    // Create service with custom configuration
+    let imageService = ImageService(
+        cacheCountLimit: 200,
+        cacheTotalCostLimit: 100 * 1024 * 1024
+    )
+    
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environment(\.imageService, imageService)
+        }
+    }
+}
+
+// Alternative: Factory pattern for different environments
+class ServiceFactory {
+    static func makeImageService(for environment: AppEnvironment) -> ImageService {
+        switch environment {
+        case .development:
+            return ImageService(cacheCountLimit: 50, cacheTotalCostLimit: 10 * 1024 * 1024)
+        case .production:
+            return ImageService(cacheCountLimit: 200, cacheTotalCostLimit: 100 * 1024 * 1024)
+        }
+    }
+}
+```
+
+### Dependency Injection Patterns
+
+#### Constructor Injection (Recommended)
+
+```swift
+struct ProfileView: View {
+    let imageService: ImageService
+    
+    init(imageService: ImageService = ImageService()) {
+        self.imageService = imageService
+    }
+    
+    var body: some View {
+        AsyncNetImageView(
+            url: "https://example.com/profile.jpg",
+            imageService: imageService
+        )
+        .frame(width: 200, height: 200)
+    }
+}
+
+// Modern pattern with @Observable (iOS 18+)
+@Observable
+class ViewModel {
+    let imageService: ImageService
+    
+    init(imageService: ImageService = ImageService()) {
+        self.imageService = imageService
+    }
+}
+
+struct ModernProfileView: View {
+    @State private var viewModel: ViewModel
+    
+    init(imageService: ImageService = ImageService()) {
+        _viewModel = State(wrappedValue: ViewModel(imageService: imageService))
+    }
+    
+    var body: some View {
+        AsyncNetImageView(
+            url: "https://example.com/profile.jpg",
+            imageService: viewModel.imageService
+        )
+        .frame(width: 200, height: 200)
+    }
+}
+```
+
+#### Environment Injection
+
+```swift
+// Modern Environment injection using EnvironmentKey
+private struct ImageServiceKey: EnvironmentKey {
+    static let defaultValue: ImageService = ImageService()
+}
+
+extension EnvironmentValues {
+    var imageService: ImageService {
+        get { self[ImageServiceKey.self] }
+        set { self[ImageServiceKey.self] = newValue }
+    }
+}
+
+// Usage in views
+struct ProfileView: View {
+    @Environment(\.imageService) private var imageService
+    
+    var body: some View {
+        AsyncNetImageView(
+            url: "https://example.com/profile.jpg",
+            imageService: imageService
+        )
+        .frame(width: 200, height: 200)
+    }
+}
+
+// Setup in App with dependency injection
+@main
+struct MyApp: App {
+    // Create service with custom configuration
+    let imageService = ImageService(
+        cacheCountLimit: 200,
+        cacheTotalCostLimit: 100 * 1024 * 1024
+    )
+    
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environment(\.imageService, imageService)
+        }
+    }
+}
+
+// Alternative: Factory pattern for different environments
+class ServiceFactory {
+    static func makeImageService(for environment: AppEnvironment) -> ImageService {
+        switch environment {
+        case .development:
+            return ImageService(cacheCountLimit: 50, cacheTotalCostLimit: 10 * 1024 * 1024)
+        case .production:
+            return ImageService(cacheCountLimit: 200, cacheTotalCostLimit: 100 * 1024 * 1024)
+        }
+    }
+}
+```
+
+#### Complete Image Component with Upload
 
 ```swift
 import SwiftUI
@@ -173,7 +346,6 @@ struct ImageGalleryView: View {
     var body: some View {
         VStack {
             AsyncNetImageView(
-                imageService: imageService,
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload"),
                 uploadType: .multipart,
@@ -183,7 +355,8 @@ struct ImageGalleryView: View {
                 },
                 onUploadError: { error in
                     print("Upload failed: \(error)")
-                }
+                },
+                imageService: imageService
             )
             .frame(height: 300)
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -192,7 +365,7 @@ struct ImageGalleryView: View {
 }
 ```
 
-#### Image Upload with Progress (Modern Pattern)
+#### Image Upload with Progress
 
 ```swift
 import SwiftUI
@@ -209,37 +382,49 @@ struct PhotoUploadView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(height: 200)
-                    .imageUploader(
-                        uploadURL: URL(string: "https://api.example.com/photos")!,
-                        imageService: imageService,
-                        uploadType: .multipart,
-                        onSuccess: { data in
-                            print("Photo uploaded successfully")
-                        },
-                        onError: { error in
-                            print("Upload failed: \(error.localizedDescription)")
-                        }
-                    )
             }
             
             Button("Select Photo") {
                 // Photo picker implementation
             }
+            
+            if let image = selectedImage {
+                Button("Upload") {
+                    Task {
+                        do {
+                            guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                                print("Failed to convert image")
+                                return
+                            }
+                            let config = ImageService.UploadConfiguration()
+                            let response = try await imageService.uploadImageMultipart(
+                                imageData,
+                                to: URL(string: "https://api.example.com/photos")!,
+                                configuration: config
+                            )
+                            print("Upload successful")
+                        } catch {
+                            print("Upload failed: \(error)")
+                        }
+                    }
+                }
+            }
         }
     }
 }
+```
 
 ---
-#### Migration Notes
 
-- Legacy state variables and methods (e.g., `isLoading`, `hasError`, `loadImage`) are now managed by the `AsyncImageModel` using the new `@Observable` macro and async/await methods.
+#### Notes
+
 - Always inject `ImageService` for strict concurrency and testability.
-- Use `.asyncImage()`, `.imageUploader()`, and `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
+- Use `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
 
 ```swift
 do {
     // Modern error handling with NetworkError
-    let image = try await imageService.fetchImageData(from: url)
+    let image = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 } catch let error as NetworkError {
     print("Network error: \(error.message)")
 } catch {
@@ -247,26 +432,124 @@ do {
 }
 ```
 
+### NetworkError Cases
+
+AsyncNet provides comprehensive error handling through the `NetworkError` enum:
+
+- **`.httpError(statusCode: Int, data: Data?)`**: HTTP errors with status code and optional response data
+- **`.decodingError(underlyingDescription: String, data: Data?)`**: JSON decoding failures
+- **`.networkUnavailable`**: Network connectivity issues
+- **`.requestTimeout(duration: TimeInterval)`**: Request timeout errors
+- **`.invalidEndpoint(reason: String)`**: Invalid URL or endpoint configuration
+- **`.unauthorized`**: Authentication failures (401)
+- **`.noResponse`**: No response received from server
+- **`.badMimeType(String)`**: Unsupported image MIME type
+- **`.uploadFailed(String)`**: Image upload failures
+- **`.imageProcessingFailed`**: PlatformImage conversion failures
+- **`.cacheError(String)`**: Cache operation failures
+- **`.transportError(code: URLError.Code, underlying: URLError)`**: Low-level network transport errors
+
 ### Cache Management
 
 ```swift
 import AsyncNet
 
-// Configure cache limits
-imageService.imageCache.countLimit = 200  // Max 200 images
-imageService.imageCache.totalCostLimit = 100 * 1024 * 1024  // Max 100MB
+let imageService = ImageService()
+
+// Configure cache limits (these are set during initialization)
+let imageService = ImageService(cacheCountLimit: 200, cacheTotalCostLimit: 100 * 1024 * 1024)
 
 // Clear cache
-imageService.clearCache()
+await imageService.clearCache()
 
 // Remove specific image
-imageService.removeFromCache(key: "https://example.com/image.jpg")
+await imageService.removeFromCache(key: "https://example.com/image.jpg")
+
+// Check if image is cached
+let isCached = await imageService.isImageCached(forKey: "https://example.com/image.jpg")
 ```
+
+### LRU Cache Implementation
+
+AsyncNet includes a sophisticated **LRU (Least Recently Used) cache** implementation with the following features:
+
+#### Key Features
+
+- **O(1) Operations**: Constant-time cache access, insertion, and eviction
+- **Dual-Layer Caching**: Separate caches for image data and decoded images
+- **Time-Based Expiration**: Configurable cache entry lifetimes
+- **Memory Management**: Automatic eviction based on count and memory limits
+- **Thread-Safe**: Actor-isolated for strict concurrency compliance
+
+#### Cache Architecture
+
+```swift
+// Custom LRU Node for O(1) doubly-linked list operations
+private class LRUNode {
+    let key: NSString
+    var prev: LRUNode?
+    var next: LRUNode?
+    var timestamp: TimeInterval
+}
+
+// Cache configuration
+public struct CacheConfiguration: Sendable {
+    public let maxAge: TimeInterval     // Entry lifetime in seconds
+    public let maxLRUCount: Int         // Maximum entries in LRU list
+}
+```
+
+#### Cache Metrics & Monitoring
+
+```swift
+// Access cache performance metrics
+let hits = await imageService.cacheHits
+let misses = await imageService.cacheMisses
+let hitRate = Double(hits) / Double(hits + misses)
+
+// Monitor cache efficiency
+print("Cache hit rate: \(hitRate * 100)%")
+```
+
+#### Advanced Cache Configuration
+
+```swift
+// Configure cache with custom settings
+let imageService = ImageService(
+    cacheCountLimit: 200,           // Max 200 entries
+    cacheTotalCostLimit: 100 * 1024 * 1024  // Max 100MB
+)
+
+// Update cache configuration at runtime
+let newConfig = ImageService.CacheConfiguration(
+    maxAge: 1800,      // 30 minutes
+    maxLRUCount: 150   // Max 150 entries
+)
+await imageService.updateCacheConfiguration(newConfig)
+```
+
+#### Cache Eviction Strategy
+
+The LRU cache implements a **hybrid eviction strategy**:
+
+1. **Time-Based Eviction**: Entries older than `maxAge` are automatically removed
+2. **Count-Based Eviction**: When cache exceeds `maxLRUCount`, least recently used entries are evicted
+3. **Memory-Based Eviction**: NSCache automatically evicts entries when memory limits are reached
+
+#### Performance Characteristics
+
+- **Lookup**: O(1) - Hash table access
+- **Insertion**: O(1) - Doubly-linked list operations
+- **Eviction**: O(1) - Tail removal from LRU list
+- **Memory**: Bounded by configurable limits
+- **Thread Safety**: Actor isolation ensures no race conditions
 
 ### Custom Upload Configuration
 
 ```swift
 import AsyncNet
+
+let imageService = ImageService()
 
 let customConfig = ImageService.UploadConfiguration(
     fieldName: "image_file",
@@ -285,9 +568,35 @@ guard let imageData = platformImage.jpegData(compressionQuality: 0.9) else {
 
 let response = try await imageService.uploadImageMultipart(
     imageData,
-    to: uploadEndpoint,
+    to: URL(string: "https://api.example.com/upload")!,
     configuration: customConfig
 )
+```
+
+### Advanced Networking Features
+
+AsyncNet includes `AdvancedNetworkManager` for enhanced networking capabilities:
+
+```swift
+import AsyncNet
+
+// Create advanced network manager with caching and interceptors
+let cache = DefaultNetworkCache()
+let interceptors: [NetworkInterceptor] = []
+let networkManager = AdvancedNetworkManager(cache: cache, interceptors: interceptors)
+
+// Use with AsyncRequestable
+class UserService: AsyncRequestable {
+    func getUsers() async throws -> [User] {
+        let endpoint = UsersEndpoint()
+        return try await sendRequestAdvanced(
+            to: endpoint,
+            networkManager: networkManager,
+            cacheKey: "users",
+            retryPolicy: .default
+        )
+    }
+}
 ```
 
 ## Testing & Coverage
@@ -323,21 +632,16 @@ All PRs and pushes to main run tests and report coverage via GitHub Actions (see
 - SwiftUI integration tests
 - Error path validation
 
-## Platform Support
-
-- **iOS**: 18.0+
-- **iPadOS**: 18.0+
-- **macOS**: 15.0+
-
 ## Architecture
 
 AsyncNet follows a protocol-oriented design with these core components:
 
 - **`AsyncRequestable`**: Generic networking protocol for API requests
 - **`Endpoint`**: Protocol defining request structure  
-- **`ImageService`**: Comprehensive image service with dependency injection support
-- **`NetworkError`**: Comprehensive error handling
-- SwiftUI Extensions: Native SwiftUI integration
+- **`ImageService`**: Actor-based image service with dependency injection support
+- **`AdvancedNetworkManager`**: Enhanced networking with caching, retry, and interceptors
+- **`NetworkError`**: Comprehensive error handling with Sendable conformance
+- **SwiftUI Extensions**: Native SwiftUI integration with AsyncNetImageView and AsyncImageModel
 
 ## Contributing
 
@@ -355,5 +659,44 @@ AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for
 - Inject services (e.g., `ImageService`) for strict concurrency and testability.
 - Use @MainActor for UI/image conversion in SwiftUI.
 
+### Dependency Injection Patterns
+
+#### Constructor Injection (Recommended)
+
+```swift
+struct ProfileView: View {
+    let imageService: ImageService
+    
+    init(imageService: ImageService = ImageService()) {
+        self.imageService = imageService
+    }
+}
+```
+
+#### Environment Injection
+
+```swift
+struct ProfileView: View {
+    @Environment(\.imageService) private var imageService
+}
+```
+
+### Testing with Protocol-Based Mocking
+
+```swift
+// Protocol for testability
+protocol ImageServiceProtocol: Sendable {
+    func fetchImageData(from urlString: String) async throws -> Data
+}
+
+// Mock implementation
+class MockImageService: ImageServiceProtocol {
+    func fetchImageData(from urlString: String) async throws -> Data {
+        return Data() // Mock data
+    }
+}
+```
+
 ```bash
 swift package generate-documentation
+```

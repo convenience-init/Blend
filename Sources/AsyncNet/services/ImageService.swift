@@ -500,7 +500,7 @@ public actor ImageService {
     }
     
     /// Removes a specific image from cache
-    /// - Parameter key: The cache key to remove
+    /// - Parameter key: The
     public func removeFromCache(key: String) {
         let cacheKey = key as NSString
         imageCache.removeObject(forKey: cacheKey)
