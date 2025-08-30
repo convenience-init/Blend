@@ -21,9 +21,8 @@ public enum URLScheme: String, Sendable {
 ///         Callers are responsible for supplying the leading slash.
 /// - Note: The `timeout` property is specified in seconds as a `TimeInterval`.
 ///         When `nil`, the default timeout provided by the underlying URLSession will be used.
-/// - Note: Content-Type header precedence: The `contentType` property takes precedence over
-///         any "Content-Type" value in the `headers` dictionary. If both are provided,
-///         `contentType` will override the value from `headers`.
+/// - Note: Use `resolvedHeaders` for the normalized, merged view of headers that properly handles
+///         Content-Type precedence and prevents case-insensitive header collisions.
 ///
 /// ### Usage Example
 /// ```swift
@@ -35,8 +34,11 @@ public enum URLScheme: String, Sendable {
 ///     var headers: [String: String]? = ["Authorization": "Bearer token"]
 ///     var queryItems: [URLQueryItem]? = nil
 ///     var body: Data? = nil
-///     var contentType: String? = "application/json"  // Overrides headers["Content-Type"]
+///     var contentType: String? = "application/json"  // Only used if no Content-Type in headers
 ///     var timeout: TimeInterval? = 30  // In seconds, nil uses URLSession default
+///     
+///     // Use resolvedHeaders for normalized header handling:
+///     // var allHeaders = resolvedHeaders  // Merges headers + contentType safely
 /// }
 /// ```
 public protocol Endpoint: Sendable {
@@ -49,5 +51,32 @@ public protocol Endpoint: Sendable {
 	var contentType: String? { get }
 	var timeout: TimeInterval? { get }
 	var body: Data? { get }
+}
+
+// MARK: - Header Normalization
+public extension Endpoint {
+	/// Returns a normalized headers dictionary that merges `headers` with `contentType`.
+	///
+	/// This computed property provides a single source of truth for HTTP headers by:
+	/// - Starting with all headers from the `headers` property
+	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key exists
+	/// - Ensuring consistent header name casing for HTTP compliance
+	///
+	/// Use this property in request building instead of manually handling both `headers` and `contentType`.
+	var resolvedHeaders: [String: String]? {
+		guard headers != nil || contentType != nil else { return nil }
+		
+		var normalizedHeaders = headers ?? [:]
+		
+		// Check if any existing header key matches "content-type" case-insensitively
+		let hasContentType = normalizedHeaders.keys.contains { $0.caseInsensitiveCompare("content-type") == .orderedSame }
+		
+		// Only add contentType if no existing content-type header exists
+		if !hasContentType, let contentType = contentType {
+			normalizedHeaders["Content-Type"] = contentType
+		}
+		
+		return normalizedHeaders.isEmpty ? nil : normalizedHeaders
+	}
 }
 

@@ -118,11 +118,8 @@ private extension AsyncRequestable {
 			return nil
 		}
 		var asyncRequest = URLRequest(url: url)
-		asyncRequest.allHTTPHeaderFields = endPoint.headers
+		asyncRequest.allHTTPHeaderFields = endPoint.resolvedHeaders
 		asyncRequest.httpMethod = endPoint.method.rawValue
-		if let contentType = endPoint.contentType {
-			asyncRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
-		}
 		if let body = endPoint.body {
 			if endPoint.method == .get {
 				#if DEBUG
@@ -132,8 +129,6 @@ private extension AsyncRequestable {
 				print("[AsyncNet] WARNING: GET request to \(url.absoluteString) with non-nil body will be ignored.")
 				#endif
 				#endif
-				// Ensure no misleading Content-Type header is sent without a body.
-				asyncRequest.setValue(nil, forHTTPHeaderField: "Content-Type")
 			} else {
 				asyncRequest.httpBody = body
 			}
