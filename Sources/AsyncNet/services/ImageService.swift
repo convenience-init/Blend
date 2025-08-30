@@ -360,9 +360,6 @@ public actor ImageService {
         return try await fetchTask.value
     }
     
-    
-    
-    
     /// Converts image data to PlatformImage on the @MainActor (UI context)
     /// - Parameter data: Image data
     /// - Returns: PlatformImage (UIImage/NSImage)
@@ -512,12 +509,6 @@ public actor ImageService {
             removeLRUNode(node)
         }
     }
-    
-//    /// Update LRU order and timestamp for a cache key
-//    private func updateLRUOrder(for cacheKey: NSString) {
-//        // Replaced by O(1) LRU logic
-//        // No longer used
-//    }
     
     /// Evict expired cache entries based on maxAge
     private func evictExpiredCache() {
