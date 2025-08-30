@@ -57,7 +57,7 @@ public extension AsyncRequestable {
 			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
 		}
 		let session = URLSession.shared
-		if let timeout = endPoint.timeout {
+		if let timeout = endPoint.effectiveTimeout {
 			request.timeoutInterval = timeout
 		}
 		let (data, response) = try await session.data(for: request)
@@ -77,30 +77,6 @@ public extension AsyncRequestable {
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		}
 	}
-	
-	/// Advanced sendRequest using AdvancedNetworkManager for deduplication, retry, caching, interceptors
-	func sendRequestAdvanced<ResponseModel>(
-		to endPoint: Endpoint,
-		networkManager: AdvancedNetworkManager = AdvancedNetworkManager(),
-		cacheKey: String? = nil,
-		retryPolicy: RetryPolicy = .default
-	) async throws -> ResponseModel where ResponseModel: Decodable {
-		guard var request = buildAsyncRequest(for: endPoint) else {
-			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
-		}
-		if let timeout = endPoint.timeout {
-			request.timeoutInterval = timeout
-		}
-		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
-		do {
-			return try JSONDecoder().decode(ResponseModel.self, from: data)
-		} catch {
-			throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
-		}
-	}
-}
-
-private extension AsyncRequestable {
 	
 	/// Builds a URLRequest from the given endpoint.
 	///
@@ -129,11 +105,34 @@ private extension AsyncRequestable {
 				print("[AsyncNet] WARNING: GET request to \(url.absoluteString) with non-nil body will be ignored.")
 				#endif
 				#endif
+				// Ensure no misleading Content-Type header is sent without a body.
+				asyncRequest.setValue(nil, forHTTPHeaderField: "Content-Type")
 			} else {
 				asyncRequest.httpBody = body
 			}
 		}
 		return asyncRequest
+	}
+	
+	/// Advanced sendRequest using AdvancedNetworkManager for deduplication, retry, caching, interceptors
+	func sendRequestAdvanced<ResponseModel>(
+		to endPoint: Endpoint,
+		networkManager: AdvancedNetworkManager = AdvancedNetworkManager(),
+		cacheKey: String? = nil,
+		retryPolicy: RetryPolicy = .default
+	) async throws -> ResponseModel where ResponseModel: Decodable {
+		guard var request = buildAsyncRequest(for: endPoint) else {
+			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
+		}
+		if let timeout = endPoint.effectiveTimeout {
+			request.timeoutInterval = timeout
+		}
+		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
+		do {
+			return try JSONDecoder().decode(ResponseModel.self, from: data)
+		} catch {
+			throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
+		}
 	}
 }
 

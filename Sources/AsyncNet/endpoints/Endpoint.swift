@@ -21,6 +21,8 @@ public enum URLScheme: String, Sendable {
 ///         Callers are responsible for supplying the leading slash.
 /// - Note: The `timeout` property is specified in seconds as a `TimeInterval`.
 ///         When `nil`, the default timeout provided by the underlying URLSession will be used.
+/// - Note: The `timeoutDuration` property provides a modern, type-safe Duration API.
+///         When provided, it takes precedence over `timeout` for better type safety.
 /// - Note: Use `resolvedHeaders` for the normalized, merged view of headers that properly handles
 ///         Content-Type precedence and prevents case-insensitive header collisions.
 ///
@@ -35,7 +37,12 @@ public enum URLScheme: String, Sendable {
 ///     var queryItems: [URLQueryItem]? = nil
 ///     var body: Data? = nil
 ///     var contentType: String? = "application/json"  // Only used if no Content-Type in headers
-///     var timeout: TimeInterval? = 30  // In seconds, nil uses URLSession default
+///     
+///     // Modern Duration-based timeout (preferred):
+///     var timeoutDuration: Duration? = .seconds(30)
+///     
+///     // Legacy TimeInterval timeout (for backward compatibility):
+///     var timeout: TimeInterval? = nil  // Not used when timeoutDuration is provided
 ///     
 ///     // Use resolvedHeaders for normalized header handling:
 ///     // var allHeaders = resolvedHeaders  // Merges headers + contentType safely
@@ -50,6 +57,7 @@ public protocol Endpoint: Sendable {
 	var queryItems: [URLQueryItem]? { get }
 	var contentType: String? { get }
 	var timeout: TimeInterval? { get }
+	var timeoutDuration: Duration? { get }
 	var body: Data? { get }
 }
 
@@ -77,6 +85,21 @@ public extension Endpoint {
 		}
 		
 		return normalizedHeaders.isEmpty ? nil : normalizedHeaders
+	}
+	
+	/// Returns the effective timeout value, preferring `timeoutDuration` over `timeout` for type safety.
+	///
+	/// This computed property provides a unified timeout interface that:
+	/// - Uses `timeoutDuration` if provided (modern, type-safe Duration API)
+	/// - Falls back to `timeout` if `timeoutDuration` is nil (backward compatibility)
+	/// - Returns `nil` if both are nil (uses URLSession default)
+	///
+	/// The Duration is converted to TimeInterval (seconds) for URLRequest compatibility.
+	var effectiveTimeout: TimeInterval? {
+		if let timeoutDuration = timeoutDuration {
+			return timeoutDuration / .seconds(1)
+		}
+		return timeout
 	}
 }
 

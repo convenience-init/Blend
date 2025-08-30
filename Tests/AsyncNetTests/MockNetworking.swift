@@ -43,6 +43,7 @@ public struct MockEndpoint: Endpoint {
     public var queryItems: [URLQueryItem]? = nil
     public var contentType: String? = "application/json"
     public var timeout: TimeInterval? = nil
+    public var timeoutDuration: Duration? = nil
     public var body: Data? = nil
     public init() {}
 }
