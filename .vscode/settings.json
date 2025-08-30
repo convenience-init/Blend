@@ -1,0 +1,10 @@
+{
+    "editor.defaultFormatter": "swiftlang.swift-vscode",
+    "dbcode.useExecuteCodeLens": false,
+    "github.copilot.chat.codesearch.enabled": true,
+    "github.copilot.chat.generateTests.codeLens": true,
+    "jupyter.debugJustMyCode": false,
+    "sweetpad.build.xcodeWorkspacePath": ".swiftpm/xcode/package.xcworkspace",
+    "github.copilot.chat.alternateGptPrompt.enabled": true,
+    "editor.aiStats.enabled": true
+}
