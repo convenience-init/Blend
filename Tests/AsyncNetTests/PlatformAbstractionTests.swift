@@ -13,11 +13,11 @@ struct PlatformAbstractionTests {
         #if canImport(UIKit)
         let image = UIImage()
         let platformImage: PlatformImage = image
-        #expect(type(of: platformImage) == UIImage.self)
+        #expect(platformImage is UIImage)
         #elseif canImport(AppKit)
         let image = NSImage(size: NSSize(width: 1, height: 1))
         let platformImage: PlatformImage = image
-        #expect(type(of: platformImage) == NSImage.self)
+        #expect(platformImage is NSImage)
         #endif
     }
 
