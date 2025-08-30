@@ -9,6 +9,5 @@ DerivedData/
 .netrc
 .vscode/*
 !/.vscode/settings.json
-async-net-output.md
-async-net-output.txt
+async-net-output.*
 /DevDocs
