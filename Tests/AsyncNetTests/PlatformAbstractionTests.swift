@@ -2,9 +2,8 @@ import Testing
 import Foundation
 #if canImport(UIKit)
 import UIKit
-#endif
-#if canImport(Cocoa)
-import Cocoa
+#elseif canImport(AppKit)
+import AppKit
 #endif
 @testable import AsyncNet
 
@@ -15,7 +14,7 @@ struct PlatformAbstractionTests {
         let image = UIImage()
         let platformImage: PlatformImage = image
         #expect(type(of: platformImage) == UIImage.self)
-        #elseif canImport(Cocoa)
+        #elseif canImport(AppKit)
         let image = NSImage(size: NSSize(width: 1, height: 1))
         let platformImage: PlatformImage = image
         #expect(type(of: platformImage) == NSImage.self)
@@ -39,7 +38,7 @@ struct PlatformAbstractionTests {
     }
 
     @Test func testNSImageExtensionPNGData() {
-    #if canImport(Cocoa) && !canImport(UIKit)
+    #if canImport(AppKit) && !canImport(UIKit)
     let size = NSSize(width: 1, height: 1)
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     NSGraphicsContext.saveGraphicsState()
@@ -66,7 +65,7 @@ struct PlatformAbstractionTests {
         let data = platformImageToData(image)
         #expect(data != nil)
         #expect(data?.count ?? 0 > 0)
-    #elseif canImport(Cocoa)
+    #elseif canImport(AppKit)
     let size = NSSize(width: 1, height: 1)
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     NSGraphicsContext.saveGraphicsState()
