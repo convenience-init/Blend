@@ -17,19 +17,26 @@ public enum URLScheme: String, Sendable {
 ///
 /// - Important: All properties must be thread-safe and immutable for strict Swift 6 concurrency compliance.
 /// - Note: Use `body: Data?` for request payloads.
+/// - Note: The `path` property must start with "/" (e.g., "/users", "/api/v1/posts").
+///         Callers are responsible for supplying the leading slash.
+/// - Note: The `timeout` property is specified in seconds as a `TimeInterval`.
+///         When `nil`, the default timeout provided by the underlying URLSession will be used.
+/// - Note: Content-Type header precedence: The `contentType` property takes precedence over
+///         any "Content-Type" value in the `headers` dictionary. If both are provided,
+///         `contentType` will override the value from `headers`.
 ///
 /// ### Usage Example
 /// ```swift
 /// struct UsersEndpoint: Endpoint {
 ///     var scheme: URLScheme = .https
 ///     var host: String = "api.example.com"
-///     var path: String = "/users"
-///     var method: RequestMethod = .GET
+///     var path: String = "/users"  // Must start with "/"
+///     var method: RequestMethod = .get  // Use lowercase enum cases
 ///     var headers: [String: String]? = ["Authorization": "Bearer token"]
 ///     var queryItems: [URLQueryItem]? = nil
 ///     var body: Data? = nil
-///     var contentType: String? = "application/json"
-///     var timeout: TimeInterval? = 30
+///     var contentType: String? = "application/json"  // Overrides headers["Content-Type"]
+///     var timeout: TimeInterval? = 30  // In seconds, nil uses URLSession default
 /// }
 /// ```
 public protocol Endpoint: Sendable {
