@@ -2,8 +2,11 @@ import Foundation
 
 /// Represents the URL scheme for an endpoint.
 ///
-/// - Note: Use `.https` for secure requests. All production endpoints should prefer HTTPS.
-public enum URLScheme: String {
+/// - Note: This enum covers only HTTP and HTTPS schemes for standard web API requests.
+///         Use `.https` for secure requests. All production endpoints should prefer HTTPS.
+///         WebSocket schemes (ws/wss) are not supported by this enum and would require
+///         a separate implementation with different connection and messaging semantics.
+public enum URLScheme: String, Sendable {
 	case http
 	case https
 }
