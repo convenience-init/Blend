@@ -50,24 +50,49 @@ struct SwiftUIIntegrationTests {
     @Test func testAsyncNetImageViewErrorState() async {
         let mockSession = MockURLSession(nextError: NetworkError.networkUnavailable)
         let service = ImageService(urlSession: mockSession)
-    let model = AsyncImageModel(imageService: service)
-    await model.loadImage(from: "https://mock.api/test")
-    #expect(model.loadedImage == nil)
-    #expect(model.hasError == true)
+        let model = AsyncImageModel(imageService: service)
+        await model.loadImage(from: "https://mock.api/test")
+        #expect(model.loadedImage == nil)
+        #expect(model.hasError == true)
         #expect(model.error != nil)
     }
 
     @Test func testAsyncNetImageViewConcurrentLoad() async {
-        let mockSession = makeMockSession()
-        let service = ImageService(urlSession: mockSession)
-        let model = AsyncImageModel(imageService: service)
-    async let load1: Void = model.loadImage(from: "https://mock.api/test")
-    async let load2: Void = model.loadImage(from: "https://mock.api/test")
-    async let load3: Void = model.loadImage(from: "https://mock.api/test")
-    _ = await (load1, load2, load3)
-        #expect(model.loadedImage != nil)
-        #expect(model.hasError == false)
-        #expect(model.isLoading == false)
+        let imageData = Data(Self.minimalPNG)
+        
+        // Create separate mock sessions and services for each concurrent load
+        let mockSession1 = makeMockSession(data: imageData, urlString: "https://mock.api/test1")
+        let mockSession2 = makeMockSession(data: imageData, urlString: "https://mock.api/test2")
+        let mockSession3 = makeMockSession(data: imageData, urlString: "https://mock.api/test3")
+        
+        let service1 = ImageService(urlSession: mockSession1)
+        let service2 = ImageService(urlSession: mockSession2)
+        let service3 = ImageService(urlSession: mockSession3)
+        
+        let model1 = AsyncImageModel(imageService: service1)
+        let model2 = AsyncImageModel(imageService: service2)
+        let model3 = AsyncImageModel(imageService: service3)
+        
+        // Start three concurrent load operations with different models and URLs
+        async let load1: Void = model1.loadImage(from: "https://mock.api/test1")
+        async let load2: Void = model2.loadImage(from: "https://mock.api/test2")
+        async let load3: Void = model3.loadImage(from: "https://mock.api/test3")
+        
+        // Wait for all three concurrent operations to complete
+        _ = await (load1, load2, load3)
+        
+        // Verify all models loaded successfully
+        #expect(model1.loadedImage != nil)
+        #expect(model1.hasError == false)
+        #expect(model1.isLoading == false)
+        
+        #expect(model2.loadedImage != nil)
+        #expect(model2.hasError == false)
+        #expect(model2.isLoading == false)
+        
+        #expect(model3.loadedImage != nil)
+        #expect(model3.hasError == false)
+        #expect(model3.isLoading == false)
     }
     
     @Test func testAsyncNetImageViewUploadErrorState() async {

@@ -9,6 +9,33 @@ import AppKit
 
 @Suite("Platform Abstraction Tests")
 struct PlatformAbstractionTests {
+    
+    #if canImport(AppKit) && !canImport(UIKit)
+    /// Creates a test NSBitmapImageRep with standard parameters for testing
+    fileprivate func createTestBitmapImageRep(size: NSSize) -> NSBitmapImageRep? {
+        return NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width),
+            pixelsHigh: Int(size.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
+    }
+    
+    /// Draws a color in the current graphics context within the specified rectangle
+    fileprivate func drawColorInContext(color: NSColor, rect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        color.setFill()
+        NSBezierPath(rect: rect).fill()
+    }
+    #endif
+    
     @Test func testPlatformImageTypealias() {
         #if canImport(UIKit)
         let image = UIImage()
@@ -24,15 +51,12 @@ struct PlatformAbstractionTests {
     @Test func testNSImageExtensionJPEGData() {
     #if canImport(AppKit) && !canImport(UIKit)
     let size = NSSize(width: 1, height: 1)
-    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+    guard let rep = createTestBitmapImageRep(size: size) else {
         Issue.record("Failed to create NSBitmapImageRep")
         return
     }
-    NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    defer { NSGraphicsContext.restoreGraphicsState() }
-    NSColor.red.setFill()
-    NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1, height: 1)).fill()
+    drawColorInContext(color: .red, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
     let image = NSImage(size: size)
     image.addRepresentation(rep)
     let jpeg = image.jpegData(compressionQuality: 0.8)
@@ -43,16 +67,12 @@ struct PlatformAbstractionTests {
     @Test func testNSImageExtensionPNGData() {
     #if canImport(AppKit) && !canImport(UIKit)
     let size = NSSize(width: 1, height: 1)
-    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+    guard let rep = createTestBitmapImageRep(size: size) else {
         Issue.record("Failed to create NSBitmapImageRep")
         return
     }
-    NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    defer { NSGraphicsContext.restoreGraphicsState() }
-    NSColor.blue.setFill()
-    let rect = NSRect(x: 0, y: 0, width: 1, height: 1)
-    NSBezierPath(rect: rect).fill()
+    drawColorInContext(color: .blue, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
     let image = NSImage(size: size)
     image.addRepresentation(rep)
     let png = image.pngData()
@@ -73,16 +93,12 @@ struct PlatformAbstractionTests {
         #expect(data?.count ?? 0 > 0)
     #elseif canImport(AppKit)
     let size = NSSize(width: 1, height: 1)
-    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+    guard let rep = createTestBitmapImageRep(size: size) else {
         Issue.record("Failed to create NSBitmapImageRep")
         return
     }
-    NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    defer { NSGraphicsContext.restoreGraphicsState() }
-    NSColor.green.setFill()
-    let rect = NSRect(x: 0, y: 0, width: 1, height: 1)
-    NSBezierPath(rect: rect).fill()
+    drawColorInContext(color: .green, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
     let image = NSImage(size: size)
     image.addRepresentation(rep)
     let data = platformImageToData(image)
@@ -101,18 +117,7 @@ struct PlatformAbstractionTests {
     // Test with corrupted TIFF data
     let corruptedImage = NSImage(size: NSSize(width: 10, height: 10))
     // Create a representation with invalid data to simulate corruption
-    if let rep = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: 10,
-        pixelsHigh: 10,
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .deviceRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 32
-    ) {
+    if let rep = createTestBitmapImageRep(size: NSSize(width: 10, height: 10)) {
         corruptedImage.addRepresentation(rep)
         // The methods should still work via the fallback rasterization path
         let pngData = corruptedImage.pngData()

@@ -35,12 +35,8 @@ struct ImageServiceTests {
     @Test func testFetchImageDataInvalidURL() async throws {
         let mockSession = MockURLSession()
         let service = ImageService(urlSession: mockSession)
-        do {
+        await #expect(throws: NetworkError.invalidEndpoint(reason: "Invalid image URL: not a url")) {
             _ = try await service.fetchImageData(from: "not a url")
-            #expect(false)
-        } catch let error as NetworkError {
-            print("DEBUG: testFetchImageDataInvalidURL caught error: \(error)")
-            #expect(error == .invalidEndpoint(reason: "Invalid image URL: not a url"))
         }
     }
 
@@ -54,11 +50,8 @@ struct ImageServiceTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
-        do {
+        await #expect(throws: NetworkError.unauthorized) {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
-            #expect(false)
-        } catch let error as NetworkError {
-            #expect(error == .unauthorized)
         }
     }
 
@@ -72,11 +65,8 @@ struct ImageServiceTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
-        do {
+        await #expect(throws: NetworkError.badMimeType("application/octet-stream")) {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
-            #expect(false)
-        } catch let error as NetworkError {
-            #expect(error == .badMimeType("application/octet-stream"))
         }
     }
 
@@ -92,6 +82,51 @@ struct ImageServiceTests {
         let service = ImageService(urlSession: mockSession)
         let result = try await service.uploadImageMultipart(imageData, to: URL(string: "https://mock.api/upload")!)
         #expect(result == imageData)
+        
+        // Verify request was formed correctly
+        let recordedRequests = await mockSession.recordedRequests
+        #expect(recordedRequests.count == 1, "Should have made exactly one request")
+        
+        let request = recordedRequests[0]
+        #expect(request.httpMethod == "POST", "HTTP method should be POST")
+        
+        // Check Content-Type header
+        guard let contentType = request.value(forHTTPHeaderField: "Content-Type") else {
+            #expect(Bool(false), "Content-Type header should be present")
+            return
+        }
+        #expect(contentType.hasPrefix("multipart/form-data"), "Content-Type should start with multipart/form-data")
+        #expect(contentType.contains("boundary="), "Content-Type should contain boundary parameter")
+        
+        // Check request body
+        guard let body = request.httpBody else {
+            #expect(Bool(false), "Request should have a body")
+            return
+        }
+        #expect(body.count > 0, "Request body should not be empty")
+        
+        // Check for multipart markers in raw bytes
+        let bodyData = body
+        #expect(bodyData.count > 100, "Multipart body should be substantial in size")
+        
+        // Look for boundary markers (--)
+        let boundaryMarker = Data("--".utf8)
+        #expect(bodyData.range(of: boundaryMarker) != nil, "Body should contain multipart boundary markers")
+        
+        // Look for Content-Disposition header
+        let dispositionMarker = Data("Content-Disposition: form-data".utf8)
+        #expect(bodyData.range(of: dispositionMarker) != nil, "Body should contain form-data disposition")
+        
+        // Look for filename parameter
+        let filenameMarker = Data("filename=".utf8)
+        #expect(bodyData.range(of: filenameMarker) != nil, "Body should contain filename parameter")
+        
+        // Look for Content-Type header
+        let contentTypeMarker = Data("Content-Type:".utf8)
+        #expect(bodyData.range(of: contentTypeMarker) != nil, "Body should contain content-type for the file")
+        
+        // Verify image data is present in the body
+        #expect(bodyData.range(of: imageData) != nil, "Body should contain the original image data")
     }
 
     @Test func testUploadImageBase64Success() async throws {
@@ -106,8 +141,49 @@ struct ImageServiceTests {
         let service = ImageService(urlSession: mockSession)
         let result = try await service.uploadImageBase64(imageData, to: URL(string: "https://mock.api/upload")!)
         #expect(result == imageData)
+        
+        // Verify request was formed correctly
+        let recordedRequests = await mockSession.recordedRequests
+        #expect(recordedRequests.count == 1, "Should have made exactly one request")
+        
+        let request = recordedRequests[0]
+        #expect(request.httpMethod == "POST", "HTTP method should be POST")
+        
+        // Check Content-Type header
+        let contentType = request.value(forHTTPHeaderField: "Content-Type")
+        #expect(contentType == "application/json", "Content-Type should be application/json")
+        
+        // Check request body
+        guard let body = request.httpBody else {
+            #expect(Bool(false), "Request should have a body")
+            return
+        }
+        #expect(body.count > 0, "Request body should not be empty")
+        
+        // Parse and validate JSON structure
+        let jsonObject = try JSONSerialization.jsonObject(with: body, options: []) as? [String: Any]
+        guard let json = jsonObject else {
+            #expect(Bool(false), "Request body should be valid JSON")
+            return
+        }
+        
+        // Check for expected fields
+        #expect(json["fieldName"] as? String == "file", "Should contain fieldName field")
+        #expect(json["fileName"] as? String == "image.jpg", "Should contain fileName field")
+        #expect(json["compressionQuality"] as? Double == 0.8, "Should contain compressionQuality field")
+        #expect(json["data"] != nil, "Should contain data field with base64 content")
+        
+        // Verify base64 data is present and non-empty
+        if let base64String = json["data"] as? String {
+            #expect(!base64String.isEmpty, "Base64 data should not be empty")
+            // Verify it's valid base64
+            let decodedData = Data(base64Encoded: base64String)
+            #expect(decodedData != nil, "Base64 data should be valid")
+            #expect(decodedData?.count == imageData.count, "Decoded data should match original image data size")
+        } else {
+            #expect(Bool(false), "Data field should be a string")
+        }
     }
-
 }
 @Suite("Image Service Performance Benchmarks")
 struct ImageServicePerformanceTests {
@@ -177,7 +253,7 @@ struct ImageServicePerformanceTests {
         
         // Make multiple requests to the same URL
         for _ in 0..<20 {
-            let _ = try await service.fetchImageData(from: url)
+            _ = try await service.fetchImageData(from: url)
         }
         
         // Verify that only 1 network call was made (caching worked)
@@ -211,6 +287,9 @@ struct ImageServicePerformanceTests {
         let successCount = results.filter { $0 }.count
         print("DEBUG: Concurrent request successes: \(successCount)/\(concurrentRequests)")
         #expect(successCount == concurrentRequests)
+        
+        // Verify that only 1 network call was made despite 100 concurrent requests (request coalescing)
+        #expect(await mockSession.callCount == 1, "Only one network request should have been made due to request coalescing")
     }
 
     @Test func testCacheEfficiency() async throws {
