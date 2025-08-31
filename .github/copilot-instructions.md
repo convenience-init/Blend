@@ -1,13 +1,30 @@
+````````instructions
 # AsyncNet AI Coding Instructions
 
 This codebase is a Swift networking library with comprehensive image handling, built for **iOS/iPadOS 18+ and macOS 15+** with **Swift 6 strict concurrency compliance** and full SwiftUI integration.
+
+## Prerequisites
+
+**Development Environment Requirements:**
+
+- **Xcode**: 16.0 or later (required for Swift 6 support)
+- **Swift**: 6.0 or later (strict concurrency, Sendable checks, region-based isolation)
+- **iOS Deployment Target**: 18.0+ (iPadOS 18.0+ included)
+- **macOS Deployment Target**: 15.0+
+
+**CI/CD Requirements:**
+- Use Xcode 16+ in GitHub Actions or other CI systems
+- Ensure SwiftPM resolves to Swift 6 toolchain
+- Test on iOS 18+ and macOS 15+ simulators/devices
+
+> **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
 ## Architecture Overview
 
 AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and these core service boundaries:
 
 - **Network Layer**: `AsyncRequestable` protocol + `Endpoint` definitions in `/base/` and `/endpoints/`
--- **Image Operations**: `ImageService` is actor-based and provided via dependency injection in `/services/`, with comprehensive upload/download, caching, and SwiftUI integration
+  - **Image Operations**: `ImageService` is actor-based and provided via dependency injection in `/services/`, with comprehensive upload/download, caching, and SwiftUI integration
 - **SwiftUI Integration**: Complete view modifier suite in `/extensions/SwiftUIExtensions.swift` with async state management
 - **Error Handling**: Centralized `NetworkError` enum with Sendable conformance and upload-specific cases
 - **Platform Abstraction**: Cross-platform support via `PlatformImage` typealias and conditional compilation
@@ -31,10 +48,10 @@ struct YourEndpoint: Endpoint {
     var host: String = "api.example.com"
     var path: String = "/endpoint"
     var method: RequestMethod = .get
-    var headers: [String: String]? = ["Content-Type": "application/json"]
+    var headers: [String: String]? = ["Accept": "application/json"] // Accept header for expected response type
     var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
-    var timeoutDuration: Duration? = .seconds(30)
+    var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
 }
 
 // For POST/PUT requests with JSON bodies, use Encodable models:
@@ -50,34 +67,40 @@ struct CreateUserEndpoint: Endpoint {
     var host: String = "api.example.com"
     var path: String = "/users"
     var method: RequestMethod = .post
-    var headers: [String: String]? = ["Content-Type": "application/json"]
-    var timeoutDuration: Duration? = .seconds(30)
+    var headers: [String: String]? = ["Content-Type": "application/json"] // Content-Type for request body
+    var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
     
     // Encode the Encodable body to Data
     var body: Data? {
-        try? JSONEncoder().encode(request)
+        do {
+            return try JSONEncoder().encode(request)
+        } catch {
+            // Log encoding error for debugging - in production, consider using a logging framework
+            print("Failed to encode CreateUserRequest: \(error.localizedDescription)")
+            // Return nil to indicate encoding failure - caller should handle this appropriately
+            return nil
+        }
     }
     
     var queryItems: [URLQueryItem]? = nil
 }
 ```
 
+**Timeout Configuration Guidance:**
+- **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
+- **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
+- **Nil Handling**: When `timeoutDuration` is `nil`, falls back to session's `timeoutIntervalForRequest` (default: 60 seconds)
+- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults
+
 ### 2. Service Implementation Pattern (Swift 6 Compliant)
 ```swift
 class YourService: AsyncRequestable {
-    // Generic method that accepts any Endpoint type
-    func sendTypedRequest<T: Decodable & Sendable, E: Endpoint>(
-        to endpoint: E,
-        responseModel: T.Type
+    // Core method that handles all endpoint types
+    func sendRequest<T: Decodable & Sendable>(
+        to endpoint: some Endpoint,
+        expecting responseType: T.Type
     ) async throws -> T {
-        return try await sendRequest(to: endpoint)
-    }
-    
-    // Convenience method for common GET requests
-    func fetchData<T: Decodable & Sendable, E: Endpoint>(
-        from endpoint: E,
-        responseType: T.Type
-    ) async throws -> T {
+        // Implementation delegates to AsyncRequestable.sendRequest
         return try await sendRequest(to: endpoint)
     }
     
@@ -85,15 +108,7 @@ class YourService: AsyncRequestable {
     func createUser(name: String, email: String) async throws -> User {
         let request = CreateUserRequest(name: name, email: email)
         let endpoint = CreateUserEndpoint(request: request)
-        return try await sendRequest(to: endpoint)
-    }
-    
-    // Flexible method for any endpoint - maximum reusability
-    func performRequest<T: Decodable & Sendable>(
-        _ endpoint: some Endpoint,
-        expecting responseType: T.Type
-    ) async throws -> T {
-        return try await sendRequest(to: endpoint)
+        return try await sendRequest(to: endpoint, expecting: User.self)
     }
     
     // Usage examples:
@@ -103,10 +118,7 @@ class YourService: AsyncRequestable {
         
         // Using generic method with any endpoint
         let endpoint = YourEndpoint()
-        let data: SomeResponse = try await performRequest(endpoint, expecting: SomeResponse.self)
-        
-        // Using convenience method
-        let anotherData: AnotherResponse = try await fetchData(from: endpoint, responseType: AnotherResponse.self)
+        let data: SomeResponse = try await sendRequest(to: endpoint, expecting: SomeResponse.self)
     }
 }
 ```
@@ -132,6 +144,7 @@ guard let imageData = platformImageToData(platformImage, compressionQuality: 0.8
 ### 6. Swift 6 Actor Patterns
 `ImageService` is actor-based and provided via dependency injection. All image operations are actor-isolated and concurrency-safe. Example usage:
 ```swift
+import Foundation
 import SwiftUI
 
 public actor ImageService {
@@ -175,8 +188,8 @@ struct ContentView: View {
             do {
                 let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
                 if Task.isCancelled { return }
-                let loadedImage = await platformImage(from: data)
                 await MainActor.run {
+                    let loadedImage = platformImage(from: data)
                     image = loadedImage
                 }
             } catch {
@@ -189,43 +202,44 @@ struct ContentView: View {
 ```
 // Note: Always cross actor boundaries with Sendable types (Data, CGImage, etc). Use @MainActor helpers for UI conversion to PlatformImage.
 // SwiftUI.Image extension available: SwiftUI.Image(platformImage:) provides cross-platform Image creation from PlatformImage (UIImage/NSImage)
-````
-### 7. Request Body Serialization Pattern
-Always use type-safe `Encodable` models for request bodies instead of raw dictionaries. The `Endpoint` protocol supports `body: Data?`, so encode your models to JSON:
+
+### 6.1 Platform Image Conversion Helper
 
 ```swift
-// ✅ Type-safe approach
-struct LoginRequest: Encodable {
-    let username: String
-    let password: String
-}
-
-struct LoginEndpoint: Endpoint {
-    let credentials: LoginRequest
-    
-    var body: Data? {
-        do {
-            return try JSONEncoder().encode(credentials)
-        } catch {
-            // Log encoding error for debugging - in production, consider using a logging framework
-            print("Failed to encode LoginRequest: \(error.localizedDescription)")
-            // Return nil to indicate encoding failure - caller should handle this appropriately
-            return nil
-        }
-    }
-    // ... other properties
-}
-
-// ❌ Avoid ad-hoc dictionaries
-let body: [String: String] = ["username": "user", "password": "pass"]
-// This loses type safety and refactoring support
+/// Cross-platform image conversion helper for AsyncNet
+/// Converts PlatformImage (UIImage/NSImage) to Data for actor-safe transmission
+///
+/// - Parameters:
+///   - image: The PlatformImage to convert (UIImage on iOS, NSImage on macOS)
+///   - compressionQuality: JPEG compression quality from 0.0 (maximum compression) to 1.0 (minimum compression)
+/// - Returns: Data representation of the image, or nil if conversion fails
+/// - Throws: ImageProcessingError if image processing fails
+///
+/// **Platform Behavior:**
+/// - **iOS/iPadOS**: Uses `UIImage.jpegData(compressionQuality:)` for JPEG encoding
+/// - **macOS**: Converts NSImage to NSBitmapImageRep/CGImage and encodes to JPEG/PNG as appropriate
+///   - Prefers JPEG for photographic content, PNG for graphics with transparency
+///   - Falls back to TIFF representation if bitmap conversion fails
+///
+/// **Thread Safety:** Synchronous function, safe to call from any thread but must be called on @MainActor
+/// when working with UI-related PlatformImage instances to ensure proper context.
+///
+/// **Error Handling:** Returns nil or throws ImageProcessingError for:
+/// - Invalid or corrupted image data
+/// - Unsupported image formats
+/// - Memory allocation failures during conversion
+/// - Platform-specific encoding failures
+///
+/// **Usage Note:** Callers must handle the nil/throw case appropriately:
+/// ```swift
+/// guard let imageData = try platformImageToData(platformImage, compressionQuality: 0.8) else {
+///     throw NetworkError.imageProcessingFailed
+/// }
+/// // Use imageData for upload or storage
+/// ```
+///
+/// **Actor Boundary Considerations:** Returns Data (Sendable) for safe actor boundary crossing.
+/// Never pass PlatformImage directly across actor boundaries.
+func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data?
 ```
-
-**Serialization Best Practices:**
-- Use `JSONEncoder()` for REST APIs with `application/json` content type
-- Handle encoding errors explicitly with do/catch instead of `try?` to surface failures
-- When `body` returns `nil` due to encoding failure, log the error and handle appropriately
-- Consider custom `JSONEncoder` configuration for date formatting, key encoding, etc.
-- For binary data (images, files), use the raw `Data` directly without encoding
-- Test your `Encodable` models to ensure they serialize correctly
-- Callers should check for `nil` body and handle encoding failures gracefully
+```````

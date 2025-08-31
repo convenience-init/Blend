@@ -17,16 +17,20 @@ public extension NSImage {
     /// - Parameter compressionQuality: Quality factor (0.0 to 1.0)
     /// - Returns: JPEG data or nil if conversion fails
     func jpegData(compressionQuality: CGFloat) -> Data? {
+        // Validate compression quality: reject NaN/inf and clamp to 0.0-1.0 range
+        guard compressionQuality.isFinite else { return nil }
+        let quality = min(max(compressionQuality, 0.0), 1.0)
+        
         // First attempt: Direct TIFF conversion with validation
         if let data = tiffRepresentationData() {
             return data.representation(
                 using: .jpeg,
-                properties: [.compressionFactor: compressionQuality]
+                properties: [.compressionFactor: quality]
             )
         }
         
         // Fallback: Rasterize the image and generate JPEG
-        return rasterizedJPEGData(compressionQuality: compressionQuality)
+        return rasterizedJPEGData(compressionQuality: quality)
     }
     
     /// Creates PNG data representation

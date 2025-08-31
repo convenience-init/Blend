@@ -10,21 +10,6 @@ import SwiftUI
 #endif
 
 
-public func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat = 0.8) -> Data? {
-#if canImport(UIKit)
-    return image.jpegData(compressionQuality: compressionQuality)
-#elseif canImport(Cocoa)
-    guard let tiffData = image.tiffRepresentation,
-          let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
-    let properties: [NSBitmapImageRep.PropertyKey: Any] = [
-        .compressionFactor: NSNumber(value: Double(compressionQuality))
-    ]
-    return bitmap.representation(using: .jpeg, properties: properties)
-#else
-    return nil
-#endif
-}
-
 /// Protocol abstraction for URLSession to enable mocking in tests
 public protocol URLSessionProtocol: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
@@ -32,7 +17,18 @@ public protocol URLSessionProtocol: Sendable {
 
 extension URLSession: URLSessionProtocol {}
 
-
+/// Shared URLSession instance with optimized caching configuration
+/// Created outside actor isolation to avoid expensive actor-hop overhead
+private let sharedURLSession: URLSession = {
+    let configuration = URLSessionConfiguration.default
+    configuration.requestCachePolicy = .useProtocolCachePolicy
+    configuration.urlCache = URLCache(
+        memoryCapacity: 10 * 1024 * 1024, // 10MB memory cache
+        diskCapacity: 100 * 1024 * 1024,  // 100MB disk cache
+        diskPath: nil
+    )
+    return URLSession(configuration: configuration)
+}()
 
 /// A comprehensive, actor-isolated image service for downloading, uploading, and caching images.
 ///
@@ -70,6 +66,13 @@ public actor ImageService {
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
+        // Warn if image is large (base64 adds ~33% overhead)
+        let maxRecommendedSize = 10 * 1024 * 1024 // 10MB
+        if imageData.count > maxRecommendedSize {
+            // Consider using multipart upload for large images
+            print("Warning: Large image (\(imageData.count) bytes) will be ~33% larger when base64 encoded")
+        }
+        
         // Encode image data as base64 string
         let base64String = imageData.base64EncodedString()
         
@@ -96,7 +99,7 @@ public actor ImageService {
             case 200...299:
                 return data
             case 401:
-                throw NetworkError.unauthorized
+                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
             default:
                 throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
@@ -157,7 +160,7 @@ public actor ImageService {
     
     private var cacheConfig: CacheConfiguration
     // Efficient O(1) LRU cache tracking
-    private final class LRUNode {
+    private final class LRUNode: @unchecked Sendable {
         let key: NSString
         var prev: LRUNode?
         var next: LRUNode?
@@ -232,7 +235,7 @@ public actor ImageService {
                     delay = config.baseDelay * pow(2.0, Double(attempt))
                 }
                 let jitter = Double.random(in: 0...config.jitter)
-                try? await Task.sleep(nanoseconds: UInt64((delay + jitter) * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64((delay + jitter) * 1_000_000_000))
                 attempt += 1
                 continue
             }
@@ -243,21 +246,9 @@ public actor ImageService {
     private let dataCache: NSCache<NSString, NSData>
     private let injectedURLSession: URLSessionProtocol?
     
-    // Lazy initialization of default URLSession with caching configuration
-    private lazy var defaultURLSession: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.requestCachePolicy = .useProtocolCachePolicy
-        configuration.urlCache = URLCache(
-            memoryCapacity: 10 * 1024 * 1024, // 10MB memory cache
-            diskCapacity: 100 * 1024 * 1024,  // 100MB disk cache
-            diskPath: nil
-        )
-        return URLSession(configuration: configuration)
-    }()
-    
-    // Computed property that returns the injected session or creates default if needed
+    // Computed property that returns the injected session or uses shared default
     private var urlSession: URLSessionProtocol {
-        return injectedURLSession ?? defaultURLSession
+        return injectedURLSession ?? sharedURLSession
     }
     
     // Deduplication: Track in-flight fetchImageData requests by URL string
@@ -350,7 +341,7 @@ public actor ImageService {
                         return data
                         
                     case 401:
-                        throw NetworkError.unauthorized
+                        throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
                     default:
                         throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
                 }
@@ -370,6 +361,26 @@ public actor ImageService {
     /// - Returns: PlatformImage (UIImage/NSImage)
     public static func platformImage(from data: Data) -> PlatformImage? {
         return PlatformImage(data: data)
+    }
+    
+    /// Converts a PlatformImage to JPEG data with specified compression quality
+    /// - Parameters:
+    ///   - image: The platform image to convert
+    ///   - compressionQuality: JPEG compression quality (0.0 to 1.0, default 0.8)
+    /// - Returns: JPEG data or nil if conversion fails
+    public static func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat = 0.8) -> Data? {
+#if canImport(UIKit)
+        return image.jpegData(compressionQuality: compressionQuality)
+#elseif canImport(Cocoa)
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
+        let properties: [NSBitmapImageRep.PropertyKey: Any] = [
+            .compressionFactor: NSNumber(value: Double(compressionQuality))
+        ]
+        return bitmap.representation(using: .jpeg, properties: properties)
+#else
+        return nil
+#endif
     }
     
     /// Fetches an image and returns it as SwiftUI Image
@@ -437,13 +448,8 @@ public actor ImageService {
         
         // Determine MIME type: use configured type, or detect from data, or fallback to default
         let mimeType: String
-        if let detectedType = detectMimeType(from: imageData), configuration.mimeType == "image/jpeg" {
-            // If detection succeeds and user didn't explicitly set a type (using default), use detected type
-            mimeType = detectedType
-        } else {
-            // Use the configured type (whether explicit or default)
-            mimeType = configuration.mimeType
-        }
+        // Always prefer auto-detection when available, unless explicitly overridden
+        mimeType = detectMimeType(from: imageData) ?? configuration.mimeType
         
         guard let imageTypeData = "Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) else {
             throw NetworkError.imageProcessingFailed
@@ -467,7 +473,7 @@ public actor ImageService {
             case 200...299:
                 return data
             case 401:
-                throw NetworkError.unauthorized
+                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
             default:
                 throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
@@ -531,15 +537,24 @@ public actor ImageService {
         }
     }
     
-    /// Evict expired cache entries based on maxAge
+    /// Evict expired cache entries based on maxAge using lazy eviction
+    /// Only evicts from the LRU head until finding a non-expired item,
+    /// keeping eviction cost proportional to expired items rather than total cache size
     private func evictExpiredCache() {
         let now = Date().timeIntervalSince1970
-        for (key, node) in lruDict {
-            if now - node.timestamp >= cacheConfig.maxAge {
+        
+        // Lazy eviction: only check and evict from LRU head until we find a non-expired item
+        while let head = lruHead {
+            if now - head.timestamp >= cacheConfig.maxAge {
+                // Head is expired, evict it
+                let key = head.key
                 imageCache.removeObject(forKey: key)
                 dataCache.removeObject(forKey: key)
                 lruDict.removeValue(forKey: key)
-                removeLRUNode(node)
+                removeLRUNode(head)
+            } else {
+                // Head is not expired, no need to check further (LRU order guarantees this)
+                break
             }
         }
     }
@@ -602,24 +617,33 @@ public actor ImageService {
         
         // WebP: 52 49 46 46 ... 57 45 42 50 (needs at least 12 bytes)
         if data.count >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 {
-            let webpBytes = [UInt8](data[8...11])
-            if webpBytes[0] == 0x57 && webpBytes[1] == 0x45 && webpBytes[2] == 0x42 && webpBytes[3] == 0x50 {
+            if bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50 {
                 return "image/webp"
             }
         }
         
         // HEIC/HEIF: often starts with 'ftyp' box (needs at least 12 bytes)
         if data.count >= 12 {
-            let ftypBytes = [UInt8](data[4...11])
-            if String(bytes: ftypBytes, encoding: .ascii) == "ftyp" {
-                // Check brand
+            // Check for 'ftyp' box: bytes 4-7 should be [0x66, 0x74, 0x79, 0x70]
+            if data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70 {
+                // Check brand (bytes 8-11)
                 if data.count >= 16 {
-                    let brandBytes = [UInt8](data[8...11])
-                    if let brand = String(bytes: brandBytes, encoding: .ascii)?.lowercased() {
-                        if brand == "heic" || brand == "heix" || brand == "hevc" || brand == "hevx" ||
-                           brand == "mif1" || brand == "msf1" {
-                            return "image/heic"
-                        }
+                    let brandBytes = (data[8], data[9], data[10], data[11])
+                    switch brandBytes {
+                    case (0x68, 0x65, 0x69, 0x63): // "heic"
+                        return "image/heic"
+                    case (0x68, 0x65, 0x69, 0x78): // "heix"
+                        return "image/heic"
+                    case (0x68, 0x65, 0x76, 0x63): // "hevc"
+                        return "image/heic"
+                    case (0x68, 0x65, 0x76, 0x78): // "hevx"
+                        return "image/heic"
+                    case (0x6d, 0x69, 0x66, 0x31): // "mif1"
+                        return "image/heic"
+                    case (0x6d, 0x73, 0x66, 0x31): // "msf1"
+                        return "image/heic"
+                    default:
+                        break
                     }
                 }
             }

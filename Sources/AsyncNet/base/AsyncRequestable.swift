@@ -1,7 +1,23 @@
 import Foundation
 #if canImport(OSLog)
 import OSLog
-internal let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
+/// Public logger for AsyncNet library consumers to access internal logging.
+///
+/// This logger can be used to:
+/// - Attach custom log handlers for debugging
+/// - Route AsyncNet logs to your application's logging system
+/// - Monitor network request lifecycle and performance
+///
+/// Example usage:
+/// ```swift
+/// // Attach a custom log handler
+/// asyncNetLogger.log(level: .debug, "Custom debug message")
+///
+/// // Or use OSLog's built-in methods
+/// asyncNetLogger.info("Network request started")
+/// asyncNetLogger.error("Network request failed: \(error)")
+/// ```
+public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
 #endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
 ///
@@ -83,20 +99,20 @@ public extension AsyncRequestable {
 			do {
 				return try jsonDecoder.decode(ResponseModel.self, from: data)
 			} catch {
-				throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
+				throw NetworkError.decodingError(underlying: error, data: data)
 			}
 		case 400:
-			throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
+			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		case 401:
-			throw NetworkError.unauthorized
+			throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
 		case 403:
-			throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		case 404:
-			throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		case 429:
-			throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		case 500 ... 599:
-			throw NetworkError.serverError(data: data, statusCode: httpResponse.statusCode)
+			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		default:
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		}
@@ -200,7 +216,7 @@ public extension AsyncRequestable {
 		do {
 			return try jsonDecoder.decode(ResponseModel.self, from: data)
 		} catch {
-			throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
+			throw NetworkError.decodingError(underlying: error, data: data)
 		}
 	}
 }

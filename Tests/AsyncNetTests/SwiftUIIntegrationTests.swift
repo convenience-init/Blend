@@ -7,7 +7,7 @@ import SwiftUI
 
 #if canImport(SwiftUI)
 @MainActor
-@Suite("SwiftUI Integration Tests")
+@Suite("AsyncImageModel Tests")
 struct SwiftUIIntegrationTests {
     static let minimalPNG: [UInt8] = [
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -20,15 +20,20 @@ struct SwiftUIIntegrationTests {
         0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
         0x42, 0x60, 0x82
     ]
+    
+    static let minimalPNGData = Data(minimalPNG)
+
+    private static let defaultTestURL = URL(string: "https://mock.api/test")!
+    private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
 
     private func makeMockSession(
-        data: Data = Data(Self.minimalPNG),
-        urlString: String = "https://mock.api/test",
+        data: Data = Self.minimalPNGData,
+        url: URL = Self.defaultTestURL,
         statusCode: Int = 200,
         headers: [String: String] = ["Content-Type": "image/png"]
     ) -> MockURLSession {
         let response = HTTPURLResponse(
-            url: URL(string: urlString)!,
+            url: url,
             statusCode: statusCode,
             httpVersion: nil,
             headerFields: headers
@@ -36,18 +41,19 @@ struct SwiftUIIntegrationTests {
         return MockURLSession(nextData: data, nextResponse: response)
     }
 
-    @Test func testAsyncNetImageViewLoadingState() async {
+    @Test func testAsyncNetImageModelLoadingState() async {
         let mockSession = makeMockSession()
         let service = ImageService(urlSession: mockSession)
         // Test AsyncImageModel state transitions during successful image loading
         let model = AsyncImageModel(imageService: service)
         await model.loadImage(from: "https://mock.api/test")
+        #expect(model.error == nil, "Error should be nil after successful load")
         #expect(model.loadedImage != nil)
         #expect(model.hasError == false)
         #expect(model.isLoading == false)
     }
 
-    @Test func testAsyncNetImageViewErrorState() async {
+    @Test func testAsyncNetImageModelErrorState() async {
         let mockSession = MockURLSession(nextError: NetworkError.networkUnavailable)
         let service = ImageService(urlSession: mockSession)
         let model = AsyncImageModel(imageService: service)
@@ -55,15 +61,16 @@ struct SwiftUIIntegrationTests {
         #expect(model.loadedImage == nil)
         #expect(model.hasError == true)
         #expect(model.error != nil)
+        #expect(model.isLoading == false, "Loading flag should be false after failed load")
     }
 
-    @Test func testAsyncNetImageViewConcurrentLoad() async {
-        let imageData = Data(Self.minimalPNG)
+    @Test func testAsyncNetImageModelConcurrentLoad() async {
+        let imageData = Self.minimalPNGData
         
         // Create separate mock sessions and services for each concurrent load
-        let mockSession1 = makeMockSession(data: imageData, urlString: "https://mock.api/test1")
-        let mockSession2 = makeMockSession(data: imageData, urlString: "https://mock.api/test2")
-        let mockSession3 = makeMockSession(data: imageData, urlString: "https://mock.api/test3")
+        let mockSession1 = makeMockSession(data: imageData, url: URL(string: "https://mock.api/test1")!)
+        let mockSession2 = makeMockSession(data: imageData, url: URL(string: "https://mock.api/test2")!)
+        let mockSession3 = makeMockSession(data: imageData, url: URL(string: "https://mock.api/test3")!)
         
         let service1 = ImageService(urlSession: mockSession1)
         let service2 = ImageService(urlSession: mockSession2)
@@ -82,52 +89,66 @@ struct SwiftUIIntegrationTests {
         _ = await (load1, load2, load3)
         
         // Verify all models loaded successfully
+        #expect(model1.error == nil, "Model1 error should be nil after successful load")
         #expect(model1.loadedImage != nil)
         #expect(model1.hasError == false)
         #expect(model1.isLoading == false)
         
+        #expect(model2.error == nil, "Model2 error should be nil after successful load")
         #expect(model2.loadedImage != nil)
         #expect(model2.hasError == false)
         #expect(model2.isLoading == false)
         
+        #expect(model3.error == nil, "Model3 error should be nil after successful load")
         #expect(model3.loadedImage != nil)
         #expect(model3.hasError == false)
         #expect(model3.isLoading == false)
     }
     
-    @Test func testAsyncNetImageViewUploadErrorState() async {
-        let mockSession = makeMockSession()
+    @Test func testAsyncNetImageModelUploadErrorState() async throws {
+        // Create a mock session that returns an upload error
+        let errorResponse = HTTPURLResponse(
+            url: Self.defaultUploadURL,
+            statusCode: 500,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )
+        let mockSession = MockURLSession(nextData: Data("Server Error".utf8), nextResponse: errorResponse)
         let service = ImageService(urlSession: mockSession)
         let model = AsyncImageModel(imageService: service)
         
-        // Use a continuation to wait for the async callback
-        _ = await withCheckedContinuation { continuation in
-            // Simulate upload error (invalid URL that will cause network error)
+        // Use withCheckedThrowingContinuation to properly handle the error
+        let result = try await withCheckedThrowingContinuation { continuation in
             Task {
                 await model.uploadImage(
-                    ImageService.platformImage(from: Data(Self.minimalPNG))!,
-                    to: URL(string: "invalid-url-that-will-fail"), // Use invalid URL instead of nil
+                    ImageService.platformImage(from: Self.minimalPNGData)!,
+                    to: Self.defaultUploadURL,
                     uploadType: .multipart,
                     configuration: ImageService.UploadConfiguration(),
                     onSuccess: { _ in 
-                        continuation.resume(returning: NetworkError.custom(message: "Unexpected success", details: nil))
+                        // If success is called unexpectedly, resume with an error to fail the test
+                        continuation.resume(throwing: NetworkError.custom(message: "Unexpected success in error test", details: nil))
                     },
                     onError: { error in 
+                        // Resume with the actual error
                         continuation.resume(returning: error)
                     }
                 )
             }
         }
         
-        // Verify the error was received (should be network error due to invalid URL)
-        // The continuation completing successfully means an error callback was invoked
-        #expect(model.isUploading == false)
+        // Assert the continuation result is the expected error type
+        if case let .httpError(statusCode, _) = result {
+            #expect(statusCode == 500, "Should receive HTTP 500 error")
+        } else {
+            #expect(Bool(false), "Expected HTTP error but got: \(result)")
+        }
+        
+        // Assert that model.isUploading is false
+        #expect(model.isUploading == false, "isUploading should be false after error")
     }
     
-    @Test func testAsyncNetImageViewRetryFunctionality() async {
-        let service = ImageService()
-        let model = AsyncImageModel(imageService: service)
-        
+    @Test func testAsyncNetImageModelRetryFunctionality() async {
         // First, simulate a failed load
         let failedSession = MockURLSession(nextError: NetworkError.networkUnavailable)
         let failedService = ImageService(urlSession: failedSession)
@@ -137,6 +158,7 @@ struct SwiftUIIntegrationTests {
         #expect(failedModel.loadedImage == nil)
         #expect(failedModel.hasError == true)
         #expect(failedModel.error != nil)
+        #expect(failedModel.isLoading == false, "Loading flag should be false after failed load")
         
         // Now simulate a successful retry
         let successSession = makeMockSession()
@@ -145,6 +167,7 @@ struct SwiftUIIntegrationTests {
         
         // Retry the load (this simulates what the retry button would do)
         await successModel.loadImage(from: "https://mock.api/test")
+        #expect(successModel.error == nil, "Error should be nil after successful retry")
         #expect(successModel.loadedImage != nil)
         #expect(successModel.hasError == false)
         #expect(successModel.isLoading == false)

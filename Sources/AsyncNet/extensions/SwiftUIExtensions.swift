@@ -57,20 +57,32 @@ public class AsyncImageModel {
     public func loadImage(from url: String?) async {
         let token = UUID()
         self.loadToken = token
+        
+        // Early exit if task is already cancelled
+        guard !Task.isCancelled else { return }
+        
         guard let url = url else {
             if self.loadToken == token {
                 self.hasError = true
+                self.isLoading = false
             }
             return
         }
+        
+        // Check again before starting the network request
+        guard !Task.isCancelled else { return }
+        
         if self.loadToken == token {
             self.isLoading = true
             self.hasError = false
+            self.error = nil
         }
         do {
             let data = try await imageService.fetchImageData(from: url)
             if self.loadToken == token {
                 self.loadedImage = ImageService.platformImage(from: data)
+                self.hasError = false
+                self.error = nil
             }
         } catch {
             if self.loadToken == token {
@@ -85,13 +97,18 @@ public class AsyncImageModel {
     
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
     public func uploadImage(_ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType, configuration: ImageService.UploadConfiguration, onSuccess: ((Data) -> Void)? = nil, onError: ((NetworkError) -> Void)? = nil) async {
-        guard let uploadURL = uploadURL else { return }
+        guard let uploadURL = uploadURL else {
+            let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
+            self.error = error
+            onError?(error)  // Already on main thread via @MainActor
+            return
+        }
         isUploading = true
         defer { isUploading = false }
         
-        guard let imageData = platformImageToData(image, compressionQuality: configuration.compressionQuality) else {
+        guard let imageData = ImageService.platformImageToData(image, compressionQuality: configuration.compressionQuality) else {
             self.error = NetworkError.imageProcessingFailed
-            onError?(NetworkError.imageProcessingFailed)
+            onError?(NetworkError.imageProcessingFailed)  // Already on main thread via @MainActor
             return
         }
         
@@ -111,24 +128,12 @@ public class AsyncImageModel {
                         configuration: configuration
                     )
             }
-            onSuccess?(responseData)
+            onSuccess?(responseData)  // Already on main thread via @MainActor
         } catch {
             let netError = error as? NetworkError ?? NetworkError.wrap(error)
             self.error = netError
-            onError?(netError)
+            onError?(netError)  // Already on main thread via @MainActor
         }
-    }
-    
-    private func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat) -> Data? {
-        #if os(macOS)
-        guard let tiffData = image.tiffRepresentation,
-              let bitmapImage = NSBitmapImageRep(data: tiffData) else {
-            return nil
-        }
-        return bitmapImage.representation(using: .jpeg, properties: [.compressionFactor: compressionQuality])
-        #else
-        return image.jpegData(compressionQuality: compressionQuality)
-        #endif
     }
 }
 
@@ -188,7 +193,7 @@ public struct AsyncNetImageView: View {
                 Image.from(platformImage: loadedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-            } else if model.hasError == true {
+            } else if model.hasError {
                 ContentUnavailableView {
                     Label("Image Failed to Load", systemImage: "photo")
                 } description: {
@@ -200,7 +205,7 @@ public struct AsyncNetImageView: View {
                         }
                     }
                 }
-            } else if model.isLoading == true {
+            } else if model.isLoading {
                 ProgressView("Loading...")
                     .controlSize(.large)
             } else {
@@ -215,7 +220,7 @@ public struct AsyncNetImageView: View {
         }
         .overlay(
             Group {
-                if model.isUploading == true {
+                if model.isUploading {
                     ProgressView("Uploading...")
                         .padding()
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))

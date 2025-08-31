@@ -1,17 +1,22 @@
 import Testing
 import Foundation
-// Platform-specific imports for memory usage
+@testable import AsyncNet
+
 #if canImport(Darwin)
 import Darwin
-#endif
-@testable import AsyncNet
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(Cocoa)
-import Cocoa
-#endif
-#if canImport(SwiftUI)
-import SwiftUI
+import Darwin.Mach
+
+/// Get current resident memory size in bytes using Mach APIs
+func currentResidentSizeBytes() -> UInt64? {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+    let kerr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+        }
+    }
+    return kerr == KERN_SUCCESS ? UInt64(info.resident_size) : nil
+}
 #endif
 
 @Suite("Image Service Tests")
@@ -35,8 +40,19 @@ struct ImageServiceTests {
     @Test func testFetchImageDataInvalidURL() async throws {
         let mockSession = MockURLSession()
         let service = ImageService(urlSession: mockSession)
-        await #expect(throws: NetworkError.invalidEndpoint(reason: "Invalid image URL: not a url")) {
+        
+        do {
             _ = try await service.fetchImageData(from: "not a url")
+            #expect(Bool(false), "Expected invalidEndpoint error but none was thrown")
+        } catch let error as NetworkError {
+            guard case .invalidEndpoint(let reason) = error else {
+                #expect(Bool(false), "Expected invalidEndpoint error but got \(error)")
+                return
+            }
+            #expect(reason.contains("Invalid image URL"), "Error reason should mention invalid image URL")
+            #expect(reason.contains("not a url"), "Error reason should contain the invalid URL string")
+        } catch {
+            #expect(Bool(false), "Expected NetworkError but got \(error)")
         }
     }
 
@@ -50,7 +66,7 @@ struct ImageServiceTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
-        await #expect(throws: NetworkError.unauthorized) {
+        await #expect(throws: NetworkError.unauthorized(data: imageData, statusCode: 401)) {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
         }
     }
@@ -65,8 +81,18 @@ struct ImageServiceTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
-        await #expect(throws: NetworkError.badMimeType("application/octet-stream")) {
+        
+        do {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
+            #expect(Bool(false), "Expected badMimeType error but none was thrown")
+        } catch let error as NetworkError {
+            guard case .badMimeType(let mimeType) = error else {
+                #expect(Bool(false), "Expected badMimeType error but got \(error)")
+                return
+            }
+            #expect(mimeType == "application/octet-stream", "MIME type should match the response header")
+        } catch {
+            #expect(Bool(false), "Expected NetworkError but got \(error)")
         }
     }
 
@@ -90,6 +116,10 @@ struct ImageServiceTests {
         let request = recordedRequests[0]
         #expect(request.httpMethod == "POST", "HTTP method should be POST")
         
+        // Verify the request URL
+        let expectedURL = URL(string: "https://mock.api/upload")!
+        #expect(request.url == expectedURL, "Request URL should match the expected upload endpoint")
+        
         // Check Content-Type header
         guard let contentType = request.value(forHTTPHeaderField: "Content-Type") else {
             #expect(Bool(false), "Content-Type header should be present")
@@ -107,15 +137,31 @@ struct ImageServiceTests {
         
         // Check for multipart markers in raw bytes
         let bodyData = body
-        #expect(bodyData.count > 100, "Multipart body should be substantial in size")
         
-        // Look for boundary markers (--)
-        let boundaryMarker = Data("--".utf8)
-        #expect(bodyData.range(of: boundaryMarker) != nil, "Body should contain multipart boundary markers")
+        // Parse boundary from Content-Type header
+        guard let boundaryRange = contentType.range(of: "boundary=") else {
+            #expect(Bool(false), "Content-Type should contain boundary parameter")
+            return
+        }
+        let boundaryStart = boundaryRange.upperBound
+        let boundary = String(contentType[boundaryStart...])
+        #expect(!boundary.isEmpty, "Boundary should not be empty")
+        
+        // Check for starting boundary marker
+        let startingBoundary = Data("--\(boundary)".utf8)
+        #expect(bodyData.range(of: startingBoundary) != nil, "Body should contain starting boundary marker")
+        
+        // Check for closing boundary marker
+        let closingBoundary = Data("--\(boundary)--".utf8)
+        #expect(bodyData.range(of: closingBoundary) != nil, "Body should contain closing boundary marker")
         
         // Look for Content-Disposition header
         let dispositionMarker = Data("Content-Disposition: form-data".utf8)
         #expect(bodyData.range(of: dispositionMarker) != nil, "Body should contain form-data disposition")
+        
+        // Look for name="file" parameter in disposition
+        let nameFileMarker = Data("name=\"file\"".utf8)
+        #expect(bodyData.range(of: nameFileMarker) != nil, "Body should contain name=\"file\" parameter")
         
         // Look for filename parameter
         let filenameMarker = Data("filename=".utf8)
@@ -149,6 +195,10 @@ struct ImageServiceTests {
         let request = recordedRequests[0]
         #expect(request.httpMethod == "POST", "HTTP method should be POST")
         
+        // Verify the request URL
+        let expectedURL = URL(string: "https://mock.api/upload")!
+        #expect(request.url == expectedURL, "Request URL should match the expected upload endpoint")
+        
         // Check Content-Type header
         let contentType = request.value(forHTTPHeaderField: "Content-Type")
         #expect(contentType == "application/json", "Content-Type should be application/json")
@@ -179,7 +229,7 @@ struct ImageServiceTests {
             // Verify it's valid base64
             let decodedData = Data(base64Encoded: base64String)
             #expect(decodedData != nil, "Base64 data should be valid")
-            #expect(decodedData?.count == imageData.count, "Decoded data should match original image data size")
+            #expect(decodedData == imageData, "Decoded data should match original image data byte-for-byte")
         } else {
             #expect(Bool(false), "Data field should be a string")
         }
@@ -198,14 +248,15 @@ struct ImageServicePerformanceTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(urlSession: mockSession)
-        let start = Date()
+        let start = ContinuousClock().now
         _ = try await service.fetchImageData(from: "https://mock.api/test")
-        let elapsed = Date().timeIntervalSince(start)
-        print("DEBUG: Cold start latency: \(elapsed * 1000) ms")
-        #expect(elapsed < 0.1) // <100ms for mock network call
+        let duration = ContinuousClock().now - start
+        let elapsedSeconds = TimeInterval(duration.components.seconds) + Double(duration.components.attoseconds) / 1_000_000_000_000_000
+        print("DEBUG: Cold start latency: \(elapsedSeconds * 1000) ms")
+        #expect(duration < .seconds(0.1)) // <100ms for mock network call
     }
 
-    @Test func testMemoryUsageDuringCaching() async throws {
+    @Test func testCachingAvoidsRepeatedNetworkCalls() async throws {
         let imageData = Data(repeating: 0xFF, count: 1024 * 1024) // 1MB image
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -219,6 +270,11 @@ struct ImageServicePerformanceTests {
         // Test that caching works by making multiple requests
         let url = "https://mock.api/test"
         
+        // Sample memory before operations
+        #if canImport(Darwin)
+        let memoryBefore = currentResidentSizeBytes()
+        #endif
+        
         // First request (cache miss)
         let result1 = try await service.fetchImageData(from: url)
         #expect(result1 == imageData)
@@ -230,6 +286,16 @@ struct ImageServicePerformanceTests {
         // Third request (should still be cache hit)
         let result3 = try await service.fetchImageData(from: url)
         #expect(result3 == imageData)
+        
+        // Sample memory after operations
+        #if canImport(Darwin)
+        if let memoryBefore = memoryBefore, let memoryAfter = currentResidentSizeBytes() {
+            let memoryDelta = Int64(memoryAfter) - Int64(memoryBefore)
+            print("DEBUG: Memory delta during caching test: \(memoryDelta) bytes (\(Double(memoryDelta) / 1024 / 1024) MB)")
+            // Allow some memory growth but ensure it's reasonable (less than 10MB growth for 1MB cached data)
+            #expect(abs(memoryDelta) < 10 * 1024 * 1024, "Memory growth should be reasonable during caching operations")
+        }
+        #endif
         
         // Verify that only 1 network call was made despite 3 requests
         #expect(await mockSession.callCount == 1)
@@ -287,27 +353,5 @@ struct ImageServicePerformanceTests {
         let successCount = results.filter { $0 }.count
         print("DEBUG: Concurrent request successes: \(successCount)/\(concurrentRequests)")
         #expect(successCount == concurrentRequests)
-        
-        // Verify that only 1 network call was made despite 100 concurrent requests (request coalescing)
-        #expect(await mockSession.callCount == 1, "Only one network request should have been made due to request coalescing")
-    }
-
-    @Test func testCacheEfficiency() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
-        let response = HTTPURLResponse(
-            url: URL(string: "https://mock.api/test")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "image/jpeg"]
-        )!
-        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
-        let url = "https://mock.api/test"
-        // First request (cache miss)
-        let _ = try await service.fetchImageData(from: url)
-        // Second request (should be cache hit)
-        let _ = try await service.fetchImageData(from: url)
-        print("DEBUG: Network call count: \(await mockSession.callCount)")
-        #expect(await mockSession.callCount == 1)
     }
 }

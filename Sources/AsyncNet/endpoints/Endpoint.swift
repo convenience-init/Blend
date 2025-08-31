@@ -68,9 +68,10 @@ public extension Endpoint {
 	/// This computed property provides a single source of truth for HTTP headers by:
 	/// - Starting with all headers from the `headers` property
 	/// - Canonicalizing any existing "content-type" key to "Content-Type" (case-insensitive)
-	/// - Trimming header values and dropping headers with empty/whitespace-only values
+	/// - Trimming header keys and values, dropping headers with empty/whitespace-only keys or values
+	/// - Rejecting headers containing CR or LF characters to prevent header injection attacks
 	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key exists after normalization
-	/// - Ensuring consistent header name casing for HTTP compliance
+	/// - Ensuring consistent casing for the Content-Type header only (other header names retain their original casing)
 	///
 	/// Use this property in request building instead of manually handling both `headers` and `contentType`.
 	var resolvedHeaders: [String: String]? {
@@ -81,21 +82,32 @@ public extension Endpoint {
 		// First pass: canonicalize content-type keys and trim values
 		var canonicalizedHeaders: [String: String] = [:]
 		for (key, value) in normalizedHeaders {
+			// Trim both key and value
+			let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
 			let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+			
+			// Skip headers with empty/whitespace-only keys
+			guard !trimmedKey.isEmpty else { continue }
 			
 			// Skip headers with empty/whitespace-only values
 			guard !trimmedValue.isEmpty else { continue }
 			
+			// Reject headers containing CR or LF characters (header injection protection)
+			guard !trimmedKey.contains("\r") && !trimmedKey.contains("\n") &&
+			      !trimmedValue.contains("\r") && !trimmedValue.contains("\n") else { continue }
+			
 			// Canonicalize content-type keys to "Content-Type"
-			let canonicalKey = key.caseInsensitiveCompare("content-type") == .orderedSame ? "Content-Type" : key
+			let canonicalKey = trimmedKey.caseInsensitiveCompare("content-type") == .orderedSame ? "Content-Type" : trimmedKey
 			canonicalizedHeaders[canonicalKey] = trimmedValue
 		}
 		
 		// Check if any existing header key matches "content-type" case-insensitively after normalization
 		let hasContentType = canonicalizedHeaders.keys.contains { $0.caseInsensitiveCompare("content-type") == .orderedSame }
 		
-		// Only add contentType if no existing content-type header exists and contentType is non-nil with non-empty trimmed value
-		if !hasContentType, let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines), !contentType.isEmpty {
+		// Only add contentType if no existing content-type header exists, contentType is non-nil with non-empty trimmed value,
+		// and there's an actual request body present and non-empty
+		if !hasContentType, let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines), !contentType.isEmpty,
+		   let body = body, !body.isEmpty {
 			canonicalizedHeaders["Content-Type"] = contentType
 		}
 		
@@ -109,15 +121,22 @@ public extension Endpoint {
 	/// - Falls back to `timeout` if `timeoutDuration` is nil (backward compatibility)
 	/// - Returns `nil` if both are nil (uses URLSession default)
 	/// - Returns `nil` for non-positive timeoutDuration values (uses URLSession default)
+	/// - Sanitizes legacy `timeout` values to ignore non-positive values
 	///
 	/// The Duration is converted to TimeInterval (seconds) for URLRequest compatibility.
 	var effectiveTimeout: TimeInterval? {
 		if let timeoutDuration = timeoutDuration {
+			#if swift(>=5.9)
+			let components = timeoutDuration.components
+			let seconds = TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+			#else
+			// Fallback: best-effort seconds; adjust if your minimum Swift supports `/` operator.
 			let seconds = timeoutDuration / .seconds(1)
-			// Return nil for non-positive values to use URLSession default
+			#endif
 			return seconds > 0 ? seconds : nil
 		}
-		return timeout
+		if let t = timeout, t > 0 { return t }
+		return nil
 	}
 }
 

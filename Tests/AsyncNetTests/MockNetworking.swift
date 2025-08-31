@@ -3,10 +3,10 @@ import Foundation
 
 /// MockURLSession for unit testing, conforms to URLSessionProtocol
 actor MockURLSession: URLSessionProtocol {
-    /// Scripted responses for multiple calls - arrays allow different results per call
-    let scriptedData: [Data?]
-    let scriptedResponses: [URLResponse?]
-    let scriptedErrors: [Error?]
+    /// Private mutable storage for scripted responses - arrays allow different results per call
+    private var scriptedData: [Data?]
+    private var scriptedResponses: [URLResponse?]
+    private var scriptedErrors: [Error?]
     private var _callCount: Int = 0
     private var _recordedRequests: [URLRequest] = []
     
@@ -33,6 +33,8 @@ actor MockURLSession: URLSessionProtocol {
     
     /// Initialize with multiple scripted results for testing multi-call scenarios
     init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
+        precondition(scriptedData.count == scriptedResponses.count && scriptedData.count == scriptedErrors.count,
+                    "MockURLSession arrays must have equal length. Got data: \(scriptedData.count), responses: \(scriptedResponses.count), errors: \(scriptedErrors.count)")
         self.scriptedData = scriptedData
         self.scriptedResponses = scriptedResponses
         self.scriptedErrors = scriptedErrors
@@ -45,6 +47,28 @@ actor MockURLSession: URLSessionProtocol {
         let scriptedResponses = scriptedCalls.map { $0.1 }
         let scriptedErrors = scriptedCalls.map { $0.2 }
         self.init(scriptedData: scriptedData, scriptedResponses: scriptedResponses, scriptedErrors: scriptedErrors)
+    }
+    
+    /// Load a new script sequence for the mock session
+    /// This allows reusing the same mock instance with different scripted responses
+    func loadScript(data: [Data?], responses: [URLResponse?], errors: [Error?]) {
+        precondition(data.count == responses.count && data.count == errors.count,
+                    "MockURLSession arrays must have equal length. Got data: \(data.count), responses: \(responses.count), errors: \(errors.count)")
+        scriptedData = data
+        scriptedResponses = responses
+        scriptedErrors = errors
+    }
+    
+    /// Reset the mock session state for reuse between tests
+    /// - Parameter keepScript: If true, preserves the current script; if false, clears all scripted arrays
+    func reset(keepScript: Bool = true) {
+        _callCount = 0
+        _recordedRequests.removeAll()
+        if !keepScript {
+            scriptedData.removeAll()
+            scriptedResponses.removeAll()
+            scriptedErrors.removeAll()
+        }
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -88,25 +112,30 @@ struct MockEndpoint: Endpoint {
 
 // MARK: - Duration Timeout Tests
 extension MockEndpoint {
+    /// Factory method for creating test endpoints with timeout configurations
+    /// - Parameters:
+    ///   - duration: Duration-based timeout (takes precedence if both are provided)
+    ///   - legacy: Legacy TimeInterval-based timeout
+    /// - Returns: Configured MockEndpoint
+    static func withTimeout(duration: Duration? = nil, legacy: TimeInterval? = nil) -> MockEndpoint {
+        var endpoint = MockEndpoint()
+        endpoint.timeoutDuration = duration
+        endpoint.timeout = legacy
+        return endpoint
+    }
+    
     /// Test endpoint demonstrating Duration-based timeout
     static var withDurationTimeout: MockEndpoint {
-        var endpoint = MockEndpoint()
-        endpoint.timeoutDuration = .seconds(45)
-        return endpoint
+        withTimeout(duration: .seconds(45))
     }
     
     /// Test endpoint demonstrating legacy TimeInterval timeout
     static var withLegacyTimeout: MockEndpoint {
-        var endpoint = MockEndpoint()
-        endpoint.timeout = 30.0
-        return endpoint
+        withTimeout(legacy: 30.0)
     }
     
     /// Test endpoint with both timeout types (Duration takes precedence)
     static var withBothTimeouts: MockEndpoint {
-        var endpoint = MockEndpoint()
-        endpoint.timeoutDuration = .milliseconds(15000) // 15 seconds
-        endpoint.timeout = 60.0 // 60 seconds (ignored)
-        return endpoint
+        withTimeout(duration: .seconds(15), legacy: 60.0) // 15 seconds (Duration), 60 seconds (legacy, ignored)
     }
 }

@@ -11,19 +11,19 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 **High Performance** - Intelligent caching with configurable limits  
 **Type Safe** - Protocol-oriented design with comprehensive error handling  
 
-> **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 / EAP-TLS improvements[^3], and corrected CFNetwork API signatures[^4].
+> **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 > 
-> **Support Note**: AsyncNet compiles on iOS 17+ and macOS 14+ with graceful degradation. On earlier versions, advanced networking features like full HTTP/3 support and enhanced TLS may be limited or unavailable, falling back to standard URLSession behavior.
-> 
+> **Support Note**: AsyncNet compiles on iOS 17+/macOS 14+ (minimum supported) with graceful degradation. On earlier versions, advanced networking features like improved HTTP/3 support and enhanced TLS may be limited or unavailable, falling back to standard URLSession behavior.
+
 > **Platform Feature Matrix**:
 
 | Feature | iOS 17 | iOS 18+ | macOS 14 | macOS 15+ |
 |---------|--------|---------|----------|-----------|
 | Basic Networking | ✅ | ✅ | ✅ | ✅ |
-| HTTP/3 Support | Limited | Full | Limited | Full |
-| TLS 1.3 / EAP-TLS | Standard | Enhanced | Standard | Enhanced |
+| HTTP/3 Support | Limited | Improved/where available | Limited | Improved/where available |
+| TLS 1.3 | Standard | Improved | Standard | Improved |
 | URLSession Pause/Resume | Standard | Improved | Standard | Improved |
-| CFNetwork APIs | Standard | Corrected | Standard | Corrected |
+| CFNetwork APIs | Standard | Updates in latest SDKs | Standard | Updates in latest SDKs |
 
 > [^1]: [Apple URLSession Documentation](https://developer.apple.com/documentation/foundation/urlsession)
 > [^2]: [HTTP/3 Support](https://developer.apple.com/documentation/foundation/urlsession/3767356-httpversion)
@@ -36,7 +36,7 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 
 Add AsyncNet to your project through Xcode:
 
-1. File → Add Package Dependencies...
+1. File → Add Package Dependency…
 2. Enter the repository URL: `https://github.com/convenience-init/async-net`
 3. Select your version requirements
 
@@ -44,16 +44,23 @@ Or add it to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0"..<"2.0.0")
+    .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
 ]
 ```
 
-> **Version Pinning Recommendation**: Use SemVer ranges (e.g., `from: "1.0.0"..<"2.0.0"`) to receive non-breaking updates automatically while preventing accidental major version upgrades. This ensures you get bug fixes and minor enhancements without unexpected breaking changes.
+> **Version Pinning Recommendation**: Use `from: "1.0.0"` to automatically receive non-breaking updates (patch and minor versions) while preventing accidental major version upgrades. This ensures you get bug fixes and minor enhancements without unexpected breaking changes. For more explicit control, you can use version ranges like `"1.0.0"..<"2.0.0"`.
 
 ## Platform Support
 
+**Recommended / Tested:**
+
 - **iOS**: 18.0+ (includes iPadOS 18.0+)
 - **macOS**: 15.0+
+
+**Minimum Supported (compilation only):**
+
+- **iOS**: 17.0+ (includes iPadOS 17.0+)
+- **macOS**: 14.0+
 
 ## Quick Start
 
@@ -94,8 +101,23 @@ let imageService = ImageService()
 // Fetch image data and convert to SwiftUI Image
 do {
     let imageData = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
-    let swiftUIImage = ImageService.swiftUIImage(from: imageData)
-    
+
+    // Platform-standard conversion (requires platform-specific imports)
+    #if canImport(UIKit)
+    import UIKit
+    if let uiImage = UIImage(data: imageData) {
+        let swiftUIImage = Image(uiImage: uiImage)
+    }
+    #elseif canImport(AppKit)
+    import AppKit
+    if let nsImage = NSImage(data: imageData) {
+        let swiftUIImage = Image(nsImage: nsImage)
+    }
+    #endif
+
+    // AsyncNet convenience helper (requires: import AsyncNet)
+    // let swiftUIImage = ImageService.swiftUIImage(from: imageData)
+
     // Use swiftUIImage in your SwiftUI view
     // Image(swiftUIImage).resizable().frame(width: 200, height: 200)
 } catch {
@@ -104,8 +126,16 @@ do {
 
 // Check cache first (returns PlatformImage/UIImage/NSImage)
 if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image.jpg") {
-    // Use cached PlatformImage directly
-    let swiftUIImage = Image.from(platformImage: cachedImage)
+    // Platform-standard conversion
+    #if canImport(UIKit)
+    let swiftUIImage = Image(uiImage: cachedImage as! UIImage)
+    #elseif canImport(AppKit)
+    let swiftUIImage = Image(nsImage: cachedImage as! NSImage)
+    #endif
+
+    // AsyncNet convenience helper (requires: import AsyncNet)
+    // let swiftUIImage = Image.from(platformImage: cachedImage)
+
     // Use swiftUIImage in your SwiftUI view
 }
 ```
@@ -167,13 +197,15 @@ let base64Response = try await imageService.uploadImageBase64(imageData, to: upl
 // - Multipart uploads are recommended as the default choice
 ```
 
+> **Note on Image Conversion Examples**: The examples above use platform-standard SwiftUI `Image` initializers (`Image(uiImage:)` for iOS and `Image(nsImage:)` for macOS) to demonstrate universal compatibility. AsyncNet provides convenience helpers `ImageService.swiftUIImage(from:)` and `Image.from(platformImage:)` in the `AsyncNet` module for cross-platform image conversion. To use these helpers, add `import AsyncNet` to your file. The AsyncNet helpers abstract platform differences and provide consistent error handling.
+
 ### SwiftUI Integration
 
 #### Async Image Loading (Modern Pattern)
 
 ```swift
 import SwiftUI
-import AsyncNet
+import AsyncNet  // Required for .asyncImage modifier
 
 struct ProfileView: View {
     let imageURL: String
@@ -182,7 +214,7 @@ struct ProfileView: View {
     var body: some View {
         Rectangle()
             .frame(width: 200, height: 200)
-            .asyncImage(
+            .asyncImage(  // AsyncNet extension (requires: import AsyncNet)
                 from: imageURL,
                 imageService: imageService,
                 placeholder: ProgressView().controlSize(.large),
@@ -190,6 +222,13 @@ struct ProfileView: View {
             )
     }
 }
+
+// Requirements:
+// - iOS 15.0+ / macOS 12.0+ (for SwiftUI support)
+// - iOS 17.0+ / macOS 14.0+ (minimum AsyncNet support)
+// - iOS 18.0+ / macOS 15.0+ (recommended for full feature support)
+// - Swift 5.5+ (for async/await)
+// - SwiftUI framework
 
 // Dependency Injection Options:
 // 1. Constructor injection: init(imageService: ImageService) { self.imageService = imageService }
@@ -233,6 +272,11 @@ struct ImageGalleryView: View {
 // - Data parameter contains the raw response from the upload endpoint (e.g., JSON confirmation)
 // - NetworkError provides comprehensive error information (see NetworkError enum documentation)
 // - Callbacks are invoked on the main thread, so UI updates can be performed directly
+//
+// Thread Safety Guarantee:
+// - Upload callbacks are guaranteed to execute on the main thread via @MainActor isolation
+// - The AsyncImageModel class is marked @MainActor, ensuring all callback invocations run on the main thread
+// - Implementation location: Sources/AsyncNet/extensions/SwiftUIExtensions.swift - AsyncImageModel.uploadImage()
 ```
 
 #### Image Upload with Progress
@@ -247,8 +291,17 @@ struct PhotoUploadView: View {
     
     var body: some View {
         VStack {
-            if let image = selectedImage {
-                Image.from(platformImage: image)
+            if let platformImage = selectedImage {
+                // Platform-standard conversion
+                #if canImport(UIKit)
+                Image(uiImage: platformImage as! UIImage)
+                #elseif canImport(AppKit)
+                Image(nsImage: platformImage as! NSImage)
+                #endif
+
+                // AsyncNet convenience helper (requires: import AsyncNet)
+                // Image.from(platformImage: platformImage)
+
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(height: 200)
@@ -258,14 +311,23 @@ struct PhotoUploadView: View {
                 // Photo picker implementation
             }
             
-            if let image = selectedImage {
+            if let platformImage = selectedImage {
                 Button("Upload") {
                     Task {
                         do {
-                            guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-                                print("Failed to convert image")
+                            // Mirror JPEG→PNG fallback pattern from earlier example
+                            let imageData: Data
+                            if let jpegData = platformImage.jpegData(compressionQuality: 0.8) {
+                                imageData = jpegData
+                                print("Using JPEG conversion (compression: 0.8)")
+                            } else if let pngData = platformImage.pngData() {
+                                imageData = pngData
+                                print("JPEG conversion failed, falling back to PNG")
+                            } else {
+                                print("Failed to convert image to both JPEG and PNG formats")
                                 return
                             }
+                            
                             let config = ImageService.UploadConfiguration()
                             let response = try await imageService.uploadImageMultipart(
                                 imageData,
@@ -294,7 +356,7 @@ struct PhotoUploadView: View {
 ```swift
 do {
     // Modern error handling with NetworkError
-    let image = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
+    let imageData = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 } catch let error as NetworkError {
     // Option 1: Use the message() method
     print("Network error: \(error.message())")
@@ -357,15 +419,85 @@ let imageService = ImageService()
 // Configure cache limits (these are set during initialization)
 let imageServiceConfigured = ImageService(cacheCountLimit: 200, cacheTotalCostLimit: 100 * 1024 * 1024)
 
-// Clear cache
-await imageServiceConfigured.clearCache()
+// Execute cache operations in an async context
+Task {
+    // Clear cache
+    await imageServiceConfigured.clearCache()
 
-// Remove specific image
-await imageServiceConfigured.removeFromCache(key: "https://example.com/image.jpg")
+    // Remove specific image
+    await imageServiceConfigured.removeFromCache(key: "https://example.com/image.jpg")
 
-// Check if image is cached
-let isCached = await imageServiceConfigured.isImageCached(forKey: "https://example.com/image.jpg")
+    // Check if image is cached
+    let isCached = await imageServiceConfigured.isImageCached(forKey: "https://example.com/image.jpg")
+    print("Image cached: \(isCached)")
+}
 ```
+
+#### Security Guidance for Sensitive Images
+
+When handling sensitive images such as user avatars, profile pictures, or any content containing personally identifiable information (PII), implement strict cache management to prevent data leakage:
+
+**Opt-out of Caching:**
+
+- Set `cacheCountLimit: 0` and `cacheTotalCostLimit: 0` when initializing `ImageService` for sensitive content
+- Use `ImageService(cacheCountLimit: 0, cacheTotalCostLimit: 0)` to disable all caching
+- Call `await imageService.removeFromCache(key: "sensitive-image-url")` immediately after use
+
+**Avoid Caching PII-Containing Assets:**
+
+- Never cache user avatars, profile images, or images with embedded metadata
+- Use `fetchImageData(from: urlString)` without caching for sensitive content
+- Implement custom logic to bypass cache for authenticated user content
+
+**Aggressive Cache Eviction:**
+
+- Configure short `maxAge` (e.g., 300 seconds) for sensitive content using `CacheConfiguration(maxAge: 300)`
+- Call `await imageService.clearCache()` proactively for sensitive sessions
+- Use `await imageService.updateCacheConfiguration(CacheConfiguration(maxAge: 0))` to disable time-based caching
+
+**Lifecycle Cache Clearing:**
+Implement cache clearing on platform-specific lifecycle events:
+
+```swift
+// iOS: Clear cache on app backgrounding and memory warnings
+#if canImport(UIKit)
+import UIKit
+
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    func applicationWillResignActive(_ application: UIApplication) {
+        Task {
+            await imageService.clearCache()
+        }
+    }
+    
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        Task {
+            await imageService.clearCache()
+        }
+    }
+}
+#endif
+
+// macOS: Clear cache on app deactivation
+#if canImport(AppKit)
+import AppKit
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillResignActive(_ notification: Notification) {
+        Task {
+            await imageService.clearCache()
+        }
+    }
+}
+#endif
+```
+
+**Recommended Security Practices:**
+
+- Use separate `ImageService` instances for sensitive vs. public content
+- Implement cache encryption for highly sensitive environments
+- Monitor cache usage with `imageService.cacheHits` and `imageService.cacheMisses`
+- Clear caches on user logout or session termination
 
 ### LRU Cache Implementation
 
@@ -383,30 +515,51 @@ AsyncNet includes a sophisticated **LRU (Least Recently Used) cache** implementa
 
 ```swift
 // Custom LRU Node for O(1) doubly-linked list operations
-private class LRUNode {
+private final class LRUNode: @unchecked Sendable {
     let key: NSString
-    weak var prev: LRUNode?
-    var next: LRUNode?
+    var prev: LRUNode?  // Strong reference for proper list integrity
+    var next: LRUNode?  // Strong reference for proper list integrity
     var timestamp: TimeInterval
+    
+    init(key: NSString, timestamp: TimeInterval) {
+        self.key = key
+        self.timestamp = timestamp
+    }
 }
 
-// Cache configuration
-public struct CacheConfiguration: Sendable {
-    public let maxAge: TimeInterval     // Entry lifetime in seconds
-    public let maxLRUCount: Int         // Maximum entries in LRU list
+// Cache owns head/tail references strongly to maintain list structure
+private var lruHead: LRUNode?
+private var lruTail: LRUNode?
+
+// Node removal explicitly nils both prev/next to break cycles
+private func removeLRUNode(_ node: LRUNode) {
+    if node.prev != nil {
+        node.prev?.next = node.next
+    } else {
+        lruHead = node.next
+    }
+    if node.next != nil {
+        node.next?.prev = node.prev
+    } else {
+        lruTail = node.prev
+    }
+    node.prev = nil  // Break cycle
+    node.next = nil  // Break cycle
 }
 ```
 
 #### Cache Metrics & Monitoring
 
 ```swift
-// Access cache performance metrics
-let hits = await imageService.cacheHits
-let misses = await imageService.cacheMisses
-let hitRate = (hits + misses) == 0 ? 0.0 : Double(hits) / Double(hits + misses)
+// Access cache performance metrics in an async context
+Task {
+    let hits = await imageService.cacheHits
+    let misses = await imageService.cacheMisses
+    let hitRate = (hits + misses) == 0 ? 0.0 : Double(hits) / Double(hits + misses)
 
-// Monitor cache efficiency
-print("Cache hit rate: \(hitRate * 100)%")
+    // Monitor cache efficiency
+    print("Cache hit rate: \(hitRate * 100)%")
+}
 ```
 
 #### Advanced Cache Configuration
@@ -418,12 +571,14 @@ let imageService = ImageService(
     cacheTotalCostLimit: 100 * 1024 * 1024  // Max 100MB
 )
 
-// Update cache configuration at runtime
-let newConfig = CacheConfiguration(
-    maxAge: 1800,      // 30 minutes
-    maxLRUCount: 150   // Max 150 entries
-)
-await imageService.updateCacheConfiguration(newConfig)
+// Update cache configuration at runtime in an async context
+Task {
+    let newConfig = CacheConfiguration(
+        maxAge: 1800,      // 30 minutes
+        maxLRUCount: 150   // Max 150 entries
+    )
+    await imageService.updateCacheConfiguration(newConfig)
+}
 ```
 
 #### Cache Eviction Strategy
@@ -459,6 +614,15 @@ let customConfig = ImageService.UploadConfiguration(
         "version": "2.0"
     ]
 )
+
+// Declare platformImage - in real code, this would be loaded from assets or user input
+#if canImport(UIKit)
+import UIKit
+let platformImage: PlatformImage = UIImage(named: "sample_image") ?? UIImage()
+#elseif canImport(AppKit)
+import AppKit
+let platformImage: PlatformImage = NSImage(named: "sample_image") ?? NSImage()
+#endif
 
 guard let imageData = platformImage.jpegData(compressionQuality: 0.9) else {
     throw NetworkError.imageProcessingFailed
@@ -506,7 +670,8 @@ AsyncNet uses strict Swift 6 concurrency and comprehensive unit tests for all pu
 - NetworkError enum
 - ImageService actor (fetch, upload, cache)
 - PlatformImage conversion (UIImage/NSImage)
-- SwiftUI integration (Image conversion)
+- SwiftUI integration tests
+- Error path validation
 
 ### Running Tests
 
