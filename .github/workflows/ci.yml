@@ -10,19 +10,26 @@ on:
 
 jobs:
   build-test:
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        platform: [macos-latest, macos-13, macos-14]
+        runner: [macos-latest, macos-13, macos-14]
+        target: [macos, ios, tvos]
         swift-version: [6.0]
         build: [spm, xcode]
+        # Exclude incompatible combinations
+        exclude:
+          - target: ios
+            build: spm
+          - target: tvos
+            build: spm
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Swift (macOS)
-        if: runner.os == 'macOS' && startsWith(matrix.platform, 'macOS')
+        if: runner.os == 'macOS' && matrix.target == 'macos'
         uses: swift-actions/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
@@ -33,42 +40,40 @@ jobs:
           xcode-version: '16'
 
       - name: Build (macOS SPM)
-        if: startsWith(matrix.platform, 'macOS') && matrix.build == 'spm'
+        if: matrix.target == 'macos' && matrix.build == 'spm'
         run: swift build -Xswiftc -strict-concurrency=complete
 
       - name: Build (macOS Xcode)
-        if: startsWith(matrix.platform, 'macOS') && matrix.build == 'xcode'
+        if: matrix.target == 'macos' && matrix.build == 'xcode'
         run: xcodebuild -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Build (iOS)
-        if: startsWith(matrix.platform, 'iOS')
+        if: matrix.target == 'ios'
         run: xcodebuild -scheme AsyncNet -destination "platform=iOS Simulator,name=iPhone 14,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
-      - name: Build (iPadOS)
-        if: startsWith(matrix.platform, 'iPadOS')
-        run: xcodebuild -scheme AsyncNet -destination "platform=iOS Simulator,name=iPad Pro (11-inch) (4th generation),OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Build (tvOS)
+        if: matrix.target == 'tvos'
+        run: xcodebuild -scheme AsyncNet -destination "platform=tvOS Simulator,name=Apple TV,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Run tests
         run: |
-          if [[ "${{ matrix.platform }}" == macOS* ]]; then
+          if [[ "${{ matrix.target }}" == "macos" ]]; then
             if [[ "${{ matrix.build }}" == "spm" ]]; then
               swift test --enable-code-coverage
             else
               xcodebuild test -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
             fi
-          elif [[ "${{ matrix.platform }}" == iOS* ]]; then
+          elif [[ "${{ matrix.target }}" == "ios" ]]; then
             xcodebuild test -scheme AsyncNet -destination "platform=iOS Simulator,name=iPhone 14,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          elif [[ "${{ matrix.platform }}" == iPadOS* ]]; then
-            xcodebuild test -scheme AsyncNet -destination "platform=iOS Simulator,name=iPad Pro (12.9-inch) (6th generation),OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          elif [[ "${{ matrix.platform }}" == tvOS* ]]; then
+          elif [[ "${{ matrix.target }}" == "tvos" ]]; then
             xcodebuild test -scheme AsyncNet -destination "platform=tvOS Simulator,name=Apple TV,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
           else
-            echo "Unknown platform: ${{ matrix.platform }}"
+            echo "Unknown target: ${{ matrix.target }}"
             exit 1
           fi
 
       - name: Check coverage profdata
-        if: matrix.platform == 'macOS-16' && matrix.build == 'spm'
+        if: matrix.target == 'macos' && matrix.build == 'spm'
         id: coverage_profdata_check
         run: |
           if ls .build/debug/codecov/*.profdata 1> /dev/null 2>&1; then
@@ -78,8 +83,11 @@ jobs:
           fi
 
       - name: Upload coverage profdata
-        if: matrix.platform == 'macOS-16' && matrix.build == 'spm' && steps.coverage_profdata_check.outputs.exists == 'true'
+        if: matrix.target == 'macos' && matrix.build == 'spm' && steps.coverage_profdata_check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-profdata
           path: .build/debug/codecov/*.profdata
+
+# Note: iPadOS builds are not included in the current matrix for simplicity
+# To add iPadOS support, add 'ipados' to the target axis and update the test script accordingly

@@ -28,7 +28,7 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "image/jpeg", "Mime-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-    let service = ImageService(urlSession: mockSession)
+        let service = ImageService(urlSession: mockSession)
         let result = try await service.fetchImageData(from: "https://mock.api/test")
         #expect(result == imageData)
     }
@@ -38,7 +38,7 @@ struct ImageServiceTests {
         let service = ImageService(urlSession: mockSession)
         do {
             _ = try await service.fetchImageData(from: "not a url")
-            #expect(Bool(false))
+            #expect(false)
         } catch let error as NetworkError {
             print("DEBUG: testFetchImageDataInvalidURL caught error: \(error)")
             #expect(error == .invalidEndpoint(reason: "Invalid image URL: not a url"))
@@ -54,10 +54,10 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-    let service = ImageService(urlSession: mockSession)
+        let service = ImageService(urlSession: mockSession)
         do {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
-            #expect(Bool(false))
+            #expect(false)
         } catch let error as NetworkError {
             #expect(error == .unauthorized)
         }
@@ -72,10 +72,10 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "application/octet-stream", "Mime-Type": "application/octet-stream"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-    let service = ImageService(urlSession: mockSession)
+        let service = ImageService(urlSession: mockSession)
         do {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
-            #expect(Bool(false))
+            #expect(false)
         } catch let error as NetworkError {
             #expect(error == .badMimeType("application/octet-stream"))
         }
@@ -90,7 +90,7 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "application/json"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-    let service = ImageService(urlSession: mockSession)
+        let service = ImageService(urlSession: mockSession)
         let result = try await service.uploadImageMultipart(imageData, to: URL(string: "https://mock.api/upload")!)
         #expect(result == imageData)
     }
@@ -104,7 +104,7 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "application/json"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-    let service = ImageService(urlSession: mockSession)
+        let service = ImageService(urlSession: mockSession)
         let result = try await service.uploadImageBase64(imageData, to: URL(string: "https://mock.api/upload")!)
         #expect(result == imageData)
     }
@@ -188,9 +188,9 @@ struct ImageServicePerformanceTests {
         }
         let hitRate = Double(hits) / Double(total)
         print("DEBUG: Cache hit rate: \(hitRate * 100)%")
-        print("DEBUG: Network call count: \(mockSession.callCount)")
+        print("DEBUG: Network call count: \(await mockSession.callCount)")
         #expect(hitRate > 0.95)
-        #expect(mockSession.callCount == 1)
+        #expect(await mockSession.callCount == 1)
     }
 
     @Test func testConcurrentRequestHandling() async throws {
@@ -237,7 +237,7 @@ struct ImageServicePerformanceTests {
         let _ = try await service.fetchImageData(from: url)
         // Second request (should be cache hit)
         let _ = try await service.fetchImageData(from: url)
-        print("DEBUG: Network call count: \(mockSession.callCount)")
-        #expect(mockSession.callCount == 1)
+        print("DEBUG: Network call count: \(await mockSession.callCount)")
+        #expect(await mockSession.callCount == 1)
     }
 }

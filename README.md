@@ -11,6 +11,8 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 **High Performance** - Intelligent caching with configurable limits  
 **Type Safe** - Protocol-oriented design with comprehensive error handling  
 
+> **Platform Requirements**: iOS 18+ and macOS 15+ enable first-class resumable HTTP transfers (URLSession pause/resume and improved background reliability), HTTP/3 enhancements, system TLS 1.3 / EAP-TLS improvements, and corrected CFNetwork API signatures.
+
 ## Installation
 
 ### Swift Package Manager
@@ -695,8 +697,4 @@ class MockImageService: ImageServiceProtocol {
         return Data() // Mock data
     }
 }
-```
-
-```bash
-swift package generate-documentation
 ```

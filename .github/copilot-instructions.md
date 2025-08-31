@@ -31,17 +31,85 @@ struct YourEndpoint: Endpoint {
     var host: String = "api.example.com"
     var path: String = "/endpoint"
     var method: RequestMethod = .GET
-    var header: [String: String]? = ["Content-Type": "application/json"]
-    var body: [String: String]? = nil
+    var headers: [String: String]? = ["Content-Type": "application/json"]
+    var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
+    var contentType: String? = "application/json"
+    var timeoutDuration: Duration? = .seconds(30)
+}
+
+// For POST/PUT requests with JSON bodies, use Encodable models:
+struct CreateUserRequest: Encodable {
+    let name: String
+    let email: String
+}
+
+struct CreateUserEndpoint: Endpoint {
+    let request: CreateUserRequest
+    
+    var scheme: URLScheme = .https
+    var host: String = "api.example.com"
+    var path: String = "/users"
+    var method: RequestMethod = .post
+    var headers: [String: String]? = ["Content-Type": "application/json"]
+    var contentType: String? = "application/json"
+    var timeoutDuration: Duration? = .seconds(30)
+    
+    // Encode the Encodable body to Data
+    var body: Data? {
+        try? JSONEncoder().encode(request)
+    }
+    
+    var queryItems: [URLQueryItem]? = nil
+    var timeout: TimeInterval? = nil
 }
 ```
 
 ### 2. Service Implementation Pattern (Swift 6 Compliant)
 ```swift
 class YourService: AsyncRequestable {
-    func fetchData<T: Decodable & Sendable>() async throws -> T {
-        return try await sendRequest(to: YourEndpoint(), responseModel: T.self)
+    // Generic method that accepts any Endpoint type
+    func sendRequest<T: Decodable & Sendable, E: Endpoint>(
+        to endpoint: E,
+        responseModel: T.Type
+    ) async throws -> T {
+        return try await sendRequest(to: endpoint, responseModel: responseModel)
+    }
+    
+    // Convenience method for common GET requests
+    func fetchData<T: Decodable & Sendable, E: Endpoint>(
+        from endpoint: E,
+        responseType: T.Type
+    ) async throws -> T {
+        return try await sendRequest(to: endpoint, responseModel: responseType)
+    }
+    
+    // Example with typed request body - caller provides the endpoint
+    func createUser(name: String, email: String) async throws -> User {
+        let request = CreateUserRequest(name: name, email: email)
+        let endpoint = CreateUserEndpoint(request: request)
+        return try await sendRequest(to: endpoint, responseModel: User.self)
+    }
+    
+    // Flexible method for any endpoint - maximum reusability
+    func performRequest<T: Decodable & Sendable>(
+        _ endpoint: some Endpoint,
+        expecting responseType: T.Type
+    ) async throws -> T {
+        return try await sendRequest(to: endpoint, responseModel: responseType)
+    }
+    
+    // Usage examples:
+    func exampleUsage() async throws {
+        // Using specific endpoint types
+        let user = try await createUser(name: "John", email: "john@example.com")
+        
+        // Using generic method with any endpoint
+        let endpoint = YourEndpoint()
+        let data: SomeResponse = try await performRequest(endpoint, expecting: SomeResponse.self)
+        
+        // Using convenience method
+        let anotherData: AnotherResponse = try await fetchData(from: endpoint, responseType: AnotherResponse.self)
     }
 }
 ```
@@ -182,6 +250,38 @@ swift build -Xswiftc -strict-concurrency=complete
 
 **URLSession Configuration**: `ImageService` uses custom session with 10MB memory cache + 100MB disk cache. Don't bypass this - extend the service instead.
 
+**Concrete Setup Example:**
+```swift
+// Create custom cache with specific capacities
+let cache = URLCache(
+    memoryCapacity: 10 * 1024 * 1024,  // 10MB memory cache
+    diskCapacity: 100 * 1024 * 1024,   // 100MB disk cache
+    diskPath: "AsyncNetCache"          // Custom cache directory
+)
+
+// Configure URLSession with cache and cache policy
+let configuration = URLSessionConfiguration.default
+configuration.urlCache = cache
+configuration.requestCachePolicy = .returnCacheDataElseLoad
+
+// Create URLSession with custom configuration
+let session = URLSession(configuration: configuration)
+
+// Extend ImageService to use this session
+extension ImageService {
+    convenience init(customSession: URLSession) {
+        // Initialize with custom session instead of default
+        // This allows dependency injection of the configured session
+    }
+}
+```
+
+**Cache Policy Explanation:**
+- `.returnCacheDataElseLoad` prioritizes cached data but fetches from network if cache miss
+- Memory cache (10MB) provides fast access to recently used images
+- Disk cache (100MB) persists images across app launches
+- Custom disk path "AsyncNetCache" keeps cache isolated from system caches
+
 **SwiftUI Integration**: Complete SwiftUI integration through view modifiers and components. All SwiftUI features are available since the minimum target platforms include comprehensive SwiftUI support.
 
 **Phase-Based Development**: The library follows a structured 5-phase development plan:
@@ -194,11 +294,11 @@ swift build -Xswiftc -strict-concurrency=complete
 ## Critical Files for Understanding Data Flow
 
 1. **`AsyncRequestable.swift`** - Core networking protocol with URLRequest building logic
-2. **`ImageService.swift`** - Image operations hub with caching strategy (lines 1-100 for initialization, 100+ for upload methods)
+2. **`ImageService.swift`** - Image operations hub with caching strategy and actor-based implementation
 3. **`SwiftUIExtensions.swift`** - View modifier implementations showing async state management patterns
-4. **`NetworkError.swift`** - Complete error taxonomy - study this before adding new error cases
-5. **`Swift6_Compliance_Guide.md`** - Comprehensive patterns for Swift 6 migration (Phase 2)
-6. **`AsyncNet_Master_Action_Plan.md`** - Project roadmap and architectural evolution
+4. **`NetworkError.swift`** - Complete error taxonomy and Sendable error handling patterns
+5. **`Swift6_Compliance_Guide.md`** - Comprehensive patterns for Swift 6 migration and concurrency
+6. **`AsyncNet_Master_Action_Plan.md`** - Project roadmap and architectural evolution planning
 
 ## Development Gotchas
 
@@ -208,7 +308,7 @@ swift build -Xswiftc -strict-concurrency=complete
 ```swift
 #if canImport(UIKit)
 // iOS/iPadOS specific code
-#elseif canImport(Cocoa)
+#elseif canImport(AppKit)
 // macOS specific code
 #endif
 ```
@@ -221,13 +321,11 @@ swift build -Xswiftc -strict-concurrency=complete
 1. Convert `ImageService` to full actor isolation with dependency injection
 2. Remove singleton patterns in favor of injectable services
 3. Ensure all types crossing isolation boundaries are `Sendable`
-4. Use `Sending` keyword for ownership transfer
+4. Use `sending` keyword for ownership transfer
 5. Leverage iOS 18+/macOS 15+ concurrency optimizations
 
 **Dependency Injection**: Design services for injection rather than global access:
 ```swift
-// ❌ Avoid singleton patterns
-
 // ❌ Avoid singleton patterns
 // ImageService.shared.fetchImage(from: url)
 
@@ -263,5 +361,36 @@ let image = await platformImage(from: data)
 ```
 
 **Upload Configuration**: Always use `ImageService.UploadConfiguration` for structured upload parameters - supports both multipart and base64 uploads with additional fields.
+
+### 7. Request Body Serialization Pattern
+Always use type-safe `Encodable` models for request bodies instead of raw dictionaries. The `Endpoint` protocol supports `body: Data?`, so encode your models to JSON:
+
+```swift
+// ✅ Type-safe approach
+struct LoginRequest: Encodable {
+    let username: String
+    let password: String
+}
+
+struct LoginEndpoint: Endpoint {
+    let credentials: LoginRequest
+    
+    var body: Data? {
+        try? JSONEncoder().encode(credentials)
+    }
+    // ... other properties
+}
+
+// ❌ Avoid ad-hoc dictionaries
+let body: [String: String] = ["username": "user", "password": "pass"]
+// This loses type safety and refactoring support
+```
+
+**Serialization Best Practices:**
+- Use `JSONEncoder()` for REST APIs with `application/json` content type
+- Handle encoding errors gracefully (the `body` property can return `nil`)
+- Consider custom `JSONEncoder` configuration for date formatting, key encoding, etc.
+- For binary data (images, files), use the raw `Data` directly without encoding
+- Test your `Encodable` models to ensure they serialize correctly
 
 When adding features, follow the established patterns: protocol-first design, centralized error handling, platform abstraction, and SwiftUI integration through view modifiers.

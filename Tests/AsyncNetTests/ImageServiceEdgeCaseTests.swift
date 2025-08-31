@@ -17,7 +17,12 @@ struct ImageServiceEdgeCaseTests {
             httpVersion: nil,
             headerFields: ["Content-Type": "image/jpeg"]
         )!
-        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        // Provide enough scripted responses for all the calls this test makes (6 calls total)
+        let mockSession = MockURLSession(
+            scriptedData: Array(repeating: imageData, count: 6),
+            scriptedResponses: Array(repeating: response, count: 6),
+            scriptedErrors: Array(repeating: nil as Error?, count: 6)
+        )
         let service = ImageService(cacheCountLimit: 5, cacheTotalCostLimit: 1024 * 1024, urlSession: mockSession)
         // Fill cache
         for i in 0..<5 {
@@ -76,7 +81,12 @@ struct ImageServiceEdgeCaseTests {
             httpVersion: nil,
             headerFields: ["Content-Type": "image/jpeg"]
         )!
-        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        // Provide enough scripted responses for all the calls this test makes (7 calls total)
+        let mockSession = MockURLSession(
+            scriptedData: Array(repeating: imageData, count: 7),
+            scriptedResponses: Array(repeating: response, count: 7),
+            scriptedErrors: Array(repeating: nil as Error?, count: 7)
+        )
         let service = ImageService(cacheCountLimit: 5, cacheTotalCostLimit: 1024 * 1024, urlSession: mockSession)
         for i in 0..<5 {
             let url = "https://mock.api/test\(i)"

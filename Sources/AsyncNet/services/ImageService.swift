@@ -72,16 +72,22 @@ public actor ImageService {
     ) async throws -> Data {
         // Encode image data as base64 string
         let base64String = imageData.base64EncodedString()
-        // Build JSON payload
-        var payload: [String: Any] = configuration.additionalFields
-        payload[configuration.fieldName] = base64String
-        payload["fileName"] = configuration.fileName
-        payload["compressionQuality"] = configuration.compressionQuality
+        
+        // Create type-safe payload using Codable
+        let payload = UploadPayload(
+            fieldName: configuration.fieldName,
+            fileName: configuration.fileName,
+            compressionQuality: configuration.compressionQuality,
+            base64Data: base64String,
+            additionalFields: configuration.additionalFields
+        )
+        
         // Create JSON request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = try JSONEncoder().encode(payload)
+        
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.noResponse
@@ -103,17 +109,21 @@ public actor ImageService {
         public let fieldName: String
         public let fileName: String
         public let additionalFields: [String: String]
+        public let mimeType: String
         
         public init(
             compressionQuality: CGFloat = 0.8,
             fieldName: String = "file",
             fileName: String = "image.jpg",
-            additionalFields: [String: String] = [:]
+            additionalFields: [String: String] = [:],
+            mimeType: String? = nil
         ) {
             self.compressionQuality = compressionQuality
             self.fieldName = fieldName
             self.fileName = fileName
             self.additionalFields = additionalFields
+            // Use provided mimeType or default to image/jpeg for backward compatibility
+            self.mimeType = mimeType ?? "image/jpeg"
         }
     }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
@@ -128,13 +138,6 @@ public actor ImageService {
     }
     // cacheHits and cacheMisses are public actor variables for test access
     // MARK: - Request/Response Interceptor Support
-    /// Protocol for request/response interceptors
-    public protocol RequestInterceptor: Sendable {
-        /// Called before a request is sent. Can modify the request.
-        func willSend(request: URLRequest) async -> URLRequest
-        /// Called after a response is received. Can inspect/modify response/data.
-        func didReceive(response: URLResponse, data: Data?) async
-    }
     
     private var interceptors: [RequestInterceptor] = []
     
@@ -154,11 +157,12 @@ public actor ImageService {
     
     private var cacheConfig: CacheConfiguration
     // Efficient O(1) LRU cache tracking
-    private class LRUNode {
+    private final class LRUNode: @unchecked Sendable {
         let key: NSString
         var prev: LRUNode?
         var next: LRUNode?
         var timestamp: TimeInterval
+        
         init(key: NSString, timestamp: TimeInterval) {
             self.key = key
             self.timestamp = timestamp
@@ -317,17 +321,12 @@ public actor ImageService {
                 
                 var request = URLRequest(url: url)
                 // Interceptor: willSend
-                for interceptor in await self.interceptors {
+                let currentInterceptors = await self.interceptors
+                for interceptor in currentInterceptors {
                     request = await interceptor.willSend(request: request)
                 }
                 
                 let (data, response) = try await self.urlSession.data(for: request)
-                
-                // Interceptor: didReceive
-                for interceptor in await self.interceptors {
-                    await interceptor.didReceive(response: response, data: data)
-                }
-                
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw NetworkError.noResponse
                 }
@@ -429,7 +428,12 @@ public actor ImageService {
             throw NetworkError.imageProcessingFailed
         }
         body.append(imageDispositionData)
-        guard let imageTypeData = "Content-Type: image/jpeg\r\n\r\n".data(using: .utf8) else {
+        
+        // Determine MIME type: use configured type, or detect from data, or fallback to default
+        let mimeType = configuration.mimeType != "image/jpeg" ? configuration.mimeType :
+                      (detectMimeType(from: imageData) ?? "image/jpeg")
+        
+        guard let imageTypeData = "Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) else {
             throw NetworkError.imageProcessingFailed
         }
         body.append(imageTypeData)
@@ -499,8 +503,13 @@ public actor ImageService {
         addOrUpdateLRUNode(for: cacheKey)
     }
     
-    /// Removes a specific image from cache
-    /// - Parameter key: The
+    /// Removes a specific image from both the image cache and data cache
+    ///
+    /// This method removes the cached image and its associated data for the given key from all cache layers,
+    /// including the LRU tracking. If the key doesn't exist in the cache, this method silently no-ops.
+    ///
+    /// - Parameter key: The cache key (typically the URL string) used to identify the cached image to remove.
+    ///                  Should be the same key used when storing the image.
     public func removeFromCache(key: String) {
         let cacheKey = key as NSString
         imageCache.removeObject(forKey: cacheKey)
@@ -554,6 +563,57 @@ public actor ImageService {
     }
         
     // MARK: - Private Helpers
+    
+    /// Detects MIME type from image data by examining the file header
+    /// - Parameter data: The image data to analyze
+    /// - Returns: Detected MIME type string, or nil if detection fails
+    private func detectMimeType(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        
+        let bytes = [UInt8](data.prefix(min(12, data.count)))
+        
+        // JPEG: FF D8 FF (needs at least 3 bytes)
+        if data.count >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+            return "image/jpeg"
+        }
+        
+        // PNG: 89 50 4E 47 0D 0A 1A 0A (needs at least 8 bytes)
+        if data.count >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47 &&
+           bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A && bytes[7] == 0x0A {
+            return "image/png"
+        }
+        
+        // GIF: 47 49 46 38 (needs at least 4 bytes)
+        if data.count >= 4 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x38 {
+            return "image/gif"
+        }
+        
+        // WebP: 52 49 46 46 ... 57 45 42 50 (needs at least 12 bytes)
+        if data.count >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 {
+            let webpBytes = [UInt8](data[8...11])
+            if webpBytes[0] == 0x57 && webpBytes[1] == 0x45 && webpBytes[2] == 0x42 && webpBytes[3] == 0x50 {
+                return "image/webp"
+            }
+        }
+        
+        // HEIC/HEIF: often starts with 'ftyp' box (needs at least 12 bytes)
+        if data.count >= 12 {
+            let ftypBytes = [UInt8](data[4...11])
+            if String(bytes: ftypBytes, encoding: .ascii) == "ftyp" {
+                // Check brand
+                if data.count >= 16 {
+                    let brandBytes = [UInt8](data[8...11])
+                    let brand = String(bytes: brandBytes, encoding: .ascii)
+                    if brand == "heic" || brand == "heix" || brand == "hevc" || brand == "hevx" ||
+                       brand == "mif1" || brand == "msf1" {
+                        return "image/heic"
+                    }
+                }
+            }
+        }
+        
+        return nil
+    }
     
     private func imageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data {
 #if canImport(UIKit)
@@ -620,6 +680,64 @@ extension ImageService {
         node.next = nil
     }
 }
+
+// MARK: - Type-Safe JSON Encoding
+
+/// Protocol for request/response interceptors
+public protocol RequestInterceptor: Sendable {
+    /// Called before a request is sent. Can modify the request.
+    func willSend(request: URLRequest) async -> URLRequest
+    /// Called after a response is received. Can inspect/modify response/data.
+    func didReceive(response: URLResponse, data: Data?) async
+}
+
+/// Dynamic coding keys for handling additional fields in JSON encoding
+private struct DynamicCodingKeys: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+    
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+    
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+/// Type-safe payload structure for base64 image uploads
+private struct UploadPayload: Encodable {
+    let fieldName: String
+    let fileName: String
+    let compressionQuality: CGFloat
+    let base64Data: String
+    let additionalFields: [String: String]
+    
+    private enum CodingKeys: String, CodingKey {
+        case fieldName
+        case fileName
+        case compressionQuality
+        case base64Data
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: DynamicCodingKeys.self)
+        
+        // Encode standard fields
+        try container.encode(fieldName, forKey: DynamicCodingKeys(stringValue: "fieldName")!)
+        try container.encode(fileName, forKey: DynamicCodingKeys(stringValue: "fileName")!)
+        try container.encode(compressionQuality, forKey: DynamicCodingKeys(stringValue: "compressionQuality")!)
+        try container.encode(base64Data, forKey: DynamicCodingKeys(stringValue: fieldName)!)
+        
+        // Encode additional fields
+        for (key, value) in additionalFields {
+            try container.encode(value, forKey: DynamicCodingKeys(stringValue: key)!)
+        }
+    }
+}
+
 #if !os(Linux)
 extension Data {
     mutating func append(_ string: String) {

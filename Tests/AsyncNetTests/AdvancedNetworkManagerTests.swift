@@ -145,7 +145,7 @@ struct NetworkErrorTests {
     @Test func testWrapUnknownURLError() {
         let urlError = URLError(.cannotFindHost)
         let wrapped = NetworkError.wrap(urlError)
-        #expect(wrapped == .transportError(code: .cannotFindHost, underlying: urlError))
+        #expect(wrapped == .invalidEndpoint(reason: "Host not found"))
     }
     @Test func testWrapDecodingError() {
         struct DummyDecodingError: Error, Sendable {
@@ -160,5 +160,53 @@ struct NetworkErrorTests {
         } else {
             #expect(Bool(false))
         }
+    }
+    
+    @Test func testBadRequestError() {
+        let testData = "Bad request body".data(using: .utf8)
+        let error = NetworkError.badRequest(data: testData, statusCode: 400)
+        #expect(error.errorDescription == "Bad request: Status code 400")
+        #expect(error.recoverySuggestion == "Check the request parameters and format.")
+    }
+    
+    @Test func testForbiddenError() {
+        let testData = "Forbidden".data(using: .utf8)
+        let error = NetworkError.forbidden(data: testData, statusCode: 403)
+        #expect(error.errorDescription == "Forbidden: Status code 403")
+        #expect(error.recoverySuggestion == "Check your permissions for this resource.")
+    }
+    
+    @Test func testNotFoundError() {
+        let testData = "Not found".data(using: .utf8)
+        let error = NetworkError.notFound(data: testData, statusCode: 404)
+        #expect(error.errorDescription == "Not found: Status code 404")
+        #expect(error.recoverySuggestion == "Verify the endpoint URL and resource exists.")
+    }
+    
+    @Test func testRateLimitedError() {
+        let testData = "Rate limited".data(using: .utf8)
+        let error = NetworkError.rateLimited(data: testData, statusCode: 429)
+        #expect(error.errorDescription == "Rate limited: Status code 429")
+        #expect(error.recoverySuggestion == "Wait before making another request or reduce request frequency.")
+    }
+    
+    @Test func testServerError() {
+        let testData = "Internal server error".data(using: .utf8)
+        let error = NetworkError.serverError(data: testData, statusCode: 500)
+        #expect(error.errorDescription == "Server error: Status code 500")
+        #expect(error.recoverySuggestion == "Try again later. The server encountered an error.")
+    }
+    
+    @Test func testHTTPEquatable() {
+        let data1 = "test".data(using: .utf8)
+        let data2 = "test".data(using: .utf8)
+        
+        #expect(NetworkError.badRequest(data: data1, statusCode: 400) == NetworkError.badRequest(data: data2, statusCode: 400))
+        #expect(NetworkError.badRequest(data: data1, statusCode: 400) != NetworkError.badRequest(data: data2, statusCode: 401))
+        
+        #expect(NetworkError.forbidden(data: data1, statusCode: 403) == NetworkError.forbidden(data: data2, statusCode: 403))
+        #expect(NetworkError.notFound(data: data1, statusCode: 404) == NetworkError.notFound(data: data2, statusCode: 404))
+        #expect(NetworkError.rateLimited(data: data1, statusCode: 429) == NetworkError.rateLimited(data: data2, statusCode: 429))
+        #expect(NetworkError.serverError(data: data1, statusCode: 500) == NetworkError.serverError(data: data2, statusCode: 500))
     }
 }

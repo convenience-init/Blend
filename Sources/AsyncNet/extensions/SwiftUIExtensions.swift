@@ -38,8 +38,6 @@ public enum UploadType: String, Sendable {
 /// await model.loadImage(from: url)
 /// await model.uploadImage(image, to: uploadURL, uploadType: .multipart, configuration: config)
 /// ```
-/// Observable model for async image loading and uploading in SwiftUI.
-/// Use with @State in views for correct lifecycle management.
 @Observable
 @MainActor
 class AsyncImageModel {
@@ -99,11 +97,14 @@ class AsyncImageModel {
     func uploadImage(_ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType, configuration: ImageService.UploadConfiguration, onSuccess: ((Data) -> Void)? = nil, onError: ((NetworkError) -> Void)? = nil) async {
         guard let uploadURL = uploadURL else { return }
         isUploading = true
+        
         guard let imageData = platformImageToData(image, compressionQuality: configuration.compressionQuality) else {
-            onError?(NetworkError.imageProcessingFailed)
+            let error = NetworkError.imageProcessingFailed
+            onError?(error)
             isUploading = false
             return
         }
+        
         do {
             let responseData: Data
             switch uploadType {
@@ -158,7 +159,7 @@ public struct AsyncNetImageView: View {
     let onUploadError: ((NetworkError) -> Void)?
     let imageService: ImageService
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
-    @State private var model: AsyncImageModel
+    @State private var model: AsyncImageModel?
     
     public init(
         url: String? = nil,
@@ -176,22 +177,21 @@ public struct AsyncNetImageView: View {
         self.onUploadSuccess = onUploadSuccess
         self.onUploadError = onUploadError
         self.imageService = imageService
-        _model = State(wrappedValue: AsyncImageModel(imageService: imageService))
     }
     
     public var body: some View {
         Group {
-            if let loadedImage = model.loadedImage {
+            if let loadedImage = model?.loadedImage {
                 Image.from(platformImage: loadedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-            } else if model.hasError {
+            } else if model?.hasError == true {
                 ContentUnavailableView(
                     "Image Failed to Load",
                     systemImage: "photo",
                     description: Text("The image could not be downloaded.")
                 )
-            } else if model.isLoading {
+            } else if model?.isLoading == true {
                 ProgressView("Loading...")
                     .controlSize(.large)
             } else {
@@ -206,15 +206,20 @@ public struct AsyncNetImageView: View {
         }
         .overlay(
             Group {
-                if model.isUploading {
+                if model?.isUploading == true {
                     ProgressView("Uploading...")
                         .padding()
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 }
             }
         )
+        .onAppear {
+            if model == nil {
+                model = AsyncImageModel(imageService: imageService)
+            }
+        }
         .task {
-            await model.loadImage(from: url)
+            await model?.loadImage(from: url)
         }
     }
 }

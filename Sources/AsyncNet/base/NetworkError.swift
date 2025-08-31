@@ -1,27 +1,3 @@
-// Equatable conformance for NetworkError for testing and production
-extension NetworkError: Equatable {
-    public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
-        switch (lhs, rhs) {
-        case (.httpError(let lCode, _), .httpError(let rCode, _)): return lCode == rCode
-        case (.decodingError, .decodingError): return true
-        case (.networkUnavailable, .networkUnavailable): return true
-        case (.requestTimeout, .requestTimeout): return true
-        case (.invalidEndpoint(let l), .invalidEndpoint(let r)): return l == r
-        case (.unauthorized, .unauthorized): return true
-        case (.noResponse, .noResponse): return true
-        case (.badMimeType(let l), .badMimeType(let r)): return l == r
-        case (.uploadFailed(let l), .uploadFailed(let r)): return l == r
-        case (.imageProcessingFailed, .imageProcessingFailed): return true
-        case (.cacheError(let l), .cacheError(let r)): return l == r
-        case (.transportError(let lCode, _), .transportError(let rCode, _)): return lCode == rCode
-        case (.custom(let lMsg, let lDetails), .custom(let rMsg, let rDetails)):
-            return lMsg == rMsg && lDetails == rDetails
-        default: return false
-        }
-    }
-}
-
-
 import Foundation
 
 /// Centralized error taxonomy for AsyncNet networking operations.
@@ -44,7 +20,7 @@ import Foundation
 /// - Use `wrap(_:)` to convert generic errors to `NetworkError`.
 ///
 /// Enhanced error system for AsyncNet (ASYNC-302)
-public enum NetworkError: Error, LocalizedError, Sendable {
+public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     case custom(message: String, details: String?)
     // MARK: - Specific Error Cases
     /// HTTP error with status code and optional response data (Sendable)
@@ -55,6 +31,11 @@ public enum NetworkError: Error, LocalizedError, Sendable {
     case requestTimeout(duration: TimeInterval)
     case invalidEndpoint(reason: String)
     case unauthorized
+    case badRequest(data: Data?, statusCode: Int)
+    case forbidden(data: Data?, statusCode: Int)
+    case notFound(data: Data?, statusCode: Int)
+    case rateLimited(data: Data?, statusCode: Int)
+    case serverError(data: Data?, statusCode: Int)
     case noResponse
     case badMimeType(String)
     case uploadFailed(String)
@@ -70,41 +51,53 @@ public enum NetworkError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
     switch self {
         case .httpError(let statusCode, _):
-            return "HTTP error: Status code \(statusCode)"
+            return String(format: NSLocalizedString("HTTP error: Status code %d", comment: "Error message for HTTP errors with status code"), statusCode)
         case .decodingError(let underlyingDescription, _):
-            return "Decoding error: \(underlyingDescription)"
+            return String(format: NSLocalizedString("Decoding error: %@", comment: "Error message for decoding failures with underlying description"), underlyingDescription)
         case .networkUnavailable:
-            return "Network unavailable."
+            return NSLocalizedString("Network unavailable.", comment: "Error message when network is not available")
         case .requestTimeout(let duration):
-            return "Request timed out after \(String(format: "%.2f", duration)) seconds."
+            return String(format: NSLocalizedString("Request timed out after %.2f seconds.", comment: "Error message for request timeouts with duration"), duration)
         case .invalidEndpoint(let reason):
-            return "Invalid endpoint: \(reason)"
+            return String(format: NSLocalizedString("Invalid endpoint: %@", comment: "Error message for invalid endpoints with reason"), reason)
         case .unauthorized:
-            return "Not authorized."
+            return NSLocalizedString("Not authorized.", comment: "Error message for unauthorized access")
+        case .badRequest(_, let statusCode):
+            return String(format: NSLocalizedString("Bad request: Status code %d", comment: "Error message for bad requests with status code"), statusCode)
+        case .forbidden(_, let statusCode):
+            return String(format: NSLocalizedString("Forbidden: Status code %d", comment: "Error message for forbidden access with status code"), statusCode)
+        case .notFound(_, let statusCode):
+            return String(format: NSLocalizedString("Not found: Status code %d", comment: "Error message for not found resources with status code"), statusCode)
+        case .rateLimited(_, let statusCode):
+            return String(format: NSLocalizedString("Rate limited: Status code %d", comment: "Error message for rate limiting with status code"), statusCode)
+        case .serverError(_, let statusCode):
+            return String(format: NSLocalizedString("Server error: Status code %d", comment: "Error message for server errors with status code"), statusCode)
         case .noResponse:
-            return "No network response."
+            return NSLocalizedString("No network response.", comment: "Error message when no response is received")
         case .badMimeType(let mimeType):
-            return "Unsupported mime type: \(mimeType)"
+            return String(format: NSLocalizedString("Unsupported MIME type: %@", comment: "Error message for unsupported MIME types"), mimeType)
         case .uploadFailed(let message):
-            return "Upload failed: \(message)"
+            return String(format: NSLocalizedString("Upload failed: %@", comment: "Error message for upload failures with details"), message)
         case .imageProcessingFailed:
-            return "Failed to process image data."
+            return NSLocalizedString("Failed to process image data.", comment: "Error message for image processing failures")
         case .cacheError(let message):
-            return "Cache error: \(message)"
+            return String(format: NSLocalizedString("Cache error: %@", comment: "Error message for cache errors with details"), message)
         case .transportError(let code, let underlying):
-            return "Transport error: \(code) - \(underlying.localizedDescription)"
+            return String(format: NSLocalizedString("Transport error: %d - %@", comment: "Error message for transport errors with code and description"), code.rawValue, underlying.localizedDescription)
         case .custom(let message, let details):
             if let details = details {
-                return "\(message): \(details)"
+                return String(format: NSLocalizedString("%@: %@", comment: "Custom error message with details"), message, details)
             } else {
-                return message
+                return NSLocalizedString(message, comment: "Custom error message")
             }
         }
     }
 
     public var recoverySuggestion: String? {
         switch self {
-    case .httpError(let statusCode, _):
+        case .custom:
+            return "Please try again or contact support."
+        case .httpError(let statusCode, _):
             if statusCode == 401 { return "Check your credentials and try again." }
             if statusCode == 404 { return "Verify the endpoint URL." }
             if statusCode >= 500 { return "Try again later. Server may be down." }
@@ -119,18 +112,28 @@ public enum NetworkError: Error, LocalizedError, Sendable {
             return "Verify the endpoint configuration."
         case .unauthorized:
             return "Check your authentication and permissions."
+        case .badRequest:
+            return "Check the request parameters and format."
+        case .forbidden:
+            return "Check your permissions for this resource."
+        case .notFound:
+            return "Verify the endpoint URL and resource exists."
+        case .rateLimited:
+            return "Wait before making another request or reduce request frequency."
+        case .serverError:
+            return "Try again later. The server encountered an error."
         case .noResponse:
             return "Check network connectivity and server status."
         case .badMimeType:
-            return "Ensure the server returns a supported image format."
+            return "Ensure the server returns a supported content format."
         case .uploadFailed:
-            return "Check image format and network connection."
+            return "Check content format and network connection."
         case .imageProcessingFailed:
-            return "Ensure the image data is valid and supported."
+            return "Ensure the content data is valid and supported."
         case .cacheError:
             return "Check cache configuration and available memory."
-        default:
-            return "Please try again or contact support."
+        case .transportError:
+            return "Check network configuration and try again."
         }
     }
 
@@ -159,7 +162,19 @@ public extension NetworkError {
             case .notConnectedToInternet:
                 return .networkUnavailable
             case .timedOut:
-                return .requestTimeout(duration: 60.0) // Default timeout duration
+                return .requestTimeout(duration: NetworkError.defaultTimeoutDuration)
+            case .cannotFindHost:
+                return .invalidEndpoint(reason: "Host not found")
+            case .cannotConnectToHost:
+                return .networkUnavailable
+            case .networkConnectionLost:
+                return .networkUnavailable
+            case .dnsLookupFailed:
+                return .invalidEndpoint(reason: "DNS lookup failed")
+            case .secureConnectionFailed:
+                return .transportError(code: urlError.code, underlying: urlError)
+            case .serverCertificateUntrusted:
+                return .transportError(code: urlError.code, underlying: urlError)
             default:
                 return .transportError(code: urlError.code, underlying: urlError)
             }
@@ -167,4 +182,7 @@ public extension NetworkError {
         // Fallback to custom error
     return .custom(message: "Unknown error", details: String(describing: error))
     }
+
+    /// Default timeout duration used when wrapping URLError.timedOut
+    public static let defaultTimeoutDuration: TimeInterval = 60.0
 }
