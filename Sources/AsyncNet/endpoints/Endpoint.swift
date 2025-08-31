@@ -67,24 +67,39 @@ public extension Endpoint {
 	///
 	/// This computed property provides a single source of truth for HTTP headers by:
 	/// - Starting with all headers from the `headers` property
-	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key exists
+	/// - Canonicalizing any existing "content-type" key to "Content-Type" (case-insensitive)
+	/// - Trimming header values and dropping headers with empty/whitespace-only values
+	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key exists after normalization
 	/// - Ensuring consistent header name casing for HTTP compliance
 	///
 	/// Use this property in request building instead of manually handling both `headers` and `contentType`.
 	var resolvedHeaders: [String: String]? {
 		guard headers != nil || contentType != nil else { return nil }
 		
-		var normalizedHeaders = headers ?? [:]
+		let normalizedHeaders = headers ?? [:]
 		
-		// Check if any existing header key matches "content-type" case-insensitively
-		let hasContentType = normalizedHeaders.keys.contains { $0.caseInsensitiveCompare("content-type") == .orderedSame }
-		
-		// Only add contentType if no existing content-type header exists
-		if !hasContentType, let contentType = contentType {
-			normalizedHeaders["Content-Type"] = contentType
+		// First pass: canonicalize content-type keys and trim values
+		var canonicalizedHeaders: [String: String] = [:]
+		for (key, value) in normalizedHeaders {
+			let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+			
+			// Skip headers with empty/whitespace-only values
+			guard !trimmedValue.isEmpty else { continue }
+			
+			// Canonicalize content-type keys to "Content-Type"
+			let canonicalKey = key.caseInsensitiveCompare("content-type") == .orderedSame ? "Content-Type" : key
+			canonicalizedHeaders[canonicalKey] = trimmedValue
 		}
 		
-		return normalizedHeaders.isEmpty ? nil : normalizedHeaders
+		// Check if any existing header key matches "content-type" case-insensitively after normalization
+		let hasContentType = canonicalizedHeaders.keys.contains { $0.caseInsensitiveCompare("content-type") == .orderedSame }
+		
+		// Only add contentType if no existing content-type header exists and contentType is non-nil with non-empty trimmed value
+		if !hasContentType, let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines), !contentType.isEmpty {
+			canonicalizedHeaders["Content-Type"] = contentType
+		}
+		
+		return canonicalizedHeaders.isEmpty ? nil : canonicalizedHeaders
 	}
 	
 	/// Returns the effective timeout value, preferring `timeoutDuration` over `timeout` for type safety.
@@ -93,11 +108,14 @@ public extension Endpoint {
 	/// - Uses `timeoutDuration` if provided (modern, type-safe Duration API)
 	/// - Falls back to `timeout` if `timeoutDuration` is nil (backward compatibility)
 	/// - Returns `nil` if both are nil (uses URLSession default)
+	/// - Returns `nil` for non-positive timeoutDuration values (uses URLSession default)
 	///
 	/// The Duration is converted to TimeInterval (seconds) for URLRequest compatibility.
 	var effectiveTimeout: TimeInterval? {
 		if let timeoutDuration = timeoutDuration {
-			return timeoutDuration / .seconds(1)
+			let seconds = timeoutDuration / .seconds(1)
+			// Return nil for non-positive values to use URLSession default
+			return seconds > 0 ? seconds : nil
 		}
 		return timeout
 	}

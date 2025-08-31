@@ -41,11 +41,14 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     case uploadFailed(String)
     case imageProcessingFailed
     case cacheError(String)
-        /// Represents a transport-level error (e.g., connection, timeout, DNS) not classified as HTTP status error.
-        /// - Parameters:
-        ///   - code: The URLError.Code associated with the transport error.
-        ///   - underlying: The original URLError instance.
-        case transportError(code: URLError.Code, underlying: URLError)
+    case invalidBodyForGET
+    /// Represents a transport-level error (e.g., connection, timeout, DNS) not classified as HTTP status error.
+    /// - Parameters:
+    ///   - code: The URLError.Code associated with the transport error.
+    ///   - underlying: The original URLError instance.
+    case transportError(code: URLError.Code, underlying: URLError)
+    /// Error case for out-of-script-bounds issues, carrying the call number.
+    case outOfScriptBounds(call: Int)
 
     // MARK: - LocalizedError Conformance
     public var errorDescription: String? {
@@ -84,12 +87,16 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             return String(format: NSLocalizedString("Cache error: %@", comment: "Error message for cache errors with details"), message)
         case .transportError(let code, let underlying):
             return String(format: NSLocalizedString("Transport error: %d - %@", comment: "Error message for transport errors with code and description"), code.rawValue, underlying.localizedDescription)
+        case .invalidBodyForGET:
+            return NSLocalizedString("GET requests cannot have a body.", comment: "Error message for invalid body in GET request")
         case .custom(let message, let details):
             if let details = details {
                 return String(format: NSLocalizedString("%@: %@", comment: "Custom error message with details"), message, details)
             } else {
                 return NSLocalizedString(message, comment: "Custom error message")
             }
+        case .outOfScriptBounds(let call):
+            return String(format: NSLocalizedString("Out of script bounds: Call %d", comment: "Error message for out-of-script-bounds with call number"), call)
         }
     }
 
@@ -134,6 +141,10 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             return "Check cache configuration and available memory."
         case .transportError:
             return "Check network configuration and try again."
+        case .invalidBodyForGET:
+            return "Remove the body from GET requests or use a different HTTP method."
+        case .outOfScriptBounds:
+            return "Check the mock script configuration and ensure sufficient responses are provided."
         }
     }
 
@@ -184,5 +195,5 @@ public extension NetworkError {
     }
 
     /// Default timeout duration used when wrapping URLError.timedOut
-    public static let defaultTimeoutDuration: TimeInterval = 60.0
+    static let defaultTimeoutDuration: TimeInterval = 60.0
 }

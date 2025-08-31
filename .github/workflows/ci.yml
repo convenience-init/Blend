@@ -11,11 +11,12 @@ on:
 jobs:
   build-test:
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       matrix:
         runner: [macos-latest, macos-13, macos-14]
         target: [macos, ios, tvos]
-        swift-version: [6.0]
+        xcode: [15, 16]
         build: [spm, xcode]
         # Exclude incompatible combinations
         exclude:
@@ -23,21 +24,57 @@ jobs:
             build: spm
           - target: tvos
             build: spm
+          # macos-13 doesn't support Xcode 16
+          - runner: macos-13
+            xcode: 16
+          # macos-14 with Xcode 16 may have compatibility issues, use Xcode 15
+          - runner: macos-14
+            xcode: 16
+        # Include specific compatible combinations
+        include:
+          # macos-latest should use Xcode 16
+          - runner: macos-latest
+            xcode: 16
+            target: macos
+            build: spm
+          - runner: macos-latest
+            xcode: 16
+            target: macos
+            build: xcode
+          - runner: macos-latest
+            xcode: 16
+            target: ios
+            build: xcode
+          - runner: macos-latest
+            xcode: 16
+            target: tvos
+            build: xcode
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Swift (macOS)
-        if: runner.os == 'macOS' && matrix.target == 'macos'
+      - name: Cache SPM
+        if: matrix.target == 'macos' && matrix.build == 'spm'
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Set up Swift (macOS SPM)
+        if: runner.os == 'macOS' && matrix.target == 'macos' && matrix.build == 'spm'
         uses: swift-actions/setup-swift@v1
         with:
-          swift-version: ${{ matrix.swift-version }}
-      - name: Set up Xcode 16 (macOS only)
-        if: runner.os == 'macOS'
+          swift-version: ${{ matrix.xcode == 16 && '6.0' || '5.10' }}
+      - name: Set up Xcode (macOS/iOS/tvOS)
+        if: runner.os == 'macOS' && matrix.build == 'xcode'
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16'
+          xcode-version: ${{ matrix.xcode }}
 
       - name: Build (macOS SPM)
         if: matrix.target == 'macos' && matrix.build == 'spm'
@@ -49,28 +86,41 @@ jobs:
 
       - name: Build (iOS)
         if: matrix.target == 'ios'
-        run: xcodebuild -scheme AsyncNet -destination "platform=iOS Simulator,name=iPhone 14,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+        run: xcodebuild -scheme AsyncNet -destination "platform=iOS Simulator,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Build (tvOS)
         if: matrix.target == 'tvos'
-        run: xcodebuild -scheme AsyncNet -destination "platform=tvOS Simulator,name=Apple TV,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+        run: xcodebuild -scheme AsyncNet -destination "platform=tvOS Simulator,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
-      - name: Run tests
+      - name: Verify iOS Simulators
+        if: matrix.target == 'ios'
         run: |
-          if [[ "${{ matrix.target }}" == "macos" ]]; then
-            if [[ "${{ matrix.build }}" == "spm" ]]; then
-              swift test --enable-code-coverage
-            else
-              xcodebuild test -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-            fi
-          elif [[ "${{ matrix.target }}" == "ios" ]]; then
-            xcodebuild test -scheme AsyncNet -destination "platform=iOS Simulator,name=iPhone 14,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          elif [[ "${{ matrix.target }}" == "tvos" ]]; then
-            xcodebuild test -scheme AsyncNet -destination "platform=tvOS Simulator,name=Apple TV,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          else
-            echo "Unknown target: ${{ matrix.target }}"
-            exit 1
-          fi
+          echo "Available iOS Simulators:"
+          xcrun simctl list devices available | grep -A 5 -B 5 "iOS"
+          echo "Using destination: platform=iOS Simulator,OS=latest"
+
+      - name: Test macOS SPM
+        if: matrix.target == 'macos' && matrix.build == 'spm'
+        run: swift test --enable-code-coverage
+
+      - name: Test macOS Xcode
+        if: matrix.target == 'macos' && matrix.build == 'xcode'
+        run: xcodebuild test -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Test iOS
+        if: matrix.target == 'ios'
+        run: xcodebuild test -scheme AsyncNet -destination "platform=iOS Simulator,OS=latest" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Verify tvOS Simulators
+        if: matrix.target == 'tvos'
+        run: |
+          echo "Available tvOS Simulators:"
+          xcrun simctl list devices available | grep -A 5 -B 5 "tvOS"
+          echo "Using destination: platform=tvOS Simulator,OS=latest"
+
+      - name: Test tvOS
+        if: matrix.target == 'tvos'
+        run: xcodebuild test -scheme AsyncNet -destination "platform=tvOS Simulator,OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Check coverage profdata
         if: matrix.target == 'macos' && matrix.build == 'spm'
@@ -86,7 +136,7 @@ jobs:
         if: matrix.target == 'macos' && matrix.build == 'spm' && steps.coverage_profdata_check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-profdata
+          name: coverage-profdata-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.build }}-xcode${{ matrix.xcode }}
           path: .build/debug/codecov/*.profdata
 
 # Note: iPadOS builds are not included in the current matrix for simplicity

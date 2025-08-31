@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(OSLog)
+import OSLog
+#endif
 
 // MARK: - Request/Response Interceptor Protocol
 public protocol NetworkInterceptor: Sendable {
@@ -15,7 +18,7 @@ public protocol NetworkCache: Sendable {
 }
 
 // MARK: - Default Network Cache Implementation
-public final class DefaultNetworkCache: @unchecked Sendable, NetworkCache {
+public actor DefaultNetworkCache: NetworkCache {
     private var cache: [String: (data: Data, timestamp: Date)] = [:]
     private let maxSize: Int
     private let expiration: TimeInterval
@@ -73,11 +76,17 @@ public actor AdvancedNetworkManager {
     
     // MARK: - Request Deduplication, Retry, Backoff, Interceptors
     public func fetchData(for request: URLRequest, cacheKey: String? = nil, retryPolicy: RetryPolicy = .default) async throws -> Data {
-        let key = cacheKey ?? request.url?.absoluteString ?? UUID().uuidString
+        let key = cacheKey ?? generateRequestKey(from: request)
         if let cached = await cache.get(forKey: key) {
+            #if canImport(OSLog)
+            asyncNetLogger.debug("Cache hit for key: \(key)")
+            #endif
             return cached
         }
         if let task = inFlightTasks[key] {
+            #if canImport(OSLog)
+            asyncNetLogger.debug("Request deduplication for key: \(key)")
+            #endif
             return try await task.value
         }
         let newTask = Task<Data, Error> {
@@ -93,27 +102,58 @@ public actor AdvancedNetworkManager {
                     for interceptor in interceptors {
                         await interceptor.didReceive(response: response, data: data)
                     }
-                    await cache.set(data, forKey: key)
+                    // Only cache successful HTTP responses (200-299)
+                    if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
+                        await cache.set(data, forKey: key)
+                    }
+                    #if canImport(OSLog)
+                    if attempt > 0 {
+                        asyncNetLogger.info("Request succeeded after \(attempt) retries for key: \(key)")
+                    } else {
+                        asyncNetLogger.debug("Request succeeded on first attempt for key: \(key)")
+                    }
+                    #endif
                     return data
                 } catch {
                     lastError = error
+                    #if canImport(OSLog)
+                    asyncNetLogger.warning("Request attempt \(attempt + 1) failed for key: \(key), error: \(error.localizedDescription)")
+                    #endif
                     // shouldRetry and backoff use the attempt index (0-based)
                     if let shouldRetry = retryPolicy.shouldRetry, !shouldRetry(error, attempt) {
                         break
                     }
                     let delay = retryPolicy.backoff?(attempt) ?? 0.0
-                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    if delay > 0 {
+                        #if canImport(OSLog)
+                        asyncNetLogger.debug("Retrying request for key: \(key) after \(delay) seconds")
+                        #endif
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
                 }
             }
             // If last error is a cancellation, propagate it
             if let lastError = lastError as? CancellationError {
                 throw lastError
             }
+            #if canImport(OSLog)
+            asyncNetLogger.error("All retry attempts exhausted for key: \(key)")
+            #endif
             throw lastError ?? NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
         }
         inFlightTasks[key] = newTask
         defer { inFlightTasks.removeValue(forKey: key) }
         return try await newTask.value
+    }
+    
+    /// Generates a deterministic cache key from request components
+    func generateRequestKey(from request: URLRequest) -> String {
+        let urlString = request.url?.absoluteString ?? ""
+        let method = request.httpMethod ?? "GET"
+        let bodyString = request.httpBody?.base64EncodedString() ?? ""
+        
+        // Join components with a separator that's unlikely to appear in URLs or methods
+        return [urlString, method, bodyString].joined(separator: "|")
     }
 }
 
@@ -122,19 +162,45 @@ public struct RetryPolicy: Sendable {
     public let maxRetries: Int
     public let shouldRetry: (@Sendable (Error, Int) -> Bool)?
     public let backoff: (@Sendable (Int) -> TimeInterval)?
+    public let maxBackoff: TimeInterval
     
     public static let `default` = RetryPolicy(
         maxRetries: 3,
         shouldRetry: { _, _ in true }, // Always allow retry; maxRetries controls total attempts
-        backoff: { attempt in pow(2.0, Double(attempt)) + Double.random(in: 0...0.5) }
+        backoff: { attempt in min(pow(2.0, Double(attempt)) + Double.random(in: 0...0.5), 60.0) },
+        maxBackoff: 60.0
     )
     
     public init(maxRetries: Int,
                 shouldRetry: (@Sendable (Error, Int) -> Bool)? = nil,
-                backoff: (@Sendable (Int) -> TimeInterval)? = nil) {
+                backoff: (@Sendable (Int) -> TimeInterval)? = nil,
+                maxBackoff: TimeInterval = 60.0) {
         self.maxRetries = maxRetries
         self.shouldRetry = shouldRetry
         self.backoff = backoff
+        self.maxBackoff = maxBackoff
+    }
+    
+    /// Creates a retry policy with exponential backoff capped at the specified maximum
+    public static func exponentialBackoff(maxRetries: Int = 3, maxBackoff: TimeInterval = 60.0) -> RetryPolicy {
+        return RetryPolicy(
+            maxRetries: maxRetries,
+            shouldRetry: { _, _ in true },
+            backoff: { attempt in min(pow(2.0, Double(attempt)) + Double.random(in: 0...0.5), maxBackoff) },
+            maxBackoff: maxBackoff
+        )
+    }
+    
+    /// Creates a retry policy with custom backoff strategy
+    public static func custom(maxRetries: Int = 3, 
+                             maxBackoff: TimeInterval = 60.0,
+                             backoff: @escaping (@Sendable (Int) -> TimeInterval)) -> RetryPolicy {
+        return RetryPolicy(
+            maxRetries: maxRetries,
+            shouldRetry: { _, _ in true },
+            backoff: { attempt in min(backoff(attempt), maxBackoff) },
+            maxBackoff: maxBackoff
+        )
     }
 }
 

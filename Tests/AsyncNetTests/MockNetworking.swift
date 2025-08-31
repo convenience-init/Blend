@@ -2,34 +2,55 @@ import Foundation
 @testable import AsyncNet
 
 /// MockURLSession for unit testing, conforms to URLSessionProtocol
-public actor MockURLSession: URLSessionProtocol {
+actor MockURLSession: URLSessionProtocol {
     /// Scripted responses for multiple calls - arrays allow different results per call
-    public let scriptedData: [Data?]
-    public let scriptedResponses: [URLResponse?]
-    public let scriptedErrors: [Error?]
+    let scriptedData: [Data?]
+    let scriptedResponses: [URLResponse?]
+    let scriptedErrors: [Error?]
     private var _callCount: Int = 0
+    private var _recordedRequests: [URLRequest] = []
     
-    public var callCount: Int {
+    /// Actor-isolated call count for tracking mock network requests.
+    /// Must be accessed with `await` from outside the actor due to actor isolation.
+    /// Example: `let count = await mockSession.callCount`
+    var callCount: Int {
         _callCount
+    }
+    
+    /// Actor-isolated recorded requests for verifying call arguments in tests.
+    /// Must be accessed with `await` from outside the actor due to actor isolation.
+    /// Example: `let requests = await mockSession.recordedRequests`
+    var recordedRequests: [URLRequest] {
+        _recordedRequests
     }
 
     /// Initialize with single scripted result (backward compatibility)
-    public init(nextData: Data? = nil, nextResponse: URLResponse? = nil, nextError: Error? = nil) {
+    init(nextData: Data? = nil, nextResponse: URLResponse? = nil, nextError: Error? = nil) {
         self.scriptedData = [nextData]
         self.scriptedResponses = [nextResponse]
         self.scriptedErrors = [nextError]
     }
     
     /// Initialize with multiple scripted results for testing multi-call scenarios
-    public init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
+    init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
         self.scriptedData = scriptedData
         self.scriptedResponses = scriptedResponses
         self.scriptedErrors = scriptedErrors
     }
+    
+    /// Initialize with an array of tuples to keep scripted triples aligned
+    /// Each tuple contains (data, response, error) for one mock call
+    init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
+        let scriptedData = scriptedCalls.map { $0.0 }
+        let scriptedResponses = scriptedCalls.map { $0.1 }
+        let scriptedErrors = scriptedCalls.map { $0.2 }
+        self.init(scriptedData: scriptedData, scriptedResponses: scriptedResponses, scriptedErrors: scriptedErrors)
+    }
 
-    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let currentCallIndex = _callCount
         _callCount += 1
+        _recordedRequests.append(request)
         
         // Get the scripted error for this call (if any)
         let scriptedError = currentCallIndex < scriptedErrors.count ? scriptedErrors[currentCallIndex] : nil
@@ -42,10 +63,7 @@ public actor MockURLSession: URLSessionProtocol {
         let response = currentCallIndex < scriptedResponses.count ? scriptedResponses[currentCallIndex] : nil
         
         guard let data = data, let response = response else {
-            throw NetworkError.custom(
-                message: "MockURLSession: No scripted response available for call #\(currentCallIndex + 1)",
-                details: "Call count: \(_callCount), Available data: \(scriptedData.count), Available responses: \(scriptedResponses.count)"
-            )
+            throw NetworkError.outOfScriptBounds(call: currentCallIndex + 1)
         }
         
         return (data, response)
@@ -53,19 +71,19 @@ public actor MockURLSession: URLSessionProtocol {
 }
 
 /// MockEndpoint for testing Endpoint protocol
-public struct MockEndpoint: Endpoint {
+struct MockEndpoint: Endpoint {
     /// Properties are mutable to allow test overrides and convenient configuration in test scenarios.
-    public var scheme: URLScheme = .https
-    public var host: String = "mock.api"
-    public var path: String = "/test"
-    public var method: RequestMethod = .get
-    public var headers: [String: String]? = ["Content-Type": "application/json"]
-    public var queryItems: [URLQueryItem]? = nil
-    public var contentType: String? = "application/json"
-    public var timeout: TimeInterval? = nil
-    public var timeoutDuration: Duration? = nil
-    public var body: Data? = nil
-    public init() {}
+    var scheme: URLScheme = .https
+    var host: String = "mock.api"
+    var path: String = "/test"
+    var method: RequestMethod = .get
+    var headers: [String: String]? = nil
+    var queryItems: [URLQueryItem]? = nil
+    var contentType: String? = "application/json"
+    var timeout: TimeInterval? = nil
+    var timeoutDuration: Duration? = nil
+    var body: Data? = nil
+    init() {}
 }
 
 // MARK: - Duration Timeout Tests

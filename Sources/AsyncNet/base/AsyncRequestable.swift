@@ -1,7 +1,7 @@
 import Foundation
 #if canImport(OSLog)
 import OSLog
-private let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
+internal let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
 #endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
 ///
@@ -52,8 +52,22 @@ public extension AsyncRequestable {
 	/// - Returns: The decoded response model of type `ResponseModel`.
 	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
 	
+	/// A configured JSONDecoder for consistent decoding across the AsyncNet module.
+	/// 
+	/// This decoder is configured with:
+	/// - `dateDecodingStrategy`: `.iso8601` for standard date handling
+	/// - `keyDecodingStrategy`: `.convertFromSnakeCase` for API compatibility
+	/// 
+	/// Override this property in conforming types to customize decoding behavior.
+	var jsonDecoder: JSONDecoder {
+		let decoder = JSONDecoder()
+		decoder.dateDecodingStrategy = .iso8601
+		decoder.keyDecodingStrategy = .convertFromSnakeCase
+		return decoder
+	}
+	
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable {
-		guard var request = buildAsyncRequest(for: endPoint) else {
+		guard var request = try buildAsyncRequest(for: endPoint) else {
 			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
 		}
 		let session = URLSession.shared
@@ -67,7 +81,7 @@ public extension AsyncRequestable {
 		switch httpResponse.statusCode {
 		case 200 ... 299:
 			do {
-				return try JSONDecoder().decode(ResponseModel.self, from: data)
+				return try jsonDecoder.decode(ResponseModel.self, from: data)
 			} catch {
 				throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
 			}
@@ -92,7 +106,8 @@ public extension AsyncRequestable {
 	///
 	/// - Parameter endPoint: The endpoint to build the request for.
 	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
-	private func buildAsyncRequest(for endPoint: Endpoint) -> URLRequest? {
+	/// - Throws: `NetworkError` if the endpoint configuration is invalid.
+	private func buildAsyncRequest(for endPoint: Endpoint) throws -> URLRequest? {
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
 		components.host = endPoint.host
@@ -108,15 +123,7 @@ public extension AsyncRequestable {
 		asyncRequest.httpMethod = endPoint.method.rawValue
 		if let body = endPoint.body {
 			if endPoint.method == .get {
-				#if DEBUG
-				#if canImport(OSLog)
-				asyncNetLogger.warning("GET request to \(url.absoluteString, privacy: .public) with non-nil body will be ignored.")
-				#else
-				print("[AsyncNet] WARNING: GET request to \(url.absoluteString) with non-nil body will be ignored.")
-				#endif
-				#endif
-				// Ensure no misleading Content-Type header is sent without a body.
-				asyncRequest.setValue(nil, forHTTPHeaderField: "Content-Type")
+				throw NetworkError.invalidBodyForGET
 			} else {
 				asyncRequest.httpBody = body
 			}
@@ -124,14 +131,66 @@ public extension AsyncRequestable {
 		return asyncRequest
 	}
 	
-	/// Advanced sendRequest using AdvancedNetworkManager for deduplication, retry, caching, interceptors
+	/// Sends an asynchronous network request using AdvancedNetworkManager with enhanced features.
+	///
+	/// This method provides advanced networking capabilities including request deduplication, intelligent caching,
+	/// configurable retry policies with backoff strategies, and request/response interceptors for cross-cutting concerns.
+	///
+	/// - Parameters:
+	///   - endPoint: The endpoint to send the request to, containing URL components, HTTP method, headers, and optional body.
+	///   - networkManager: The `AdvancedNetworkManager` instance to use for the request. Supply a custom manager when you need:
+	///     - Custom caching behavior (different cache size/expiration)
+	///     - Request/response interceptors (logging, authentication, metrics)
+	///     - Custom URLSession (for testing or specific networking requirements)
+	///     - If not provided, uses default `AdvancedNetworkManager()` with standard caching and no interceptors.
+	///   - cacheKey: Optional string key for caching the response. When provided:
+	///     - Responses are cached using this key for future identical requests
+	///     - Subsequent requests with the same key return cached data instantly
+	///     - Useful for frequently accessed data that doesn't change often
+	///     - If not provided, uses the request URL as the cache key
+	///   - retryPolicy: The retry strategy to use when requests fail. Built-in options:
+	///     - `.default`: 3 retries with exponential backoff (recommended for most cases)
+	///     - Custom policies can specify max retries, retry conditions, and backoff timing
+	///     - Set to `RetryPolicy(maxRetries: 0)` to disable retries entirely
+	///
+	/// - Returns: The decoded response model of type `ResponseModel`, automatically decoded from JSON.
+	///
+	/// - Throws:
+	///   - `NetworkError.invalidEndpoint` if the endpoint URL cannot be constructed
+	///   - `NetworkError.invalidBodyForGET` if attempting to send a body with a GET request
+	///   - `NetworkError.decodingError` if the response cannot be decoded to the expected type
+	///   - `NetworkError.httpError` for HTTP status codes outside 200-299 range
+	///   - `CancellationError` if the request is cancelled
+	///   - Other network-related errors from the underlying URLSession
+	///
+	/// ### Usage Example
+	/// ```swift
+	/// // Custom network manager with larger cache and logging interceptor
+	/// let cache = DefaultNetworkCache(maxSize: 500, expiration: 1800) // 30min expiration
+	/// let interceptors: [NetworkInterceptor] = [LoggingInterceptor()]
+	/// let manager = AdvancedNetworkManager(cache: cache, interceptors: interceptors)
+	///
+	/// // Request with custom cache key and retry policy
+	/// let user: User = try await service.sendRequestAdvanced(
+	///     to: UsersEndpoint(),
+	///     networkManager: manager,
+	///     cacheKey: "user-profile-\(userId)",
+	///     retryPolicy: RetryPolicy(maxRetries: 5, backoff: { attempt in pow(1.5, Double(attempt)) })
+	/// )
+	/// ```
+	///
+	/// ### Advanced Features
+	/// - **Request Deduplication**: Multiple identical requests return the same result
+	/// - **Intelligent Caching**: Automatic cache invalidation and memory management
+	/// - **Retry with Backoff**: Exponential backoff prevents server overload
+	/// - **Interceptors**: Clean separation of cross-cutting concerns
 	func sendRequestAdvanced<ResponseModel>(
 		to endPoint: Endpoint,
 		networkManager: AdvancedNetworkManager = AdvancedNetworkManager(),
 		cacheKey: String? = nil,
 		retryPolicy: RetryPolicy = .default
 	) async throws -> ResponseModel where ResponseModel: Decodable {
-		guard var request = buildAsyncRequest(for: endPoint) else {
+		guard var request = try buildAsyncRequest(for: endPoint) else {
 			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
 		}
 		if let timeout = endPoint.effectiveTimeout {
@@ -139,7 +198,7 @@ public extension AsyncRequestable {
 		}
 		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
 		do {
-			return try JSONDecoder().decode(ResponseModel.self, from: data)
+			return try jsonDecoder.decode(ResponseModel.self, from: data)
 		} catch {
 			throw NetworkError.decodingError(underlyingDescription: error.localizedDescription, data: data)
 		}

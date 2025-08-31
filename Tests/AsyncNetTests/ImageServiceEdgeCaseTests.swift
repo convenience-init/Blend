@@ -34,8 +34,14 @@ struct ImageServiceEdgeCaseTests {
         _ = try await service.fetchImageData(from: urlEvict)
         // Oldest should be evicted
         let oldestUrl = "https://mock.api/test0"
-    let isCached = await service.isImageCached(forKey: oldestUrl)
-    #expect(isCached == false)
+        #expect(await service.isImageCached(forKey: oldestUrl) == false)
+        
+        // Newly inserted item should remain cached
+        #expect(await service.isImageCached(forKey: urlEvict) == true)
+        
+        // Recent items should remain cached (test3 and test4 were the most recent before eviction)
+        #expect(await service.isImageCached(forKey: "https://mock.api/test3") == true)
+        #expect(await service.isImageCached(forKey: "https://mock.api/test4") == true)
     }
 
     @Test func testCacheEvictionMaxAge() async throws {
@@ -48,12 +54,12 @@ struct ImageServiceEdgeCaseTests {
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(cacheCountLimit: 5, cacheTotalCostLimit: 1024 * 1024, urlSession: mockSession)
-    await service.updateCacheConfiguration(ImageService.CacheConfiguration(maxAge: 0.01, maxLRUCount: 5))
-    let url = "https://mock.api/test"
-    _ = try await service.fetchImageData(from: url)
-    try await Task.sleep(nanoseconds: 20_000_000) // 20ms
-    let isCached = await service.isImageCached(forKey: url)
-    #expect(isCached == false)
+        await service.updateCacheConfiguration(ImageService.CacheConfiguration(maxAge: 0.01, maxLRUCount: 5))
+        let url = "https://mock.api/test"
+        _ = try await service.fetchImageData(from: url)
+        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        let isCached = await service.isImageCached(forKey: url)
+        #expect(isCached == false)
     }
 
     @Test func testCacheMetricsHitsMisses() async throws {
@@ -69,8 +75,8 @@ struct ImageServiceEdgeCaseTests {
         let url = "https://mock.api/test"
         _ = try await service.fetchImageData(from: url) // miss
         _ = try await service.fetchImageData(from: url) // hit
-    #expect(await service.cacheHits > 0)
-    #expect(await service.cacheMisses > 0)
+        #expect(await service.cacheMisses == 1)
+        #expect(await service.cacheHits == 1)
     }
 
     @Test func testEvictionAfterCacheConfigUpdate() async throws {

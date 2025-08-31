@@ -58,7 +58,7 @@ extension URLSession: URLSessionProtocol {}
 /// - All legacy synchronous APIs are replaced by async/await and actor isolation.
 /// - Use SwiftUI.Image(platformImage:) for cross-platform SwiftUI integration.
 public actor ImageService {
-    /// Uploads image data using base64-encoded JSON
+    /// Uploads image data as a JSON payload with a base64-encoded image field
     /// - Parameters:
     ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
@@ -157,7 +157,7 @@ public actor ImageService {
     
     private var cacheConfig: CacheConfiguration
     // Efficient O(1) LRU cache tracking
-    private final class LRUNode: @unchecked Sendable {
+    private final class LRUNode {
         let key: NSString
         var prev: LRUNode?
         var next: LRUNode?
@@ -241,7 +241,25 @@ public actor ImageService {
     }
     private let imageCache: NSCache<NSString, PlatformImage>
     private let dataCache: NSCache<NSString, NSData>
-    private let urlSession: URLSessionProtocol
+    private let injectedURLSession: URLSessionProtocol?
+    
+    // Lazy initialization of default URLSession with caching configuration
+    private lazy var defaultURLSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.requestCachePolicy = .useProtocolCachePolicy
+        configuration.urlCache = URLCache(
+            memoryCapacity: 10 * 1024 * 1024, // 10MB memory cache
+            diskCapacity: 100 * 1024 * 1024,  // 100MB disk cache
+            diskPath: nil
+        )
+        return URLSession(configuration: configuration)
+    }()
+    
+    // Computed property that returns the injected session or creates default if needed
+    private var urlSession: URLSessionProtocol {
+        return injectedURLSession ?? defaultURLSession
+    }
+    
     // Deduplication: Track in-flight fetchImageData requests by URL string
     private var inFlightImageTasks: [String: Task<Data, Error>] = [:]
     
@@ -256,19 +274,7 @@ public actor ImageService {
         
         self.interceptors = []
         
-        if let urlSession = urlSession {
-            self.urlSession = urlSession
-        } else {
-            // Create custom URLSession with caching support
-            let configuration = URLSessionConfiguration.default
-            configuration.requestCachePolicy = .useProtocolCachePolicy
-            configuration.urlCache = URLCache(
-                memoryCapacity: 10 * 1024 * 1024, // 10MB memory cache
-                diskCapacity: 100 * 1024 * 1024,  // 100MB disk cache
-                diskPath: nil
-            )
-            self.urlSession = URLSession(configuration: configuration)
-        }
+        self.injectedURLSession = urlSession
     }
     
     // MARK: - Image Fetching
@@ -320,9 +326,9 @@ public actor ImageService {
                 }
                 
                 var request = URLRequest(url: url)
-                // Interceptor: willSend
-                let currentInterceptors = await self.interceptors
-                for interceptor in currentInterceptors {
+                // Apply request interceptors
+                let interceptors = await self.interceptors
+                for interceptor in interceptors {
                     request = await interceptor.willSend(request: request)
                 }
                 
@@ -430,8 +436,14 @@ public actor ImageService {
         body.append(imageDispositionData)
         
         // Determine MIME type: use configured type, or detect from data, or fallback to default
-        let mimeType = configuration.mimeType != "image/jpeg" ? configuration.mimeType :
-                      (detectMimeType(from: imageData) ?? "image/jpeg")
+        let mimeType: String
+        if let detectedType = detectMimeType(from: imageData), configuration.mimeType == "image/jpeg" {
+            // If detection succeeds and user didn't explicitly set a type (using default), use detected type
+            mimeType = detectedType
+        } else {
+            // Use the configured type (whether explicit or default)
+            mimeType = configuration.mimeType
+        }
         
         guard let imageTypeData = "Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) else {
             throw NetworkError.imageProcessingFailed
@@ -522,11 +534,11 @@ public actor ImageService {
     /// Evict expired cache entries based on maxAge
     private func evictExpiredCache() {
         let now = Date().timeIntervalSince1970
-        let expiredKeys = lruDict.filter { now - $0.value.timestamp >= cacheConfig.maxAge }.map { $0.key }
-        for key in expiredKeys {
-            imageCache.removeObject(forKey: key)
-            dataCache.removeObject(forKey: key)
-            if let node = lruDict.removeValue(forKey: key) {
+        for (key, node) in lruDict {
+            if now - node.timestamp >= cacheConfig.maxAge {
+                imageCache.removeObject(forKey: key)
+                dataCache.removeObject(forKey: key)
+                lruDict.removeValue(forKey: key)
                 removeLRUNode(node)
             }
         }
@@ -603,10 +615,11 @@ public actor ImageService {
                 // Check brand
                 if data.count >= 16 {
                     let brandBytes = [UInt8](data[8...11])
-                    let brand = String(bytes: brandBytes, encoding: .ascii)
-                    if brand == "heic" || brand == "heix" || brand == "hevc" || brand == "hevx" ||
-                       brand == "mif1" || brand == "msf1" {
-                        return "image/heic"
+                    if let brand = String(bytes: brandBytes, encoding: .ascii)?.lowercased() {
+                        if brand == "heic" || brand == "heix" || brand == "hevc" || brand == "hevx" ||
+                           brand == "mif1" || brand == "msf1" {
+                            return "image/heic"
+                        }
                     }
                 }
             }
@@ -729,7 +742,7 @@ private struct UploadPayload: Encodable {
         try container.encode(fieldName, forKey: DynamicCodingKeys(stringValue: "fieldName")!)
         try container.encode(fileName, forKey: DynamicCodingKeys(stringValue: "fileName")!)
         try container.encode(compressionQuality, forKey: DynamicCodingKeys(stringValue: "compressionQuality")!)
-        try container.encode(base64Data, forKey: DynamicCodingKeys(stringValue: fieldName)!)
+        try container.encode(base64Data, forKey: DynamicCodingKeys(stringValue: "data")!)
         
         // Encode additional fields
         for (key, value) in additionalFields {
@@ -737,16 +750,6 @@ private struct UploadPayload: Encodable {
         }
     }
 }
-
-#if !os(Linux)
-extension Data {
-    mutating func append(_ string: String) {
-        if let data = string.data(using: .utf8) {
-            append(data)
-        }
-    }
-}
-#endif
 
 // MARK: - SwiftUI Image Extension
 #if canImport(SwiftUI)

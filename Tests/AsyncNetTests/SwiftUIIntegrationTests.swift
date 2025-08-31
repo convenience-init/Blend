@@ -98,5 +98,31 @@ struct SwiftUIIntegrationTests {
         // The continuation completing successfully means an error callback was invoked
         #expect(model.isUploading == false)
     }
+    
+    @Test func testAsyncNetImageViewRetryFunctionality() async {
+        let service = ImageService()
+        let model = AsyncImageModel(imageService: service)
+        
+        // First, simulate a failed load
+        let failedSession = MockURLSession(nextError: NetworkError.networkUnavailable)
+        let failedService = ImageService(urlSession: failedSession)
+        let failedModel = AsyncImageModel(imageService: failedService)
+        
+        await failedModel.loadImage(from: "https://mock.api/fail")
+        #expect(failedModel.loadedImage == nil)
+        #expect(failedModel.hasError == true)
+        #expect(failedModel.error != nil)
+        
+        // Now simulate a successful retry
+        let successSession = makeMockSession()
+        let successService = ImageService(urlSession: successSession)
+        let successModel = AsyncImageModel(imageService: successService)
+        
+        // Retry the load (this simulates what the retry button would do)
+        await successModel.loadImage(from: "https://mock.api/test")
+        #expect(successModel.loadedImage != nil)
+        #expect(successModel.hasError == false)
+        #expect(successModel.isLoading == false)
+    }
 }
 #endif
