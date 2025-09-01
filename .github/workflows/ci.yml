@@ -61,6 +61,8 @@ jobs:
       - name: Set up Swift (macOS SPM)
         if: runner.os == 'macOS' && matrix.target == 'macos' && matrix.build == 'spm'
         uses: swift-actions/setup-swift@v2.3.0
+        with:
+          swift-version: ${{ matrix.swift }}
 
       - name: Set up Xcode (macOS/iOS/tvOS)
         if: runner.os == 'macOS' && matrix.build == 'xcode'
@@ -299,7 +301,12 @@ jobs:
 
       - name: Test macOS SPM
         if: matrix.target == 'macos' && matrix.build == 'spm'
-        run: swift test --enable-code-coverage
+        run: |
+          if [[ "${{ matrix.swift }}" == 6.* ]]; then
+            swift test -Xswiftc -strict-concurrency=complete --enable-code-coverage
+          else
+            swift test --enable-code-coverage
+          fi
 
       - name: Test macOS Xcode
         if: matrix.target == 'macos' && matrix.build == 'xcode'

@@ -547,7 +547,7 @@ struct MyApp: App {
             ContentView()
                 .environment(\.imageService, imageService)
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
+        .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .background:
                 // Clear cache when app goes to background
@@ -580,7 +580,7 @@ struct SensitiveContentView: View {
             Text("Sensitive Content")
             // Your sensitive content here
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
+        .onChange(of: scenePhase) { newPhase in
             if newPhase == .background {
                 Task {
                     await imageService.clearCache()

@@ -245,10 +245,18 @@ public actor DefaultNetworkCache: NetworkCache {
         var nodesToRemove: [Node] = []
         let cleanupLimit = min(10, cache.count / 4)  // Check up to 25% or 10 entries
         var checked = 0
+        var visitedNodes = Set<ObjectIdentifier>()
 
         // Start from tail and work backwards, checking for expired entries
         var current = tail
-        while let node = current, checked < cleanupLimit {
+        while let node = current, checked < cleanupLimit, checked < cache.count {
+            // Cycle detection: break if we've seen this node before
+            let nodeId = ObjectIdentifier(node)
+            if visitedNodes.contains(nodeId) {
+                break
+            }
+            visitedNodes.insert(nodeId)
+
             if now - node.timestamp >= expiration {
                 nodesToRemove.append(node)
             }
@@ -306,6 +314,9 @@ public actor AdvancedNetworkManager {
             return try await task.value
         }
         let newTask = Task<Data, Error> {
+            // Check for cancellation at the start
+            try Task.checkCancellation()
+
             var interceptedRequest = request
             for interceptor in interceptors {
                 interceptedRequest = await interceptor.willSend(request: interceptedRequest)
@@ -316,6 +327,9 @@ public actor AdvancedNetworkManager {
             var lastError: Error?
             // Initial attempt plus maxRetries additional attempts
             for attempt in 0...(retryPolicy.maxRetries) {
+                // Check for cancellation before each retry attempt
+                try Task.checkCancellation()
+
                 do {
                     let (data, response) = try await urlSession.data(for: interceptedRequest)
                     for interceptor in interceptors {
@@ -413,8 +427,19 @@ public actor AdvancedNetworkManager {
                 ?? NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
         }
         inFlightTasks[key] = newTask
-        defer { inFlightTasks.removeValue(forKey: key) }
-        return try await newTask.value
+        defer {
+            inFlightTasks.removeValue(forKey: key)
+        }
+
+        do {
+            return try await newTask.value
+        } catch {
+            // If this task was cancelled, cancel the stored task too
+            if error is CancellationError {
+                newTask.cancel()
+            }
+            throw error
+        }
     }
 
     /// Generates a deterministic cache key from request components

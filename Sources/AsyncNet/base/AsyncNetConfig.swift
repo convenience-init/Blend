@@ -21,8 +21,8 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
         case .invalidTimeoutDuration:
             return "Provide a finite timeout duration greater than 0 seconds."
         case .invalidMaxUploadSize:
-            let minMB = AsyncNetConfig.minUploadSize / (1024 * 1024)
-            let maxMB = AsyncNetConfig.maxUploadSize / (1024 * 1024)
+            let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
+            let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
             return
                 "Provide a maximum upload size between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
         }
@@ -97,9 +97,9 @@ public actor AsyncNetConfig {
                     _maxUploadSize = size
                 } else {
                     // Log warning for out-of-bounds values
-                    let minMB = AsyncNetConfig.minUploadSize / (1024 * 1024)
-                    let maxMB = AsyncNetConfig.maxUploadSize / (1024 * 1024)
-                    let providedMB = size / (1024 * 1024)
+                    let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
+                    let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
+                    let providedMB = Double(size) / 1024.0 / 1024.0
 
                     print(
                         "Warning: ASYNC_NET_MAX_UPLOAD_SIZE value \(size) bytes (\(providedMB) MB) is out of range. "
@@ -157,9 +157,9 @@ public actor AsyncNetConfig {
     /// - Throws: AsyncNetConfigError.invalidMaxUploadSize if the size is invalid
     public func setMaxUploadSize(_ size: Int) throws(AsyncNetConfigError) {
         guard size >= AsyncNetConfig.minUploadSize && size <= AsyncNetConfig.maxUploadSize else {
-            let minMB = AsyncNetConfig.minUploadSize / (1024 * 1024)
-            let maxMB = AsyncNetConfig.maxUploadSize / (1024 * 1024)
-            let providedMB = size / (1024 * 1024)
+            let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
+            let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
+            let providedMB = Double(size) / 1024.0 / 1024.0
             throw .invalidMaxUploadSize(
                 "Size must be between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB), got \(size) bytes (\(providedMB) MB)"
             )

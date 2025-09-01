@@ -58,12 +58,9 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
 
     private static let l10nBundle: Bundle = {
         #if SWIFT_PACKAGE
-            // For Swift packages, try to find the bundle by identifier
-            let bundleIdentifier = "com.convenience-init.AsyncNet"
-            if let bundle = Bundle(identifier: bundleIdentifier) {
-                return bundle
-            }
-            // Fallback to the bundle containing this class
+            // For Swift packages, prefer Bundle.module (Swift 5.3+) when available
+            // If Bundle.module is not available in this environment, fallback to Bundle(for:)
+            // TODO: Use Bundle.module when the package is configured to support it
             return Bundle(for: BundleHelper.self)
         #else
             // For non-package builds, use the bundle containing this class
@@ -735,6 +732,14 @@ extension NetworkError {
                 return .transportError(code: urlError.code, underlying: urlError)
             case .cancelled:
                 return .requestCancelled
+            case .badURL:
+                return .invalidEndpoint(reason: "Bad URL")
+            case .unsupportedURL:
+                return .invalidEndpoint(reason: "Unsupported URL")
+            case .userAuthenticationRequired:
+                return .authenticationFailed
+            case .serverCertificateUntrusted:
+                return .transportError(code: urlError.code, underlying: urlError)
             default:
                 return .transportError(code: urlError.code, underlying: urlError)
             }

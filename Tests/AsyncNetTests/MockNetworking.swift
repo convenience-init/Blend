@@ -123,7 +123,7 @@ actor MockURLSession: URLSessionProtocol {
         }
 
         guard currentCallIndex < scriptedScripts.count else {
-            throw NetworkError.outOfScriptBounds(call: currentCallIndex + 1)
+            throw NetworkError.outOfScriptBounds(call: currentCallIndex)
         }
 
         let script = scriptedScripts[currentCallIndex]
@@ -138,7 +138,7 @@ actor MockURLSession: URLSessionProtocol {
             let missingData = script.data == nil
             let missingResponse = script.response == nil
             throw NetworkError.invalidMockConfiguration(
-                callIndex: currentCallIndex + 1,
+                callIndex: currentCallIndex,
                 missingData: missingData,
                 missingResponse: missingResponse
             )
@@ -155,20 +155,66 @@ actor MockURLSession: URLSessionProtocol {
 
 /// MockEndpoint for testing Endpoint protocol
 struct MockEndpoint: Endpoint, Equatable {
-    /// Properties are mutable to allow test overrides and convenient configuration in test scenarios.
-    var scheme: URLScheme = .https
-    var host: String = "mock.api"
-    var path: String = "/test"
-    var method: RequestMethod = .get
-    var headers: [String: String]? = nil
-    var queryItems: [URLQueryItem]? = nil
-    var contentType: String? = "application/json"
-    var timeout: TimeInterval? = nil
-    var timeoutDuration: Duration? = nil
-    var body: Data? = nil
-    var port: Int? = nil
-    var fragment: String? = nil
-    init() {}
+    /// Properties are immutable for thread-safety and Swift 6 concurrency compliance.
+    /// Use factory methods or initializers to create configured instances for testing.
+    let scheme: URLScheme
+    let host: String
+    let path: String
+    let method: RequestMethod
+    let headers: [String: String]?
+    let queryItems: [URLQueryItem]?
+    let contentType: String?
+    let timeout: TimeInterval?
+    let timeoutDuration: Duration?
+    var body: Data?
+    let port: Int?
+    let fragment: String?
+
+    init(
+        scheme: URLScheme = .https,
+        host: String = "mock.api",
+        path: String = "/test",
+        method: RequestMethod = .get,
+        headers: [String: String]? = nil,
+        queryItems: [URLQueryItem]? = nil,
+        contentType: String? = "application/json",
+        timeout: TimeInterval? = nil,
+        timeoutDuration: Duration? = nil,
+        body: Data? = nil,
+        port: Int? = nil,
+        fragment: String? = nil
+    ) {
+        self.scheme = scheme
+        self.host = host
+        self.path = path
+        self.method = method
+        self.headers = headers
+        self.queryItems = queryItems
+        self.contentType = contentType
+        self.timeout = timeout
+        self.timeoutDuration = timeoutDuration
+        self.body = body
+        self.port = port
+        self.fragment = fragment
+    }
+
+    /// Convenience initializer for default test configuration
+    init() {
+        self.init(
+            scheme: .https,
+            host: "mock.api",
+            path: "/test",
+            method: .get,
+            headers: nil,
+            queryItems: nil,
+            contentType: "application/json",
+            timeout: nil,
+            timeoutDuration: nil,
+            body: nil,
+            port: nil,
+            fragment: nil
+        )
+    }
 
     /// Equatable conformance for test assertions
     static func == (lhs: MockEndpoint, rhs: MockEndpoint) -> Bool {
@@ -189,10 +235,7 @@ extension MockEndpoint {
     /// - Returns: Configured MockEndpoint
     static func withTimeout(duration: Duration? = nil, legacy: TimeInterval? = nil) -> MockEndpoint
     {
-        var endpoint = MockEndpoint()
-        endpoint.timeoutDuration = duration
-        endpoint.timeout = legacy
-        return endpoint
+        return MockEndpoint(timeout: legacy, timeoutDuration: duration)
     }
 
     /// Test endpoint demonstrating Duration-based timeout

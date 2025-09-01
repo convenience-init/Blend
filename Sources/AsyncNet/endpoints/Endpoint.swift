@@ -16,6 +16,9 @@ public enum URLScheme: String, Sendable {
 /// Conform to `Endpoint` to specify all necessary components for a network request, including scheme, host, path, method, headers, query items, and body.
 ///
 /// - Important: All properties must be thread-safe and immutable for strict Swift 6 concurrency compliance.
+///               The `headers` property is an exception - it may be mutable during endpoint construction but must be
+///               treated as effectively immutable once the endpoint is used for network requests. Thread-safety is
+///               ensured through the `Sendable` requirement and value semantics of `[String: String]`.
 /// - Note: Use `body: Data?` for request payloads.
 /// - Note: The `path` property must start with "/" (e.g., "/users", "/api/v1/posts").
 ///         Callers are responsible for supplying the leading slash.
@@ -47,13 +50,45 @@ public enum URLScheme: String, Sendable {
 ///     // Use resolvedHeaders for normalized header handling:
 ///     // var allHeaders = resolvedHeaders  // Merges headers + contentType safely
 /// }
+///
+/// // For dynamic header construction, use immutable patterns:
+/// struct DynamicEndpoint: Endpoint {
+///     let scheme: URLScheme
+///     let host: String
+///     let path: String
+///     let method: RequestMethod
+///     let headers: [String: String]?  // Immutable after construction
+///     let queryItems: [URLQueryItem]?
+///     let contentType: String?
+///     let timeout: TimeInterval?
+///     let timeoutDuration: Duration?
+///     let body: Data?
+///     let port: Int?
+///     let fragment: String?
+///
+///     init(token: String, additionalHeaders: [String: String] = [:]) {
+///         self.scheme = .https
+///         self.host = "api.example.com"
+///         self.path = "/users"
+///         self.method = .get
+///         // Build headers immutably during initialization
+///         self.headers = ["Authorization": "Bearer \(token)"].merging(additionalHeaders) { $1 }
+///         self.queryItems = nil
+///         self.contentType = "application/json"
+///         self.timeout = nil
+///         self.timeoutDuration = .seconds(30)
+///         self.body = nil
+///         self.port = nil
+///         self.fragment = nil
+///     }
+/// }
 /// ```
 public protocol Endpoint: Sendable {
 	var scheme: URLScheme { get }
 	var host: String { get }
 	var path: String { get }
 	var method: RequestMethod { get }
-	var headers: [String: String]? { get set }
+	var headers: [String: String]? { get }
 	var queryItems: [URLQueryItem]? { get }
 	var contentType: String? { get }
 	var timeout: TimeInterval? { get }
@@ -67,7 +102,7 @@ public protocol Endpoint: Sendable {
 	var fragment: String? { get }
 
 	@available(*, deprecated, message: "Use `headers`")
-	var header: [String: String]? { get set }
+	var header: [String: String]? { get }
 }
 
 // MARK: - Header Normalization
@@ -75,7 +110,6 @@ extension Endpoint {
 	@available(*, deprecated, message: "Use `headers`")
 	public var header: [String: String]? {
 		get { headers }
-		set { headers = newValue }
 	}
 
 	/// Returns a normalized headers dictionary that merges `headers` with `contentType`.
