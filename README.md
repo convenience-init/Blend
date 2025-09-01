@@ -94,7 +94,7 @@ class UserService: AsyncRequestable {
 
 ```swift
 import AsyncNet
-
+import SwiftUI
 // Platform-conditional imports at the top level
 #if canImport(UIKit)
 import UIKit
@@ -241,7 +241,7 @@ struct ProfileView: View {
 
 // Requirements:
 // - iOS 15.0+ / macOS 12.0+ (for SwiftUI support)
-// - iOS 17.0+ / macOS 14.0+ (minimum AsyncNet support)
+// - iOS 18.0+ / macOS 15.0+ (minimum AsyncNet support)
 // - iOS 18.0+ / macOS 15.0+ (recommended for full feature support)
 // - Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
 // - Xcode 16+ (or Swift 6 toolchain) recommended

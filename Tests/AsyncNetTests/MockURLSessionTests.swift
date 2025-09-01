@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import AsyncNet
 
 /// Unit tests for MockURLSession functionality
@@ -18,9 +19,9 @@ struct MockURLSessionTests {
         )!
 
         let mockSession = MockURLSession(
-            scriptedData: [imageData], // Valid data present
-            scriptedResponses: [response], // Valid response present
-            scriptedErrors: [NetworkError.networkUnavailable] // But error should take precedence
+            scriptedData: [imageData],  // Valid data present
+            scriptedResponses: [response],  // Valid response present
+            scriptedErrors: [NetworkError.networkUnavailable]  // But error should take precedence
         )
 
         // Call should fail with the scripted error, not return the data/response
@@ -43,9 +44,9 @@ struct MockURLSessionTests {
         )!
 
         let mockSession = MockURLSession(
-            scriptedData: [nil, imageData], // First call: no data, Second call: success data
-            scriptedResponses: [nil, successResponse], // First call: no response, Second call: success response
-            scriptedErrors: [NetworkError.networkUnavailable, nil] // First call: error, Second call: no error
+            scriptedData: [nil, imageData],  // First call: no data, Second call: success data
+            scriptedResponses: [nil, successResponse],  // First call: no response, Second call: success response
+            scriptedErrors: [NetworkError.networkUnavailable, nil]  // First call: error, Second call: no error
         )
 
         // Create single reused request
@@ -99,8 +100,13 @@ struct MockURLSessionTests {
             _ = try await mockSession.data(for: URLRequest(url: testURL))
             #expect(Bool(false), "Second call should have failed due to out-of-bounds")
         } catch {
-            if case let .outOfScriptBounds(call) = error as? NetworkError {
-                #expect(call == 2, "Expected out-of-bounds error for call 2")
+            if let networkError = error as? NetworkError {
+                if case let .outOfScriptBounds(call) = networkError {
+                    #expect(call == 2, "Expected out-of-bounds error for call 2")
+                } else {
+                    #expect(
+                        Bool(false), "Expected NetworkError.outOfScriptBounds but got: \(error)")
+                }
             } else {
                 #expect(Bool(false), "Expected NetworkError.outOfScriptBounds but got: \(error)")
             }
@@ -119,7 +125,8 @@ struct MockURLSessionTests {
             httpVersion: nil,
             headerFields: ["Content-Type": "image/jpeg"]
         )!
-        let customError = NetworkError.customError("Custom test error", details: "Testing error precedence")
+        let customError = NetworkError.customError(
+            "Custom test error", details: "Testing error precedence")
 
         let mockSession = MockURLSession(
             scriptedData: [imageData],
@@ -132,7 +139,9 @@ struct MockURLSessionTests {
             _ = try await mockSession.data(for: URLRequest(url: testURL))
             #expect(Bool(false), "Expected custom error to be thrown")
         } catch {
-            if case let .customError(message, details) = error as? NetworkError {
+            if let networkError = error as? NetworkError,
+                case let .customError(message, details) = networkError
+            {
                 #expect(message == "Custom test error")
                 #expect(details == "Testing error precedence")
             } else {
@@ -154,7 +163,8 @@ struct MockURLSessionTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
 
-        let mockSession = MockURLSession(nextData: imageData, nextResponse: response, nextError: nil)
+        let mockSession = MockURLSession(
+            nextData: imageData, nextResponse: response, nextError: nil)
 
         do {
             let (data, responseResult) = try await mockSession.data(for: URLRequest(url: testURL))
@@ -179,9 +189,9 @@ struct MockURLSessionTests {
         )!
 
         let mockSession = MockURLSession(
-            scriptedData: [imageData, nil, imageData], // Call 0: data + error, Call 1: no data, Call 2: data only
+            scriptedData: [imageData, nil, imageData],  // Call 0: data + error, Call 1: no data, Call 2: data only
             scriptedResponses: [response, nil, response],
-            scriptedErrors: [NetworkError.networkUnavailable, nil, nil] // Call 0: error, Call 1: no error, Call 2: no error
+            scriptedErrors: [NetworkError.networkUnavailable, nil, nil]  // Call 0: error, Call 1: no error, Call 2: no error
         )
 
         // First call should fail due to error precedence
@@ -196,10 +206,15 @@ struct MockURLSessionTests {
             #expect(Bool(false), "Expected error for call with no data/response")
         } catch {
             // This should probably be some kind of error when no data/response is available
-            if case let .outOfScriptBounds(call) = error as? NetworkError {
-                #expect(call == 2, "Expected outOfScriptBounds error for call 2 with no data/response")
+            if let networkError = error as? NetworkError,
+                case let .outOfScriptBounds(call) = networkError
+            {
+                #expect(
+                    call == 2, "Expected outOfScriptBounds error for call 2 with no data/response")
             } else {
-                #expect(Bool(false), "Expected NetworkError.outOfScriptBounds for call with no data/response")
+                #expect(
+                    Bool(false),
+                    "Expected NetworkError.outOfScriptBounds for call with no data/response")
             }
         }
 
@@ -220,67 +235,77 @@ struct MockURLSessionTests {
         // Test 1: Case-insensitive content-type canonicalization
         var endpoint1 = MockEndpoint()
         endpoint1.headers = ["content-type": "text/plain", "Authorization": "Bearer token"]
-        endpoint1.contentType = "application/json" // Should be ignored since content-type exists
-        
+        endpoint1.contentType = "application/json"  // Should be ignored since content-type exists
+
         guard let resolved = endpoint1.resolvedHeaders else {
             #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
             return
         }
-        #expect(resolved["Content-Type"] == "text/plain", "Should canonicalize content-type to Content-Type")
+        #expect(
+            resolved["Content-Type"] == "text/plain",
+            "Should canonicalize content-type to Content-Type")
         #expect(resolved["Authorization"] == "Bearer token")
         #expect(resolved.count == 2)
-        
+
         // Test 2: Empty/whitespace header trimming
         var endpoint2 = MockEndpoint()
         endpoint2.headers = ["content-type": "  ", "X-Empty": "", "X-Valid": "value"]
         endpoint2.contentType = nil
-        
+
         guard let resolved = endpoint2.resolvedHeaders else {
             #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
             return
         }
         #expect(resolved["X-Valid"] == "value", "Should keep valid headers")
         #expect(resolved.count == 1, "Should drop empty/whitespace headers")
-        
+
         // Test 3: contentType injection when no existing content-type (requires body)
         var endpoint3 = MockEndpoint()
         endpoint3.headers = ["Authorization": "Bearer token"]
         endpoint3.contentType = "application/json"
-        endpoint3.body = Data("test body".utf8) // Add body to trigger Content-Type injection
-        
+        endpoint3.body = Data("test body".utf8)  // Add body to trigger Content-Type injection
+
         guard let resolved = endpoint3.resolvedHeaders else {
-            #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
+            #expect(
+                Bool(false),
+                "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
             return
         }
-        #expect(resolved["Content-Type"] == "application/json", "Should inject contentType as Content-Type when body is present")
+        #expect(
+            resolved["Content-Type"] == "application/json",
+            "Should inject contentType as Content-Type when body is present")
         #expect(resolved["Authorization"] == "Bearer token")
         #expect(resolved.count == 2)
-        
+
         // Test 4: Empty contentType should not be injected
         var endpoint4 = MockEndpoint()
         endpoint4.headers = ["Authorization": "Bearer token"]
-        endpoint4.contentType = "   " // Whitespace only
-        endpoint4.body = Data("test body".utf8) // Add body to test the contentType logic
-        
+        endpoint4.contentType = "   "  // Whitespace only
+        endpoint4.body = Data("test body".utf8)  // Add body to test the contentType logic
+
         guard let resolved = endpoint4.resolvedHeaders else {
-            #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
+            #expect(
+                Bool(false),
+                "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
             return
         }
         #expect(resolved["Content-Type"] == nil, "Should not inject empty/whitespace contentType")
         #expect(resolved["Authorization"] == "Bearer token")
         #expect(resolved.count == 1)
-        
+
         // Test 5: Mixed case content-type keys
         var endpoint5 = MockEndpoint()
         // Use a more predictable approach: single key that should be canonicalized
         endpoint5.headers = ["content-type": "application/xml"]
-        endpoint5.contentType = "application/json" // Should be ignored since content-type exists
-        
+        endpoint5.contentType = "application/json"  // Should be ignored since content-type exists
+
         guard let resolved = endpoint5.resolvedHeaders else {
             #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
             return
         }
-        #expect(resolved["Content-Type"] == "application/xml", "Should canonicalize content-type to Content-Type")
+        #expect(
+            resolved["Content-Type"] == "application/xml",
+            "Should canonicalize content-type to Content-Type")
         #expect(resolved.count == 1)
     }
 }

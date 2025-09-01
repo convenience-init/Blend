@@ -1,5 +1,6 @@
-import Testing
 import Foundation
+import Testing
+
 @testable import AsyncNet
 
 @Suite("Image Service Edge Case Tests")
@@ -18,7 +19,12 @@ struct ImageServiceEdgeCaseTests {
             scriptedResponses: Array(repeating: response, count: 6),
             scriptedErrors: Array(repeating: nil as Error?, count: 6)
         )
-        let service = ImageService(cacheCountLimit: 5, cacheTotalCostLimit: 1024 * 1024, urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 5,
+            imageCacheTotalCostLimit: 1024 * 1024,
+            dataCacheCountLimit: 5,
+            dataCacheTotalCostLimit: 1024 * 1024,
+            urlSession: mockSession)
         // Fill cache
         for i in 0..<5 {
             let url = "https://mock.api/test\(i)"
@@ -30,14 +36,14 @@ struct ImageServiceEdgeCaseTests {
         // Oldest should be evicted
         let oldestUrl = "https://mock.api/test0"
         #expect(await service.isImageCached(forKey: oldestUrl) == false)
-        
+
         // Newly inserted item should remain cached
         #expect(await service.isImageCached(forKey: urlEvict) == true)
-        
+
         // Mid-range items should remain cached (test1 and test2 were not the oldest)
         #expect(await service.isImageCached(forKey: "https://mock.api/test1") == true)
         #expect(await service.isImageCached(forKey: "https://mock.api/test2") == true)
-        
+
         // Recent items should remain cached (test3 and test4 were the most recent before eviction)
         #expect(await service.isImageCached(forKey: "https://mock.api/test3") == true)
         #expect(await service.isImageCached(forKey: "https://mock.api/test4") == true)
@@ -52,22 +58,28 @@ struct ImageServiceEdgeCaseTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(cacheCountLimit: 5, cacheTotalCostLimit: 1024 * 1024, urlSession: mockSession)
-        
+        let service = ImageService(
+            imageCacheCountLimit: 5,
+            imageCacheTotalCostLimit: 1024 * 1024,
+            dataCacheCountLimit: 5,
+            dataCacheTotalCostLimit: 1024 * 1024,
+            urlSession: mockSession)
+
         // Set a conservative maxAge for testing cache expiry (avoids flakiness on slower CI/hosts)
-        let maxAge: TimeInterval = 0.1 // 100ms - conservative value for reliable testing
-        await service.updateCacheConfiguration(ImageService.CacheConfiguration(maxAge: maxAge, maxLRUCount: 5))
-        
+        let maxAge: TimeInterval = 0.1  // 100ms - conservative value for reliable testing
+        await service.updateCacheConfiguration(
+            ImageService.CacheConfiguration(maxAge: maxAge, maxLRUCount: 5))
+
         let url = "https://mock.api/test"
         _ = try await service.fetchImageData(from: url)
-        
+
         // Verify image is cached immediately after fetching
         #expect(await service.isImageCached(forKey: url) == true)
-        
+
         // Sleep for maxAge duration plus generous buffer to ensure expiry on slower systems
-        let sleepDuration = UInt64(maxAge * 1_000_000_000) + 100_000_000 // maxAge + 100ms buffer
+        let sleepDuration = UInt64(maxAge * 1_000_000_000) + 100_000_000  // maxAge + 100ms buffer
         try await Task.sleep(nanoseconds: sleepDuration)
-        
+
         // Verify image is no longer cached after expiry
         let isCached = await service.isImageCached(forKey: url)
         #expect(isCached == false, "Image should be evicted after maxAge expiry")
@@ -82,10 +94,15 @@ struct ImageServiceEdgeCaseTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 100,
+            dataCacheTotalCostLimit: 50 * 1024 * 1024,
+            urlSession: mockSession)
         let url = "https://mock.api/test"
-        _ = try await service.fetchImageData(from: url) // miss
-        _ = try await service.fetchImageData(from: url) // hit
+        _ = try await service.fetchImageData(from: url)  // miss
+        _ = try await service.fetchImageData(from: url)  // hit
         #expect(await service.cacheMisses == 1)
         #expect(await service.cacheHits == 1)
     }
@@ -98,34 +115,52 @@ struct ImageServiceEdgeCaseTests {
             httpVersion: nil,
             headerFields: ["Content-Type": "image/jpeg"]
         )!
-        // Provide enough scripted responses for all the calls this test makes (7 calls total: 6 inserts + 1 access check)
+        // Provide enough scripted responses for all the calls this test makes (6 calls total: 6 inserts)
         let mockSession = MockURLSession(
-            scriptedData: Array(repeating: imageData, count: 7),
-            scriptedResponses: Array(repeating: response, count: 7),
-            scriptedErrors: Array(repeating: nil as Error?, count: 7)
+            scriptedData: Array(repeating: imageData, count: 6),
+            scriptedResponses: Array(repeating: response, count: 6),
+            scriptedErrors: Array(repeating: nil as Error?, count: 6)
         )
-        let service = ImageService(cacheCountLimit: 5, cacheTotalCostLimit: 1024 * 1024, urlSession: mockSession)
+        // Start with a higher limit, then reduce it to trigger eviction after a config update.
+        let service = ImageService(
+            imageCacheCountLimit: 6,
+            imageCacheTotalCostLimit: 1024 * 1024,
+            dataCacheCountLimit: 6,
+            dataCacheTotalCostLimit: 1024 * 1024,
+            urlSession: mockSession)
         // Fill cache to capacity
-        for i in 0..<5 {
+        for i in 0..<6 {
             let url = "https://mock.api/test\(i)"
             _ = try await service.fetchImageData(from: url)
         }
-        // Add one more to exceed capacity and trigger eviction
-        let urlEvict = "https://mock.api/test5"
-        _ = try await service.fetchImageData(from: urlEvict)
-        // Oldest should be evicted (test0)
+        // Reduce limit to trigger eviction due to config update
+        await service.updateCacheConfiguration(
+            ImageService.CacheConfiguration(maxAge: 60, maxLRUCount: 5))
+        // Oldest should be evicted (test0) after config change
         let oldestUrl = "https://mock.api/test0"
-        #expect(await service.isImageCached(forKey: oldestUrl) == false, "Oldest item (test0) should be evicted when cache exceeds limit of 5")
-        
-        // Newly inserted item should remain cached
-        #expect(await service.isImageCached(forKey: urlEvict) == true, "Newly inserted item (test5) should remain cached")
-        
+        #expect(
+            await service.isImageCached(forKey: oldestUrl) == false,
+            "Oldest item (test0) should be evicted when limit is reduced to 5")
+
+        // Most recent item should remain cached
+        #expect(
+            await service.isImageCached(forKey: "https://mock.api/test5") == true,
+            "Most recent item (test5) should remain cached")
+
         // Mid-range items should remain cached (test1 and test2 were not the oldest)
-        #expect(await service.isImageCached(forKey: "https://mock.api/test1") == true, "Mid-range item (test1) should remain cached")
-        #expect(await service.isImageCached(forKey: "https://mock.api/test2") == true, "Mid-range item (test2) should remain cached")
-        
+        #expect(
+            await service.isImageCached(forKey: "https://mock.api/test1") == true,
+            "Mid-range item (test1) should remain cached")
+        #expect(
+            await service.isImageCached(forKey: "https://mock.api/test2") == true,
+            "Mid-range item (test2) should remain cached")
+
         // Recent items should remain cached (test3 and test4 were the most recent before eviction)
-        #expect(await service.isImageCached(forKey: "https://mock.api/test3") == true, "Recent item (test3) should remain cached")
-        #expect(await service.isImageCached(forKey: "https://mock.api/test4") == true, "Recent item (test4) should remain cached")
+        #expect(
+            await service.isImageCached(forKey: "https://mock.api/test3") == true,
+            "Recent item (test3) should remain cached")
+        #expect(
+            await service.isImageCached(forKey: "https://mock.api/test4") == true,
+            "Recent item (test4) should remain cached")
     }
 }

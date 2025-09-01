@@ -79,8 +79,12 @@ jobs:
 
       - name: Build (macOS SPM)
         if: matrix.target == 'macos' && matrix.build == 'spm'
-        run: swift build -Xswiftc -strict-concurrency=complete
-
+        run: |
+          if [[ "${{ matrix.swift }}" == 6.* ]]; then
+            swift build -Xswiftc -strict-concurrency=complete
+          else
+            swift build
+          fi
       - name: Build (macOS Xcode)
         if: matrix.target == 'macos' && matrix.build == 'xcode'
         run: xcodebuild -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
@@ -89,13 +93,29 @@ jobs:
         if: matrix.target == 'ios'
         id: find_ios_simulator
         run: |
-          # Find the first available iOS simulator
-          SIMULATOR=$(xcrun simctl list devices available | grep -E "iPhone.*\([0-9]+\.[0-9]+\)" | head -1 | sed 's/.*(\([^)]*\)).*/\1/')
+          # Parse simctl list --json to find an available iPhone device
+          SIMULATOR=""
+          
+          # Get JSON output and parse for available iPhone devices
+          JSON_OUTPUT=$(xcrun simctl list --json devices available)
+          
+          # Extract device names that are iPhones and available
+          SIMULATOR=$(echo "$JSON_OUTPUT" | jq -r '
+            .devices | 
+            to_entries[] | 
+            select(.key | contains("iOS")) | 
+            .value[] | 
+            select(.name | contains("iPhone")) | 
+            select(.isAvailable == true) | 
+            select(.state == "Shutdown" or .state == "Booted") | 
+            .name' | head -1)
+          
+          # Fallback to iPhone 14 if no valid device found
           if [ -z "$SIMULATOR" ]; then
-            # Fallback to a generic iOS simulator if specific one not found
             SIMULATOR="iPhone 14"
           fi
-          echo "ios_simulator=$SIMULATOR" >> $GITHUB_OUTPUT
+          
+          echo "ios_simulator=$SIMULATOR" >> "$GITHUB_OUTPUT"
           echo "Found iOS Simulator: $SIMULATOR"
 
       - name: Build (iOS)
@@ -106,18 +126,30 @@ jobs:
         if: matrix.target == 'tvos'
         id: find_tvos_simulator
         run: |
-          # Find the first available tvOS simulator
-          SIMULATOR=$(xcrun simctl list devices available | grep -E "Apple TV.*\([0-9]+\.[0-9]+\)" | head -1 | sed 's/.*(\([^)]*\)).*/\1/')
+          # Parse simctl list --json to find an available Apple TV device
+          SIMULATOR=""
+          
+          # Get JSON output and parse for available Apple TV devices
+          JSON_OUTPUT=$(xcrun simctl list --json devices available)
+          
+          # Extract device names that are Apple TVs and available
+          SIMULATOR=$(echo "$JSON_OUTPUT" | jq -r '
+            .devices | 
+            to_entries[] | 
+            select(.key | contains("tvOS")) | 
+            .value[] | 
+            select(.name | contains("Apple TV")) | 
+            select(.isAvailable == true) | 
+            select(.state == "Shutdown" or .state == "Booted") | 
+            .name' | head -1)
+          
+          # Fallback to Apple TV 4K if no valid device found
           if [ -z "$SIMULATOR" ]; then
-            # Fallback to a generic tvOS simulator if specific one not found
             SIMULATOR="Apple TV 4K"
           fi
-          echo "tvos_simulator=$SIMULATOR" >> $GITHUB_OUTPUT
+          
+          echo "tvos_simulator=$SIMULATOR" >> "$GITHUB_OUTPUT"
           echo "Found tvOS Simulator: $SIMULATOR"
-
-      - name: Build (tvOS)
-        if: matrix.target == 'tvos'
-        run: xcodebuild -scheme AsyncNet -destination "platform=tvOS Simulator,name=${{ steps.find_tvos_simulator.outputs.tvos_simulator }},OS=latest" -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Verify iOS Simulators
         if: matrix.target == 'ios'
@@ -157,11 +189,11 @@ jobs:
           PROFDATA_PATH=$(find . -name "*.profdata" -type f | head -1)
           
           if [ -n "$PROFDATA_PATH" ] && [ -f "$PROFDATA_PATH" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "profdata_path=$PROFDATA_PATH" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "profdata_path=$PROFDATA_PATH" >> "$GITHUB_OUTPUT"
             echo "Found profdata at: $PROFDATA_PATH"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "No profdata files found"
           fi
 

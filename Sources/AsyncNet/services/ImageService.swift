@@ -237,7 +237,8 @@ public actor ImageService {
             do {
                 return try await operation()
             } catch {
-                let wrappedError = NetworkError.wrap(error)  // swiftlint:disable:this deprecated_function_usage
+                let wrappedError = await NetworkError.wrapAsync(
+                    error, config: AsyncNetConfig.shared)
                 lastError = wrappedError
                 // Custom error filter
                 if let shouldRetry = config.shouldRetry {
@@ -522,10 +523,18 @@ public actor ImageService {
         }
         body.append(imageDispositionData)
 
-        // Determine MIME type: use configured type, or detect from data, or fallback to default
+        // Determine MIME type: respect explicit configuration first, then detect from data, then fallback to default
         let mimeType: String
-        // Always prefer auto-detection when available, unless explicitly overridden
-        mimeType = detectMimeType(from: imageData) ?? configuration.mimeType
+        if !configuration.mimeType.isEmpty {
+            // Use explicitly configured MIME type if provided and non-empty
+            mimeType = configuration.mimeType
+        } else if let detectedType = detectMimeType(from: imageData) {
+            // Fall back to auto-detection if no explicit configuration
+            mimeType = detectedType
+        } else {
+            // Final fallback to a sensible default
+            mimeType = "application/octet-stream"
+        }
 
         guard let imageTypeData = "Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) else {
             throw NetworkError.imageProcessingFailed
@@ -737,24 +746,6 @@ public actor ImageService {
         }
 
         return nil
-    }
-
-    private func imageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data {
-        #if canImport(UIKit)
-            guard let data = image.jpegData(compressionQuality: compressionQuality) else {
-                throw NetworkError.imageProcessingFailed
-            }
-            return data
-        #elseif canImport(Cocoa)
-            guard let tiffData = image.tiffRepresentation,
-                let bitmapRep = NSBitmapImageRep(data: tiffData),
-                let data = bitmapRep.representation(
-                    using: .jpeg, properties: [.compressionFactor: compressionQuality])
-            else {
-                throw NetworkError.imageProcessingFailed
-            }
-            return data
-        #endif
     }
 }
 

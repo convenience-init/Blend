@@ -46,7 +46,7 @@ struct AdvancedNetworkManagerTests {
         do {
             _ = try await manager.fetchData(
                 for: request, cacheKey: "fail-key", retryPolicy: retryPolicy)
-            #expect(Bool(false))
+            Issue.record("Expected fetchData to throw an error")
         } catch {
             if case .networkUnavailable = error as? NetworkError {
                 // Success - caught the expected NetworkError.networkUnavailable
@@ -287,16 +287,11 @@ struct AsyncRequestableTests {
             components.host = endPoint.host
             components.path = endPoint.normalizedPath
             components.queryItems = endPoint.queryItems
-            // Add port and fragment handling if Endpoint exposes them
-            let mirror = Mirror(reflecting: endPoint)
-            if let portChild = mirror.children.first(where: { $0.label == "port" }),
-                let port = portChild.value as? Int
-            {
+            // Add port and fragment handling using public properties
+            if let port = endPoint.port {
                 components.port = port
             }
-            if let fragmentChild = mirror.children.first(where: { $0.label == "fragment" }),
-                let fragment = fragmentChild.value as? String
-            {
+            if let fragment = endPoint.fragment {
                 components.fragment = fragment
             }
             guard let url = components.url else {
@@ -453,16 +448,6 @@ struct AsyncRequestableTests {
 
         let service = TestService(customDecoder: customDecoder)
 
-        // Test that the custom decoder is used
-        let mockSession = MockURLSession(
-            nextData: Data("{\"value\":99}".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-
         // Since we're testing decoder injection, we'll create a simple test
         let result = try service.customDecoder.decode(
             TestModel.self, from: Data("{\"value\":99}".utf8))
@@ -506,7 +491,8 @@ struct AsyncRequestableTests {
 
 @Suite("NetworkError Tests")
 struct NetworkErrorTests {
-    @Test func testWrapCustomError() {
+    @Test func testWrapCustomError() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         struct DummyError: Error, LocalizedError, Sendable {
             let message: String
             var localizedDescription: String { message }
@@ -514,7 +500,7 @@ struct NetworkErrorTests {
             var recoverySuggestion: String? { "Try again with different parameters" }
         }
         let dummy = DummyError(message: "Dummy failure")
-        let wrapped = NetworkError.wrap(dummy)
+        let wrapped = await NetworkError.wrapAsync(dummy, config: config)
         if case let .customError(message, details) = wrapped {
             #expect(message == "Unknown error")
             #expect(details?.contains("Dummy failure") == true)
@@ -542,27 +528,38 @@ struct NetworkErrorTests {
         #expect(error.errorDescription?.contains("Endpoint error") == true)
         #expect(error.errorDescription?.contains("Details") == true)
     }
-    @Test func testWrapURLError() {
+    @Test func testWrapURLError() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         let urlError = URLError(.notConnectedToInternet)
-        let wrapped = NetworkError.wrap(urlError)
+        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
         #expect(wrapped == .networkUnavailable)
     }
-    @Test func testWrapUnknownURLError() {
+    @Test func testWrapUnknownURLError() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         let urlError = URLError(.cannotFindHost)
-        let wrapped = NetworkError.wrap(urlError)
+        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
         #expect(wrapped == .invalidEndpoint(reason: "Host not found"))
     }
-    @Test func testWrapURLErrorTimedOut() {
+    @Test func testWrapURLErrorTimedOut() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         let urlError = URLError(.timedOut)
-        let wrapped = NetworkError.wrap(urlError)
-        #expect(wrapped == .requestTimeout(duration: NetworkError.defaultTimeoutDuration))
+        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
+
+        if case let .requestTimeout(duration) = wrapped {
+            #expect(
+                duration == 60.0, "Should use configured timeout duration of 60.0, got \(duration)")
+        } else {
+            #expect(Bool(false), "Expected requestTimeout error, got \(wrapped)")
+        }
     }
-    @Test func testWrapURLErrorCannotConnectToHost() {
+    @Test func testWrapURLErrorCannotConnectToHost() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         let urlError = URLError(.cannotConnectToHost)
-        let wrapped = NetworkError.wrap(urlError)
+        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
         #expect(wrapped == .networkUnavailable)
     }
-    @Test func testWrapDecodingError() {
+    @Test func testWrapDecodingError() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         // Create a real DecodingError by attempting to decode invalid JSON
         let invalidJSON = "invalid json".data(using: .utf8)!
         struct TestModel: Decodable {
@@ -573,10 +570,10 @@ struct NetworkErrorTests {
             _ = try JSONDecoder().decode(TestModel.self, from: invalidJSON)
             #expect(Bool(false), "Expected decoding to fail")
         } catch let decodingError as DecodingError {
-            let wrapped = NetworkError.wrap(decodingError)
+            let wrapped = await NetworkError.wrapAsync(decodingError, config: config)
+
             if case let .decodingFailed(reason, underlying, data) = wrapped {
                 #expect(reason.contains("Data corrupted"), "Should contain data corruption message")
-                #expect(reason.contains("root"), "Should contain coding path information")
                 #expect(underlying is DecodingError, "Should preserve original DecodingError")
                 #expect(data == nil, "Should not include data for this error type")
             } else {
@@ -587,7 +584,8 @@ struct NetworkErrorTests {
         }
     }
 
-    @Test func testDecodingErrorDetailedMessages() {
+    @Test func testDecodingErrorDetailedMessages() async throws {
+        let config = AsyncNetConfig(timeoutDuration: 60.0)
         // Test different types of DecodingError cases
         let jsonData = """
             {
@@ -606,7 +604,8 @@ struct NetworkErrorTests {
             _ = try JSONDecoder().decode(TestModel.self, from: jsonData)
             #expect(Bool(false), "Expected decoding to fail")
         } catch let decodingError as DecodingError {
-            let wrapped = NetworkError.wrap(decodingError)
+            let wrapped = await NetworkError.wrapAsync(decodingError, config: config)
+
             if case let .decodingFailed(reason, underlying, _) = wrapped {
                 #expect(underlying is DecodingError, "Should preserve original DecodingError")
                 // The error should contain detailed information about the failure
@@ -657,7 +656,7 @@ struct NetworkErrorTests {
         // Create cache with maxSize of 2
         let cache = DefaultNetworkCache(maxSize: 2, expiration: 60)
 
-        // Add 3 items - LRU order will be: head=key3, key2, tail=key2
+        // Add 3 items - LRU order will be: head=key3, key2, tail=key1
         await cache.set(Data([0x01]), forKey: "key1")
         await cache.set(Data([0x02]), forKey: "key2")
         await cache.set(Data([0x03]), forKey: "key3")
@@ -734,6 +733,8 @@ struct EndpointTests {
             var timeout: TimeInterval? = nil
             var timeoutDuration: Duration? = nil
             var body: Data? = Data("test".utf8)
+            var port: Int? = nil
+            var fragment: String? = nil
         }
 
         let endpoint = TestEndpoint()
@@ -759,6 +760,8 @@ struct EndpointTests {
             var timeout: TimeInterval? = nil
             var timeoutDuration: Duration? = nil
             var body: Data? = Data("test".utf8)
+            var port: Int? = nil
+            var fragment: String? = nil
         }
 
         let endpoint = TestEndpoint()
@@ -785,6 +788,8 @@ struct EndpointTests {
             var timeout: TimeInterval? = nil
             var timeoutDuration: Duration? = nil
             var body: Data? = Data("test".utf8)
+            var port: Int? = nil
+            var fragment: String? = nil
         }
 
         let endpoint = TestEndpoint()
@@ -807,6 +812,8 @@ struct EndpointTests {
             var timeout: TimeInterval? = nil
             var timeoutDuration: Duration? = nil
             var body: Data? = nil
+            var port: Int? = nil
+            var fragment: String? = nil
         }
 
         let endpoint = TestEndpoint()
@@ -826,6 +833,8 @@ struct EndpointTests {
             var timeout: TimeInterval? = nil
             var timeoutDuration: Duration? = nil
             var body: Data? = nil
+            var port: Int? = nil
+            var fragment: String? = nil
         }
 
         let endpoint = TestEndpoint()

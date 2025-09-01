@@ -1,4 +1,3 @@
-````instructions
 # AsyncNet AI Coding Instructions
 
 This codebase is a Swift networking library with comprehensive image handling, built for **iOS/iPadOS 18+ and macOS 15+** with **Swift 6 strict concurrency compliance** and full SwiftUI integration.
@@ -26,10 +25,9 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - Use Xcode 16+ in GitHub Actions or other CI systems
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
-- **CI Environment Variables**: Set `SWIFT_STRICT_CONCURRENCY=complete` in CI matrices to enforce complete concurrency checking
-- **CI Build Flags**: Add these flags to CI build commands:
-  - `swift build -Xswiftc -Xfrontend -Xswiftc -warn-concurrency`
-  - `swift test -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks`
+- **CI Build Commands**: Use these explicit commands in your CI matrix/job:
+  - `swift build -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency`
+  - `swift test -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 

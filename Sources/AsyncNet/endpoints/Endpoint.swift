@@ -37,13 +37,13 @@ public enum URLScheme: String, Sendable {
 ///     var queryItems: [URLQueryItem]? = nil
 ///     var body: Data? = nil
 ///     var contentType: String? = "application/json"  // Only used if no Content-Type in headers
-///     
+///
 ///     // Modern Duration-based timeout (preferred):
 ///     var timeoutDuration: Duration? = .seconds(30)
-///     
+///
 ///     // Legacy TimeInterval timeout (for backward compatibility):
 ///     var timeout: TimeInterval? = nil  // Not used when timeoutDuration is provided
-///     
+///
 ///     // Use resolvedHeaders for normalized header handling:
 ///     // var allHeaders = resolvedHeaders  // Merges headers + contentType safely
 /// }
@@ -53,16 +53,31 @@ public protocol Endpoint: Sendable {
 	var host: String { get }
 	var path: String { get }
 	var method: RequestMethod { get }
-	var headers: [String: String]? { get }
+	var headers: [String: String]? { get set }
 	var queryItems: [URLQueryItem]? { get }
 	var contentType: String? { get }
 	var timeout: TimeInterval? { get }
 	var timeoutDuration: Duration? { get }
 	var body: Data? { get }
+
+	/// Optional port number for the endpoint URL
+	var port: Int? { get }
+
+	/// Optional fragment identifier for the endpoint URL
+	var fragment: String? { get }
+
+	@available(*, deprecated, message: "Use `headers`")
+	var header: [String: String]? { get set }
 }
 
 // MARK: - Header Normalization
-public extension Endpoint {
+extension Endpoint {
+	@available(*, deprecated, message: "Use `headers`")
+	public var header: [String: String]? {
+		get { headers }
+		set { headers = newValue }
+	}
+
 	/// Returns a normalized headers dictionary that merges `headers` with `contentType`.
 	///
 	/// This computed property provides a single source of truth for HTTP headers by:
@@ -74,33 +89,35 @@ public extension Endpoint {
 	/// - Ensuring consistent casing for the Content-Type header only (other header names retain their original casing)
 	///
 	/// Use this property in request building instead of manually handling both `headers` and `contentType`.
-	var resolvedHeaders: [String: String]? {
+	public var resolvedHeaders: [String: String]? {
 		guard headers != nil || contentType != nil else { return nil }
-		
+
 		let normalizedHeaders = headers ?? [:]
-		
+
 		// First pass: canonicalize all header keys with case-insensitive de-duplication and trim values
 		var canonicalizedHeaders: [String: String] = [:]
-		var normalizedKeyMap: [String: String] = [:] // normalized key -> canonical key
-		
+		var normalizedKeyMap: [String: String] = [:]  // normalized key -> canonical key
+
 		for (key, value) in normalizedHeaders {
 			// Trim both key and value
 			let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
 			let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-			
+
 			// Skip headers with empty/whitespace-only keys
 			guard !trimmedKey.isEmpty else { continue }
-			
+
 			// Skip headers with empty/whitespace-only values
 			guard !trimmedValue.isEmpty else { continue }
-			
+
 			// Reject headers containing CR or LF characters (header injection protection)
-			guard !trimmedKey.contains("\r") && !trimmedKey.contains("\n") &&
-			      !trimmedValue.contains("\r") && !trimmedValue.contains("\n") else { continue }
-			
+			guard
+				!trimmedKey.contains("\r") && !trimmedKey.contains("\n")
+					&& !trimmedValue.contains("\r") && !trimmedValue.contains("\n")
+			else { continue }
+
 			// Create normalized key for case-insensitive comparison
 			let normalizedKey = trimmedKey.lowercased()
-			
+
 			// Determine canonical key: use first-seen casing, but ensure Content-Type is always canonical
 			let canonicalKey: String
 			if normalizedKey == "content-type" {
@@ -110,28 +127,36 @@ public extension Endpoint {
 			} else {
 				canonicalKey = trimmedKey
 			}
-			
+
 			// Store mapping for future de-duplication
 			normalizedKeyMap[normalizedKey] = canonicalKey
-			
+
 			// Set the header value (last value wins for duplicates)
 			canonicalizedHeaders[canonicalKey] = trimmedValue
 		}
-		
+
 		// Check if any existing header key matches "content-type" case-insensitively after normalization
-		let hasContentType = canonicalizedHeaders.keys.contains { $0.caseInsensitiveCompare("content-type") == .orderedSame }
-		
+		let hasContentType = canonicalizedHeaders.keys.contains {
+			$0.caseInsensitiveCompare("content-type") == .orderedSame
+		}
+
 		// Only add contentType if no existing content-type header exists, contentType is non-nil with non-empty trimmed value,
 		// and there's an actual request body present and non-empty, and contentType doesn't contain control characters
-		if !hasContentType, let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines), !contentType.isEmpty,
-		   let body = body, !body.isEmpty,
-		   !contentType.contains(where: { $0.isNewline || $0 == "\r" || $0 == "\n" || $0.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) }) {
+		if !hasContentType,
+			let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines),
+			!contentType.isEmpty,
+			let body = body, !body.isEmpty,
+			!contentType.contains(where: {
+				$0.isNewline || $0 == "\r" || $0 == "\n"
+					|| $0.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 })
+			})
+		{
 			canonicalizedHeaders["Content-Type"] = contentType
 		}
-		
+
 		return canonicalizedHeaders.isEmpty ? nil : canonicalizedHeaders
 	}
-	
+
 	/// Returns the effective timeout value, preferring `timeoutDuration` over `timeout` for type safety.
 	///
 	/// This computed property provides a unified timeout interface that:
@@ -142,21 +167,17 @@ public extension Endpoint {
 	/// - Sanitizes legacy `timeout` values to ignore non-positive values
 	///
 	/// The Duration is converted to TimeInterval (seconds) for URLRequest compatibility.
-	var effectiveTimeout: TimeInterval? {
+	public var effectiveTimeout: TimeInterval? {
 		if let timeoutDuration = timeoutDuration {
-			#if swift(>=5.9)
 			let components = timeoutDuration.components
-			let seconds = TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-			#else
-			// Fallback: best-effort seconds; adjust if your minimum Swift supports `/` operator.
-			let seconds = timeoutDuration / .seconds(1)
-			#endif
+			let seconds =
+				TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
 			return seconds > 0 ? seconds : nil
 		}
 		if let t = timeout, t > 0 { return t }
 		return nil
 	}
-	
+
 	/// Returns the path with a leading slash, ensuring consistent URL construction.
 	///
 	/// This computed property normalizes the path by:
@@ -165,8 +186,7 @@ public extension Endpoint {
 	/// - Preventing subtle URL construction bugs from missing leading slashes
 	///
 	/// Use this property instead of `path` when building URLs to ensure consistency.
-	var normalizedPath: String {
+	public var normalizedPath: String {
 		path.hasPrefix("/") ? path : "/" + path
 	}
 }
-

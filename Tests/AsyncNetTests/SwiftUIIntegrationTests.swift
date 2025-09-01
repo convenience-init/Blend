@@ -30,7 +30,8 @@ import Testing
             data: Data = Self.minimalPNGData,
             url: URL = Self.defaultTestURL,
             statusCode: Int = 200,
-            headers: [String: String] = ["Content-Type": "image/png"]
+            headers: [String: String] = ["Content-Type": "image/png"],
+            artificialDelay: UInt64 = 100_000_000  // 100ms default delay for stable timing
         ) -> MockURLSession {
             guard
                 let response = HTTPURLResponse(
@@ -44,7 +45,8 @@ import Testing
                     "Failed to create HTTPURLResponse with headers: \(headers) - header fields may be invalid"
                 )
             }
-            return MockURLSession(nextData: data, nextResponse: response)
+            return MockURLSession(
+                nextData: data, nextResponse: response, artificialDelay: artificialDelay)
         }
 
         @MainActor
@@ -79,7 +81,6 @@ import Testing
             #expect(model.isLoading == false, "Loading flag should be false after failed load")
         }
 
-        @MainActor
         @Test func testAsyncNetImageModelConcurrentLoad() async {
             let imageData = Self.minimalPNGData
 
@@ -95,9 +96,9 @@ import Testing
             let service2 = ImageService(urlSession: mockSession2)
             let service3 = ImageService(urlSession: mockSession3)
 
-            let model1 = AsyncImageModel(imageService: service1)
-            let model2 = AsyncImageModel(imageService: service2)
-            let model3 = AsyncImageModel(imageService: service3)
+            let model1 = await AsyncImageModel(imageService: service1)
+            let model2 = await AsyncImageModel(imageService: service2)
+            let model3 = await AsyncImageModel(imageService: service3)
 
             // Track timing to verify true concurrency
             var startTimes: [String: Date] = [:]
@@ -151,20 +152,29 @@ import Testing
                 "Concurrent loads should complete faster than sequential execution")
 
             // Verify all models loaded successfully
-            #expect(model1.error == nil, "Model1 error should be nil after successful load")
-            #expect(model1.loadedImage != nil)
-            #expect(model1.hasError == false)
-            #expect(model1.isLoading == false)
+            #expect(await model1.error == nil, "Model1 error should be nil after successful load")
+            #expect(
+                await model1.hasError == false, "Model1 should not have error after successful load"
+            )
+            #expect(
+                await model1.isLoading == false,
+                "Model1 should not be loading after successful load")
 
-            #expect(model2.error == nil, "Model2 error should be nil after successful load")
-            #expect(model2.loadedImage != nil)
-            #expect(model2.hasError == false)
-            #expect(model2.isLoading == false)
+            #expect(await model2.error == nil, "Model2 error should be nil after successful load")
+            #expect(
+                await model2.hasError == false, "Model2 should not have error after successful load"
+            )
+            #expect(
+                await model2.isLoading == false,
+                "Model2 should not be loading after successful load")
 
-            #expect(model3.error == nil, "Model3 error should be nil after successful load")
-            #expect(model3.loadedImage != nil)
-            #expect(model3.hasError == false)
-            #expect(model3.isLoading == false)
+            #expect(await model3.error == nil, "Model3 error should be nil after successful load")
+            #expect(
+                await model3.hasError == false, "Model3 should not have error after successful load"
+            )
+            #expect(
+                await model3.isLoading == false,
+                "Model3 should not be loading after successful load")
         }
 
         @MainActor

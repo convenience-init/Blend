@@ -63,11 +63,13 @@ struct PlatformAbstractionTests {
         #if canImport(UIKit)
             let image = UIImage()
             let platformImage: PlatformImage = image
-            #expect(platformImage is UIImage)
+        // Type check is redundant since PlatformImage is a typealias for UIImage on iOS
+        // The assignment above already proves the typealias works correctly
         #elseif canImport(AppKit)
             let image = NSImage(size: NSSize(width: 1, height: 1))
             let platformImage: PlatformImage = image
-            #expect(platformImage is NSImage)
+        // Type check is redundant since PlatformImage is a typealias for NSImage on macOS
+        // The assignment above already proves the typealias works correctly
         #endif
     }
 
@@ -216,24 +218,15 @@ struct PlatformAbstractionTests {
             // Create a custom image rep that has no TIFF encoder
             let customRep = NSCustomImageRep(size: NSSize(width: 10, height: 10), flipped: false) {
                 rect in
-                // Draw a simple colored rectangle
                 NSColor.blue.setFill()
-                rect.fill()
+                NSBezierPath(rect: rect).fill()
                 return true
             }
             customImage.addRepresentation(customRep)
 
-            // Optional sanity check: verify TIFF representation is nil (non-fatal)
-            if customImage.tiffRepresentation == nil {
-                // This is expected since NSCustomImageRep has no TIFF encoder
-                Issue.record("Custom image rep correctly has no TIFF representation")
-            }
-
-            // The methods should still work via the fallback rasterization path
+            // Both should succeed via rasterization fallback
             let customPngData = customImage.pngData()
             let customJpegData = customImage.jpegData(compressionQuality: 0.8)
-
-            // Both should succeed via rasterization fallback
             #expect(customPngData != nil)
             #expect(customJpegData != nil)
             #expect(customPngData?.count ?? 0 > 0)

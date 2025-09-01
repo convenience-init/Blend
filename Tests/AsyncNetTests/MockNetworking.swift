@@ -9,6 +9,10 @@ actor MockURLSession: URLSessionProtocol {
     private var _callCount: Int = 0
     private var _recordedRequests: [URLRequest] = []
 
+    /// Artificial delay to simulate network latency (in nanoseconds)
+    /// Used for testing concurrency timing
+    private let artificialDelay: UInt64
+
     /// Actor-isolated call count for tracking mock network requests.
     /// Must be accessed with `await` from outside the actor due to actor isolation.
     /// Example: `let count = await mockSession.callCount`
@@ -32,17 +36,12 @@ actor MockURLSession: URLSessionProtocol {
 
     /// Initialize with single scripted result (backward compatibility)
     init(nextData: Data? = nil, nextResponse: URLResponse? = nil, nextError: Error? = nil) {
+        self.artificialDelay = 0
+        precondition(
+            nextData != nil || nextResponse != nil || nextError != nil,
+            "MockNetworking.init requires at least one of nextData, nextResponse, or nextError"
+        )
         self.scriptedScripts = [(nextData, nextResponse, nextError)]
-    }
-
-    /// Initialize with successful response for common test cases
-    init(successWithData data: Data, response: URLResponse) {
-        self.scriptedScripts = [(data, response, nil)]
-    }
-
-    /// Initialize with failure response for common test cases
-    init(failureWithError error: Error) {
-        self.scriptedScripts = [(nil, nil, error)]
     }
 
     /// Initialize with multiple scripted results for testing multi-call scenarios
@@ -52,6 +51,7 @@ actor MockURLSession: URLSessionProtocol {
                 && scriptedData.count == scriptedErrors.count,
             "MockURLSession arrays must have equal length. Got data: \(scriptedData.count), responses: \(scriptedResponses.count), errors: \(scriptedErrors.count)"
         )
+        self.artificialDelay = 0
         self.scriptedScripts = (0..<scriptedData.count).map { index in
             (scriptedData[index], scriptedResponses[index], scriptedErrors[index])
         }
@@ -60,6 +60,7 @@ actor MockURLSession: URLSessionProtocol {
     /// Initialize with an array of tuples to keep scripted triples aligned
     /// Each tuple contains (data, response, error) for one mock call
     init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
+        self.artificialDelay = 0
         self.scriptedScripts = scriptedCalls
     }
 
@@ -95,10 +96,35 @@ actor MockURLSession: URLSessionProtocol {
         }
     }
 
+    /// Initialize with a single scripted response
+    /// - Parameters:
+    ///   - nextData: The data to return for the next request
+    ///   - nextResponse: The response to return for the next request
+    ///   - nextError: The error to return for the next request (if any)
+    ///   - artificialDelay: Artificial delay in nanoseconds to simulate network latency
+    init(
+        nextData: Data? = nil,
+        nextResponse: URLResponse? = nil,
+        nextError: Error? = nil,
+        artificialDelay: UInt64 = 0
+    ) {
+        self.artificialDelay = artificialDelay
+        precondition(
+            nextData != nil || nextResponse != nil || nextError != nil,
+            "MockNetworking.init requires at least one of nextData, nextResponse, or nextError"
+        )
+        scriptedScripts = [(nextData, nextResponse, nextError)]
+    }
+
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let currentCallIndex = _callCount
         _callCount += 1
         _recordedRequests.append(request)
+
+        // Add artificial delay to simulate network latency
+        if artificialDelay > 0 {
+            try await Task.sleep(nanoseconds: artificialDelay)
+        }
 
         guard currentCallIndex < scriptedScripts.count else {
             throw NetworkError.outOfScriptBounds(call: currentCallIndex + 1)
@@ -133,6 +159,8 @@ struct MockEndpoint: Endpoint, Equatable {
     var timeout: TimeInterval? = nil
     var timeoutDuration: Duration? = nil
     var body: Data? = nil
+    var port: Int? = nil
+    var fragment: String? = nil
     init() {}
 
     /// Equatable conformance for test assertions
@@ -141,7 +169,7 @@ struct MockEndpoint: Endpoint, Equatable {
             && lhs.method == rhs.method && lhs.headers == rhs.headers
             && lhs.queryItems == rhs.queryItems && lhs.contentType == rhs.contentType
             && lhs.timeout == rhs.timeout && lhs.timeoutDuration == rhs.timeoutDuration
-            && lhs.body == rhs.body
+            && lhs.body == rhs.body && lhs.port == rhs.port && lhs.fragment == rhs.fragment
     }
 }
 
