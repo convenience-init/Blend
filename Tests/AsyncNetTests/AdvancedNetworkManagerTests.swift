@@ -195,7 +195,7 @@ struct AdvancedNetworkManagerTests {
             "204 No Content response should be cached (2xx policy)")
 
         // Test 4: Error response (404 Not Found) should not be cached
-        // Policy: Only 2xx responses are cached
+        // Policy: Only 2xx responses are cached, non-2xx responses throw errors
         let errorData = Data("Not Found".utf8)
         let errorResponse = HTTPURLResponse(
             url: URL(string: "https://mock.api/error")!,
@@ -203,13 +203,26 @@ struct AdvancedNetworkManagerTests {
             httpVersion: nil,
             headerFields: ["Content-Type": "text/plain"]
         )
+
         let errorSession = MockURLSession(nextData: errorData, nextResponse: errorResponse)
         let errorManager = AdvancedNetworkManager(cache: cache, urlSession: errorSession)
 
         let errorRequest = URLRequest(url: URL(string: "https://mock.api/error")!)
-        let errorResult = try await errorManager.fetchData(
-            for: errorRequest, cacheKey: "error-404-key")
-        #expect(errorResult == errorData)
+        do {
+            _ = try await errorManager.fetchData(
+                for: errorRequest, cacheKey: "error-404-key")
+            #expect(Bool(false), "Expected NetworkError.httpError for 404 status code")
+        } catch let error as NetworkError {
+            // Verify it's the expected HTTP error
+            if case let .httpError(statusCode, data) = error {
+                #expect(statusCode == 404, "Expected 404 status code in error")
+                #expect(data == errorData, "Expected error data to match response data")
+            } else {
+                #expect(Bool(false), "Expected NetworkError.httpError for 404 response")
+            }
+        } catch {
+            #expect(Bool(false), "Expected NetworkError for 404 response, got \(type(of: error))")
+        }
 
         // Verify error response was NOT cached
         let cachedErrorData = await cache.get(forKey: "error-404-key")
@@ -254,7 +267,7 @@ struct AdvancedNetworkManagerTests {
                 return false
             },
             backoff: { attempt in
-                return pow(2.0, Double(attempt - 1)) * 0.1  // Exponential backoff: 0.1s, 0.2s, 0.4s
+                return pow(2.0, Double(attempt)) * 0.1  // Exponential backoff: 0.1s, 0.2s, 0.4s
             })
 
         do {
@@ -635,12 +648,17 @@ struct NetworkErrorTests {
         // Create a TestClock for deterministic time control
         final class TestClock: @unchecked Sendable {
             private var _now: ContinuousClock.Instant = .now
+            private var lock = os_unfair_lock()
 
             func now() -> ContinuousClock.Instant {
-                _now
+                os_unfair_lock_lock(&lock)
+                defer { os_unfair_lock_unlock(&lock) }
+                return _now
             }
 
             func advance(by duration: Duration) {
+                os_unfair_lock_lock(&lock)
+                defer { os_unfair_lock_unlock(&lock) }
                 _now = _now.advanced(by: duration)
             }
         }
@@ -719,8 +737,7 @@ struct NetworkErrorTests {
                 Bool(false), "Expected custom retry logic to prevent retries for networkUnavailable"
             )
         } catch {
-            #expect(error is NetworkError)
-            if let netErr = error as? NetworkError, case .networkUnavailable = netErr {
+            if let networkError = error as? NetworkError, case .networkUnavailable = networkError {
                 // Success - caught the expected NetworkError.networkUnavailable
             } else {
                 #expect(Bool(false), "Expected NetworkError.networkUnavailable, got \(error)")

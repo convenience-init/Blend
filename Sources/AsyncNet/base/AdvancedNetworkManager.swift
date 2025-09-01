@@ -4,6 +4,16 @@ import Foundation
     import OSLog
 #endif
 
+/// AdvancedNetworkManager provides comprehensive network request management with:
+/// - Request deduplication and caching
+/// - Retry logic with exponential backoff and jitter
+/// - Request/response interception
+/// - Thread-safe actor-based implementation
+/// - Integration with AsyncNet error handling (NetworkError, AsyncNetConfig)
+///
+/// Dependencies: NetworkError and AsyncNetConfig are defined in the same AsyncNet module
+/// and are accessible without additional imports.
+
 // MARK: - Request/Response Interceptor Protocol
 public protocol NetworkInterceptor: Sendable {
     func willSend(request: URLRequest) async -> URLRequest
@@ -19,16 +29,25 @@ public protocol NetworkCache: Sendable {
 }
 
 // MARK: - Test Clock for Deterministic Testing
+/// TestClock provides a controllable clock for deterministic testing.
+/// All accesses to the internal time state are synchronized to prevent data races.
 public final class TestClock: @unchecked Sendable {
     private var _now: ContinuousClock.Instant = .now
+    private var lock = os_unfair_lock()
 
     public init() {}
 
+    /// Returns the current time value in a thread-safe manner
     public func now() -> ContinuousClock.Instant {
-        _now
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return _now
     }
 
+    /// Advances the clock by the specified duration in a thread-safe manner
     public func advance(by duration: Duration) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         _now = _now.advanced(by: duration)
     }
 }
@@ -293,22 +312,44 @@ public actor AdvancedNetworkManager {
                     for interceptor in interceptors {
                         await interceptor.didReceive(response: response, data: data)
                     }
-                    // Only cache successful HTTP responses (200-299)
-                    if let httpResponse = response as? HTTPURLResponse,
-                        (200...299).contains(httpResponse.statusCode)
-                    {
-                        await cache.set(data, forKey: key)
-                    }
-                    #if canImport(OSLog)
-                        if attempt > 0 {
-                            asyncNetLogger.info(
-                                "Request succeeded after \(attempt) retries for key: \(key)")
-                        } else {
-                            asyncNetLogger.debug(
-                                "Request succeeded on first attempt for key: \(key)")
+                    
+                    // Validate HTTP response status code
+                    if let httpResponse = response as? HTTPURLResponse {
+                        switch httpResponse.statusCode {
+                        case 200...299:
+                            // Only cache successful responses
+                            await cache.set(data, forKey: key)
+                            #if canImport(OSLog)
+                                if attempt > 0 {
+                                    asyncNetLogger.info(
+                                        "Request succeeded after \(attempt) retries for key: \(key)"
+                                    )
+                                } else {
+                                    asyncNetLogger.debug(
+                                        "Request succeeded on first attempt for key: \(key)")
+                                }
+                            #endif
+                            return data
+                        case 400:
+                            throw NetworkError.httpError(
+                                statusCode: httpResponse.statusCode, data: data)
+                        case 401:
+                            throw NetworkError.unauthorized(
+                                data: data, statusCode: httpResponse.statusCode)
+                        case 500...599:
+                            throw NetworkError.httpError(
+                                statusCode: httpResponse.statusCode, data: data)
+                        default:
+                            throw NetworkError.httpError(
+                                statusCode: httpResponse.statusCode, data: data)
                         }
-                    #endif
-                    return data
+                    } else {
+                        // Non-HTTP response: return data without caching
+                        #if canImport(OSLog)
+                            asyncNetLogger.debug("Non-HTTP response received for key: \(key)")
+                        #endif
+                        return data
+                    }
                 } catch {
                     lastError = error
                     #if canImport(OSLog)
@@ -392,7 +433,24 @@ public struct RetryPolicy: Sendable {
 
     public static let `default` = RetryPolicy(
         maxRetries: 3,
-        shouldRetry: { _, _ in true },  // Always allow retry; maxRetries controls total attempts
+        shouldRetry: { error, _ in
+            // Don't retry HTTP 4xx client errors or noResponse errors
+            if let networkError = error as? NetworkError {
+                switch networkError {
+                case .httpError(let statusCode, _):
+                    // Don't retry 4xx client errors
+                    if (400...499).contains(statusCode) {
+                        return false
+                    }
+                case .noResponse:
+                    // Don't retry when response is not HTTP
+                    return false
+                default:
+                    break
+                }
+            }
+            return true
+        },
         backoff: { attempt in
             // Use hash-based jitter for better distribution
             let hash = UInt64(attempt).multipliedFullWidth(by: 0x9E37_79B9_7F4A_7C15).high
@@ -531,5 +589,3 @@ public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecke
         return state
     }
 }
-
-// NetworkError is defined elsewhere

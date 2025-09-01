@@ -65,22 +65,34 @@ public actor ImageService {
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
-        // Check upload size limit
+        // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
         let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
-        if imageData.count > maxUploadSize {
-            // Log the rejection
-            print(
-                "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
-            )
-            throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxUploadSize)
+        let encodedSize = ((imageData.count + 2) / 3) * 4
+        if encodedSize > maxUploadSize {
+            #if canImport(OSLog)
+                asyncNetLogger.warning(
+                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes exceeds limit of \(maxUploadSize) bytes (raw size: \(imageData.count) bytes)"
+                )
+            #else
+                print(
+                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes exceeds limit of \(maxUploadSize) bytes (raw size: \(imageData.count) bytes)"
+                )
+            #endif
+            throw NetworkError.payloadTooLarge(size: encodedSize, limit: maxUploadSize)
         }
 
-        // Warn if image is large (base64 adds ~33% overhead)
+        // Warn if encoded image is large (base64 adds ~33% overhead)
         let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
-        if imageData.count > maxRecommendedSize {
-            print(
-                "Warning: Large image (\(imageData.count) bytes) will be ~33% larger when base64 encoded. Consider using multipart upload."
-            )
+        if encodedSize > maxRecommendedSize {
+            #if canImport(OSLog)
+                asyncNetLogger.info(
+                    "Warning: Large base64-encoded image (\(encodedSize) bytes, raw: \(imageData.count) bytes) approaches upload limit. Consider using multipart upload."
+                )
+            #else
+                print(
+                    "Warning: Large base64-encoded image (\(encodedSize) bytes, raw: \(imageData.count) bytes) approaches upload limit. Consider using multipart upload."
+                )
+            #endif
         }
 
         // Encode image data as base64 string
@@ -177,10 +189,17 @@ public actor ImageService {
         self.interceptors = interceptors
     }
 
+    /// Test-only stored property for overriding default retry configuration
+    private var overrideRetryConfiguration: RetryConfiguration?
+
     /// Set retry configuration for testing purposes
     public func setRetryConfiguration(_ config: RetryConfiguration) {
-        // This is a test-only method to override retry behavior
-        // In a real implementation, this would be passed to fetchImageData
+        self.overrideRetryConfiguration = config
+    }
+
+    /// Clear the override retry configuration (for testing)
+    public func clearRetryConfiguration() {
+        self.overrideRetryConfiguration = nil
     }
 
     // MARK: - Enhanced Caching Configuration
@@ -201,11 +220,13 @@ public actor ImageService {
         let key: NSString
         var prev: LRUNode?
         var next: LRUNode?
-        var timestamp: TimeInterval
+        var timestamp: TimeInterval  // Access timestamp for LRU ordering
+        var insertionTimestamp: TimeInterval  // Insertion timestamp for expiration
 
-        init(key: NSString, timestamp: TimeInterval) {
+        init(key: NSString, timestamp: TimeInterval, insertionTimestamp: TimeInterval) {
             self.key = key
             self.timestamp = timestamp
+            self.insertionTimestamp = insertionTimestamp
         }
     }
     private var lruDict: [NSString: LRUNode] = [:]
@@ -346,25 +367,32 @@ public actor ImageService {
     /// - Returns: Image data
     /// - Throws: NetworkError if the request fails
     public func fetchImageData(from urlString: String) async throws -> Data {
-        return try await fetchImageData(from: urlString, retryConfig: RetryConfiguration())
-
+        return try await fetchImageData(from: urlString, retryConfig: nil)
     }
 
     /// Fetches image data with configurable retry policy
     /// - Parameters:
     ///   - urlString: The URL string for the image
-    ///   - retryConfig: Retry/backoff configuration
+    ///   - retryConfig: Optional retry/backoff configuration. If nil, uses override configuration or default.
     /// - Returns: Image data
     /// - Throws: NetworkError if the request fails
-    public func fetchImageData(from urlString: String, retryConfig: RetryConfiguration) async throws
+    public func fetchImageData(from urlString: String, retryConfig: RetryConfiguration?)
+        async throws
         -> Data
     {
+        // Determine which retry configuration to use:
+        // 1. Explicitly passed configuration takes precedence
+        // 2. Override configuration if set
+        // 3. Default configuration as fallback
+        let effectiveRetryConfig =
+            retryConfig ?? (overrideRetryConfiguration ?? RetryConfiguration())
+
         let cacheKey = urlString as NSString
         // Check cache for image data, evict expired
         evictExpiredCache()
         if let cachedData = dataCache.object(forKey: cacheKey),
             let node = lruDict[cacheKey],
-            Date().timeIntervalSince1970 - node.timestamp < cacheConfig.maxAge
+            Date().timeIntervalSince1970 - node.insertionTimestamp < cacheConfig.maxAge
         {
             moveLRUNodeToHead(node)
             cacheHits += 1
@@ -380,7 +408,7 @@ public actor ImageService {
         // Create new task for this request, with retry/backoff
         let fetchTask = Task<Data, Error> {
             let cacheKey = urlString as NSString
-            let data = try await withRetry(config: retryConfig) {
+            let data = try await withRetry(config: effectiveRetryConfig) {
                 guard let url = URL(string: urlString),
                     let scheme = url.scheme, !scheme.isEmpty,
                     let host = url.host, !host.isEmpty
@@ -491,10 +519,15 @@ public actor ImageService {
         // Check upload size limit
         let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
         if imageData.count > maxUploadSize {
-            // Log the rejection
-            print(
-                "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
-            )
+            #if canImport(OSLog)
+                asyncNetLogger.warning(
+                    "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
+                )
+            #else
+                print(
+                    "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
+                )
+            #endif
             throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxUploadSize)
         }
 
@@ -516,58 +549,49 @@ public actor ImageService {
 
         // Add additional fields
         for (key, value) in configuration.additionalFields {
-            guard let boundaryData = "--\(boundary)\r\n".data(using: .utf8) else {
-                throw NetworkError.imageProcessingFailed
-            }
-            body.append(boundaryData)
-            guard
-                let dispositionData = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
-                    .data(using: .utf8)
+            let boundaryString = "--\(boundary)\r\n"
+            let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
+            let valueString = "\(value)\r\n"
+
+            guard let boundaryData = boundaryString.data(using: .utf8),
+                let dispositionData = dispositionString.data(using: .utf8),
+                let valueData = valueString.data(using: .utf8)
             else {
-                throw NetworkError.imageProcessingFailed
+                throw NetworkError.invalidEndpoint(
+                    reason: "Failed to encode form field '\(key)' with value '\(value)'"
+                )
             }
+            
+            body.append(boundaryData)
             body.append(dispositionData)
-            guard let valueData = "\(value)\r\n".data(using: .utf8) else {
-                throw NetworkError.imageProcessingFailed
-            }
             body.append(valueData)
         }
 
         // Add image data
-        guard let imageBoundaryData = "--\(boundary)\r\n".data(using: .utf8) else {
-            throw NetworkError.imageProcessingFailed
-        }
-        body.append(imageBoundaryData)
-        guard
-            let imageDispositionData =
-                "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
-                .data(using: .utf8)
+        // Determine MIME type from image data
+        let mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
+
+        let imageBoundaryString = "--\(boundary)\r\n"
+        let imageDispositionString =
+            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
+        let imageTypeString = "Content-Type: \(mimeType)\r\n\r\n"
+        let closingBoundaryString = "\r\n--\(boundary)--\r\n"
+
+        guard let imageBoundaryData = imageBoundaryString.data(using: .utf8),
+            let imageDispositionData = imageDispositionString.data(using: .utf8),
+            let imageTypeData = imageTypeString.data(using: .utf8),
+            let closingBoundaryData = closingBoundaryString.data(using: .utf8)
         else {
-            throw NetworkError.imageProcessingFailed
+            throw NetworkError.invalidEndpoint(
+                reason:
+                    "Failed to encode multipart form data strings for image upload (boundary: '\(boundary)', fieldName: '\(configuration.fieldName)', fileName: '\(configuration.fileName)', mimeType: '\(mimeType)')"
+            )
         }
+        
+        body.append(imageBoundaryData)
         body.append(imageDispositionData)
-
-        // Determine MIME type: respect explicit configuration first, then detect from data, then fallback to default
-        let mimeType: String
-        if !configuration.mimeType.isEmpty {
-            // Use explicitly configured MIME type if provided and non-empty
-            mimeType = configuration.mimeType
-        } else if let detectedType = detectMimeType(from: imageData) {
-            // Fall back to auto-detection if no explicit configuration
-            mimeType = detectedType
-        } else {
-            // Final fallback to a sensible default
-            mimeType = "application/octet-stream"
-        }
-
-        guard let imageTypeData = "Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) else {
-            throw NetworkError.imageProcessingFailed
-        }
         body.append(imageTypeData)
         body.append(imageData)
-        guard let closingBoundaryData = "\r\n--\(boundary)--\r\n".data(using: .utf8) else {
-            throw NetworkError.imageProcessingFailed
-        }
         body.append(closingBoundaryData)
 
         request.httpBody = body
@@ -659,7 +683,7 @@ public actor ImageService {
 
         // Lazy eviction: only check and evict from LRU head until we find a non-expired item
         while let head = lruHead {
-            if now - head.timestamp >= cacheConfig.maxAge {
+            if now - head.insertionTimestamp >= cacheConfig.maxAge {
                 // Head is expired, evict it
                 let key = head.key
                 imageCache.removeObject(forKey: key)
@@ -780,10 +804,11 @@ extension ImageService {
     private func addOrUpdateLRUNode(for key: NSString) {
         let now = Date().timeIntervalSince1970
         if let node = lruDict[key] {
-            node.timestamp = now
+            // Only move to head on access, do NOT update timestamp
+            // Timestamp should only be set on initial insertion to track insertion age
             moveLRUNodeToHead(node)
         } else {
-            let node = LRUNode(key: key, timestamp: now)
+            let node = LRUNode(key: key, timestamp: now, insertionTimestamp: now)
             lruDict[key] = node
             insertLRUNodeAtHead(node)
 

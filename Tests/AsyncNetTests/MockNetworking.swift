@@ -54,16 +54,18 @@ actor MockURLSession: URLSessionProtocol {
         self.scriptedScripts = scriptedCalls
     }
 
-    /// Initialize with a single scripted response
+    /// Initialize with a single scripted response that can be repeated for multiple calls
     /// - Parameters:
-    ///   - nextData: The data to return for the next request
-    ///   - nextResponse: The response to return for the next request
-    ///   - nextError: The error to return for the next request (if any)
+    ///   - nextData: The data to return for requests
+    ///   - nextResponse: The response to return for requests
+    ///   - nextError: The error to return for requests (if any)
+    ///   - maxCalls: Maximum number of calls to handle (defaults to 4 to handle retries)
     ///   - artificialDelay: Artificial delay in nanoseconds to simulate network latency
     init(
         nextData: Data? = nil,
         nextResponse: URLResponse? = nil,
         nextError: Error? = nil,
+        maxCalls: Int = 4,
         artificialDelay: UInt64 = 0
     ) {
         self.artificialDelay = artificialDelay
@@ -71,7 +73,11 @@ actor MockURLSession: URLSessionProtocol {
             nextData != nil || nextResponse != nil || nextError != nil,
             "MockURLSession.init requires at least one of nextData, nextResponse, or nextError"
         )
-        scriptedScripts = [(nextData, nextResponse, nextError)]
+        // Create array manually to preserve types
+        scriptedScripts = []
+        for _ in 0..<maxCalls {
+            scriptedScripts.append((nextData, nextResponse, nextError))
+        }
     }
 
     /// Load a new script sequence for the mock session
@@ -132,7 +138,12 @@ actor MockURLSession: URLSessionProtocol {
             throw NetworkError.outOfScriptBounds(call: currentCallIndex + 1)
         }
 
-        return (data, response)
+        // Ensure the response is returned as the correct type
+        if let httpResponse = response as? HTTPURLResponse {
+            return (data, httpResponse)
+        } else {
+            return (data, response)
+        }
     }
 }
 

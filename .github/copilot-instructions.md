@@ -26,8 +26,8 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
 - **CI Build Commands**: Use these explicit commands in your CI matrix/job:
-  - `swift build --configuration Debug -Xswiftc -enable-actor-data-race-checks -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
-  - `swift test --configuration Debug -Xswiftc -enable-actor-data-race-checks -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
+  - `swift build --configuration Debug -Xswiftc '-Xfrontend -enable-actor-data-race-checks' -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
+  - `swift test --configuration Debug -Xswiftc '-Xfrontend -enable-actor-data-race-checks' -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
@@ -83,7 +83,7 @@ struct CreateUserEndpoint: Endpoint {
     var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
     
     // Pre-encoded body stored as immutable Data - encoding happens once in init
-    let body: Data
+    let body: Data?
     
     // Initialize with pre-encoded body to avoid repeated encoding and side effects
     init(request: CreateUserRequest, logger: Logger? = nil) throws {
@@ -104,7 +104,24 @@ struct CreateUserEndpoint: Endpoint {
 **Timeout Configuration Guidance:**
 - **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
 - **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
-- **Duration Conversion**: Convert Swift `Duration` to `TimeInterval` (e.g., `URLRequest.timeoutInterval = TimeInterval(duration)`) before setting the request timeout
+- **Duration Conversion**: Use this portable helper to convert Swift `Duration` to `TimeInterval`:
+  ```swift
+  /// Portable Duration to TimeInterval conversion
+  /// - Parameter duration: Swift Duration to convert
+  /// - Returns: TimeInterval representation
+  func timeInterval(from duration: Duration) -> TimeInterval {
+      let components = duration.components
+      return TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+  }
+  ```
+- **Request Timeout Setting**: Only set `URLRequest.timeoutInterval` when `endpoint.timeoutDuration` is non-nil:
+  ```swift
+  // Only set timeout when endpoint specifies one
+  if let timeoutDuration = endpoint.timeoutDuration {
+      request.timeoutInterval = timeInterval(from: timeoutDuration)
+  }
+  // Leave unset when nil so session's timeoutIntervalForRequest (default: 60s) applies
+  ```
 - **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback
 - **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults
 
@@ -213,7 +230,7 @@ struct ContentView: View {
     }
 }
 ```
-// Note: Always cross actor boundaries with Sendable types (Data, CGImage, etc). Use @MainActor helpers for UI conversion to PlatformImage.
+// Note: Always cross actor boundaries with true Sendable types (e.g., Data). CGImage is not Sendable by default and must either be converted to a Sendable representation (like Data), wrapped with an explicit @unchecked Sendable conformance, or handled via @MainActor helpers (convert to PlatformImage/UIImage/NSImage on the main thread) before crossing actor boundaries. Use @MainActor helpers for UI conversion to PlatformImage.
 // SwiftUI.Image extension available: SwiftUI.Image(platformImage:) provides cross-platform Image creation from PlatformImage (UIImage/NSImage)
 
 ### 6.1 Platform Image Conversion Helper

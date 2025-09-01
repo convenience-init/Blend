@@ -47,7 +47,7 @@ public class AsyncImageModel {
     public var hasError: Bool = false
     public var isUploading: Bool = false
     public var error: NetworkError?
-    private var loadToken: UUID? = nil
+    private var loadTask: Task<Void, Never>? = nil
 
     private let imageService: ImageService
 
@@ -56,61 +56,61 @@ public class AsyncImageModel {
     }
 
     public func loadImage(from url: String?) async {
-        let token = UUID()
-        self.loadToken = token
+        // Cancel any existing load task
+        loadTask?.cancel()
 
-        // Early exit if task is already cancelled
-        guard !Task.isCancelled else {
-            if self.loadToken == token {
-                self.isLoading = false
-                self.loadedImage = nil
+        // Create new task for this load operation
+        let task = Task<Void, Never> {
+            do {
+                // Check for cancellation before starting
+                try Task.checkCancellation()
+
+                guard let url = url else {
+                    self.hasError = true
+                    self.error = NetworkError.invalidEndpoint(reason: "URL is required")
+                    self.isLoading = false
+                    self.loadedImage = nil
+                    return
+                }
+
+                // Check for cancellation before network request
+                try Task.checkCancellation()
+
+                self.isLoading = true
                 self.hasError = false
                 self.error = nil
-            }
-            return
-        }
+                
+                let data = try await imageService.fetchImageData(from: url)
+                
+                // Check for cancellation before updating state
+                try Task.checkCancellation()
 
-        guard let url = url else {
-            if self.loadToken == token {
-                self.hasError = true
-                self.error = NetworkError.invalidEndpoint(reason: "URL is required")
-                self.isLoading = false
-            }
-            return
-        }
-
-        // Check again before starting the network request
-        guard !Task.isCancelled else {
-            if self.loadToken == token {
-                self.isLoading = false
-                self.loadedImage = nil
-                self.hasError = false
-                self.error = nil
-            }
-            return
-        }
-
-        if self.loadToken == token {
-            self.isLoading = true
-            self.hasError = false
-            self.error = nil
-        }
-        do {
-            let data = try await imageService.fetchImageData(from: url)
-            if self.loadToken == token {
                 self.loadedImage = ImageService.platformImage(from: data)
                 self.hasError = false
                 self.error = nil
-            }
-        } catch {
-            if self.loadToken == token {
+                self.isLoading = false
+            } catch is CancellationError {
+                // Task was cancelled, clean up state
+                self.isLoading = false
+                self.loadedImage = nil
+                self.hasError = false
+                self.error = nil
+            } catch {
+                // Handle other errors
+                let wrappedError = await NetworkError.wrapAsync(
+                    error, config: AsyncNetConfig.shared)
                 self.hasError = true
-                self.error = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+                self.error = wrappedError
+                self.isLoading = false
             }
         }
-        if self.loadToken == token {
-            self.isLoading = false
-        }
+
+        // Store the task and start it
+        loadTask = task
+        await task.value
+
+        // Clear the task when done
+        loadTask = nil
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -213,6 +213,8 @@ public struct AsyncNetImageView: View {
     @State internal var model: AsyncImageModel
     /// Track if auto-upload has been attempted for the current image to prevent redundant uploads
     @State private var hasAttemptedAutoUpload = false
+    /// Track image load completion to trigger auto-upload reliably
+    @State private var imageLoadId = UUID()
 
     public init(
         url: String? = nil,
@@ -296,14 +298,20 @@ public struct AsyncNetImageView: View {
         }
         .task(id: url) {
             await model.loadImage(from: url)
+            // Update ID after successful load to trigger auto-upload
+            if model.loadedImage != nil {
+                imageLoadId = UUID()
+            }
         }
-        .task(id: model.loadedImage) {
+        .onChange(of: imageLoadId) { _, _ in
             // Reset upload attempt flag for new images, then check if we should auto-upload
             hasAttemptedAutoUpload = false
-
+            
             if autoUpload, model.loadedImage != nil, uploadURL != nil {
                 hasAttemptedAutoUpload = true
-                await performUpload()
+                Task {
+                    await performUpload()
+                }
             }
         }
     }

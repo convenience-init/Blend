@@ -180,10 +180,30 @@ import Testing
                 return
             }
 
-            // Calculate individual durations
-            let model1Duration = allEndTimes[0].timeIntervalSince(allStartTimes[0])
-            let model2Duration = allEndTimes[1].timeIntervalSince(allStartTimes[1])
-            let model3Duration = allEndTimes[2].timeIntervalSince(allStartTimes[2])
+            // Calculate individual durations by iterating through modelKeys
+            // This ensures each duration is paired with the correct model key
+            var model1Duration: TimeInterval = 0
+            var model2Duration: TimeInterval = 0
+            var model3Duration: TimeInterval = 0
+
+            for modelKey in modelKeys {
+                guard let start = startTimes[modelKey], let end = endTimes[modelKey] else {
+                    Issue.record("Missing timing data for model: \(modelKey)")
+                    continue
+                }
+
+                let duration = end.timeIntervalSince(start)
+                switch modelKey {
+                case "model1":
+                    model1Duration = duration
+                case "model2":
+                    model2Duration = duration
+                case "model3":
+                    model3Duration = duration
+                default:
+                    Issue.record("Unexpected model key: \(modelKey)")
+                }
+            }
 
             // Calculate total concurrent time (max end time - min start time)
             guard let minStartTime = allStartTimes.min(),
@@ -441,7 +461,7 @@ import Testing
 
             // Now simulate a successful retry on the same model instance
             // This will use the success response from the mock session
-            await model.loadImage(from: Self.defaultTestURL.absoluteString)
+            await model.loadImage(from: Self.defaultFailURL.absoluteString)
             #expect(model.error == nil, "Error should be nil after successful retry")
             #expect(model.loadedImage != nil, "Should have loaded image after successful retry")
             #expect(model.hasError == false, "hasError should be false after successful retry")

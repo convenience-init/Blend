@@ -525,6 +525,18 @@ Implement cache clearing using SwiftUI's ScenePhase for modern, cross-platform l
 import SwiftUI
 import AsyncNet
 
+// Environment key for ImageService injection
+private struct ImageServiceKey: EnvironmentKey {
+    static let defaultValue: ImageService = ImageService()
+}
+
+extension EnvironmentValues {
+    var imageService: ImageService {
+        get { self[ImageServiceKey.self] }
+        set { self[ImageServiceKey.self] = newValue }
+    }
+}
+
 @main
 struct MyApp: App {
     @Environment(\.scenePhase) private var scenePhase

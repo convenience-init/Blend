@@ -18,11 +18,17 @@ let package = Package(
     targets: [
         .target(
             name: "AsyncNet",
-            dependencies: []
+            dependencies: [],
+            swiftSettings: [
+                .define("MACOS15", .when(platforms: [.macOS]))
+            ]
         ),
         .testTarget(
             name: "AsyncNetTests",
-            dependencies: ["AsyncNet"]
+            dependencies: ["AsyncNet"],
+            swiftSettings: [
+                .define("MACOS15", .when(platforms: [.macOS]))
+            ]
         ),
     ]
 )

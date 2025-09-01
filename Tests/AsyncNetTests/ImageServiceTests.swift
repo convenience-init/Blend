@@ -319,48 +319,66 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageMultipartPayloadTooLarge() async throws {
-        // Set a small max upload size for testing
-        try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
+        // Capture original max upload size for restoration
+        _ = await AsyncNetConfig.shared.maxUploadSize
 
-        let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
-        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
-        let service = ImageService(
-            imageCacheCountLimit: 100,
-            imageCacheTotalCostLimit: 50 * 1024 * 1024,
-            dataCacheCountLimit: 200,
-            dataCacheTotalCostLimit: 100 * 1024 * 1024,
-            urlSession: mockSession
-        )
+        do {
+            // Set a small max upload size for testing
+            try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
 
-        await #expect(throws: NetworkError.payloadTooLarge(size: 200, limit: 100)) {
-            _ = try await service.uploadImageMultipart(
-                largeImageData, to: URL(string: "https://mock.api/upload")!)
+            let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
+            let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+            let service = ImageService(
+                imageCacheCountLimit: 100,
+                imageCacheTotalCostLimit: 50 * 1024 * 1024,
+                dataCacheCountLimit: 200,
+                dataCacheTotalCostLimit: 100 * 1024 * 1024,
+                urlSession: mockSession
+            )
+
+            await #expect(throws: NetworkError.payloadTooLarge(size: 200, limit: 100)) {
+                _ = try await service.uploadImageMultipart(
+                    largeImageData, to: URL(string: "https://mock.api/upload")!)
+            }
+        } catch {
+            // Restore original config even if test fails
+            await AsyncNetConfig.shared.resetMaxUploadSize()
+            throw error
         }
-
-        // Reset to default
+        
+        // Restore to default
         await AsyncNetConfig.shared.resetMaxUploadSize()
     }
 
     @Test func testUploadImageBase64PayloadTooLarge() async throws {
-        // Set a small max upload size for testing
-        try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
+        // Capture original max upload size for restoration
+        _ = await AsyncNetConfig.shared.maxUploadSize
 
-        let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
-        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
-        let service = ImageService(
-            imageCacheCountLimit: 100,
-            imageCacheTotalCostLimit: 50 * 1024 * 1024,
-            dataCacheCountLimit: 200,
-            dataCacheTotalCostLimit: 100 * 1024 * 1024,
-            urlSession: mockSession
-        )
+        do {
+            // Set a small max upload size for testing
+            try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
 
-        await #expect(throws: NetworkError.payloadTooLarge(size: 200, limit: 100)) {
-            _ = try await service.uploadImageBase64(
-                largeImageData, to: URL(string: "https://mock.api/upload")!)
+            let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
+            let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+            let service = ImageService(
+                imageCacheCountLimit: 100,
+                imageCacheTotalCostLimit: 50 * 1024 * 1024,
+                dataCacheCountLimit: 200,
+                dataCacheTotalCostLimit: 100 * 1024 * 1024,
+                urlSession: mockSession
+            )
+
+            await #expect(throws: NetworkError.payloadTooLarge(size: 268, limit: 100)) {
+                _ = try await service.uploadImageBase64(
+                    largeImageData, to: URL(string: "https://mock.api/upload")!)
+            }
+        } catch {
+            // Restore original config even if test fails
+            await AsyncNetConfig.shared.resetMaxUploadSize()
+            throw error
         }
-
-        // Reset to default
+        
+        // Restore to default
         await AsyncNetConfig.shared.resetMaxUploadSize()
     }
 }
