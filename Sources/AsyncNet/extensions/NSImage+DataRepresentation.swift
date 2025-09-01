@@ -117,7 +117,7 @@
                 return nil
             }
 
-            precondition(
+            assert(
                 Thread.isMainThread,
                 "rasterizedBitmap() uses AppKit drawing and must run on the main thread")
             // Set up graphics context for drawing

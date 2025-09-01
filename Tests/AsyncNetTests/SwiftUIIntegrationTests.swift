@@ -19,6 +19,15 @@ import Testing
             return data
         }()
 
+        /// Test-friendly version that throws instead of crashing
+        static func getMinimalPNGData() throws -> Data {
+            guard let data = Data(base64Encoded: minimalPNGBase64) else {
+                throw NetworkError.customError(
+                    "Failed to decode minimalPNGBase64 - invalid Base64 string", details: nil)
+            }
+            return data
+        }
+
         private static let defaultTestURL = URL(string: "https://mock.api/test")!
         private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
         private static let defaultFailURL = URL(string: "https://mock.api/fail")!
@@ -32,7 +41,7 @@ import Testing
             statusCode: Int = 200,
             headers: [String: String] = ["Content-Type": "image/png"],
             artificialDelay: UInt64 = 100_000_000  // 100ms default delay for stable timing
-        ) -> MockURLSession {
+        ) throws -> MockURLSession {
             guard
                 let response = HTTPURLResponse(
                     url: url,
@@ -41,17 +50,17 @@ import Testing
                     headerFields: headers
                 )
             else {
-                fatalError(
-                    "Failed to create HTTPURLResponse with headers: \(headers) - header fields may be invalid"
-                )
+                throw NetworkError.customError(
+                    "Failed to create HTTPURLResponse with headers: \(headers) - header fields may be invalid",
+                    details: nil)
             }
             return MockURLSession(
                 nextData: data, nextResponse: response, artificialDelay: artificialDelay)
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelLoadingState() async {
-            let mockSession = makeMockSession()
+        @Test func testAsyncNetImageModelLoadingState() async throws {
+            let mockSession = try makeMockSession()
             let service = ImageService(
                 imageCacheCountLimit: 100,
                 imageCacheTotalCostLimit: 50 * 1024 * 1024,
@@ -93,15 +102,15 @@ import Testing
             #expect(model.isLoading == false, "Loading flag should be false after failed load")
         }
 
-        @Test func testAsyncNetImageModelConcurrentLoad() async {
-            let imageData = Self.minimalPNGData
+        @Test func testAsyncNetImageModelConcurrentLoad() async throws {
+            let imageData = try Self.getMinimalPNGData()
 
             // Create separate mock sessions and services for each concurrent load
-            let mockSession1 = makeMockSession(
+            let mockSession1 = try makeMockSession(
                 data: imageData, url: Self.concurrentTestURL1)
-            let mockSession2 = makeMockSession(
+            let mockSession2 = try makeMockSession(
                 data: imageData, url: Self.concurrentTestURL2)
-            let mockSession3 = makeMockSession(
+            let mockSession3 = try makeMockSession(
                 data: imageData, url: Self.concurrentTestURL3)
 
             let service1 = ImageService(
@@ -260,9 +269,9 @@ import Testing
                     headerFields: ["Content-Type": "application/json"]
                 )
             else {
-                fatalError(
-                    "Failed to create HTTPURLResponse for upload error test - header fields may be invalid"
-                )
+                throw NetworkError.customError(
+                    "Failed to create HTTPURLResponse for upload error test - header fields may be invalid",
+                    details: nil)
             }
             let mockSession = MockURLSession(
                 nextData: Data("Server Error".utf8), nextResponse: errorResponse)
@@ -276,7 +285,8 @@ import Testing
             let model = AsyncImageModel(imageService: service)
 
             // Guard against nil platform image
-            guard let platformImage = ImageService.platformImage(from: Self.minimalPNGData) else {
+            let testData = try Self.getMinimalPNGData()
+            guard let platformImage = ImageService.platformImage(from: testData) else {
                 throw NetworkError.customError(
                     "Failed to create platform image from test data", details: nil)
             }
@@ -418,7 +428,7 @@ import Testing
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelRetryFunctionality() async {
+        @Test func testAsyncNetImageModelRetryFunctionality() async throws {
             // Create a mock session that fails multiple times (to exhaust ImageService's built-in retries), then succeeds
             guard
                 let successResponse = HTTPURLResponse(
@@ -434,11 +444,12 @@ import Testing
 
             // ImageService has built-in retry logic (3 attempts by default), so we need to provide enough failures
             // followed by a success. The pattern will be: fail, fail, fail (exhaust retries), then success on retry
+            let testData = try Self.getMinimalPNGData()
             let session = MockURLSession(scriptedCalls: [
                 (nil, nil, NetworkError.networkUnavailable),  // First attempt fails
                 (nil, nil, NetworkError.networkUnavailable),  // Second attempt fails
                 (nil, nil, NetworkError.networkUnavailable),  // Third attempt fails
-                (Self.minimalPNGData, successResponse, nil),  // Fourth attempt succeeds
+                (testData, successResponse, nil),  // Fourth attempt succeeds
             ])
             let service = ImageService(
                 imageCacheCountLimit: 100,

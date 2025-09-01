@@ -108,10 +108,11 @@ struct CreateUserEndpoint: Endpoint {
   ```swift
   /// Portable Duration to TimeInterval conversion
   /// - Parameter duration: Swift Duration to convert
-  /// - Returns: TimeInterval representation
+  /// - Returns: TimeInterval representation (clamped to ≥ 0 to avoid negative timeout semantics)
   func timeInterval(from duration: Duration) -> TimeInterval {
       let components = duration.components
-      return TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+      let computedInterval = TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+      return max(0, computedInterval)  // Clamp to non-negative to prevent negative timeout semantics
   }
   ```
 - **Request Timeout Setting**: Only set `URLRequest.timeoutInterval` when `endpoint.timeoutDuration` is non-nil:

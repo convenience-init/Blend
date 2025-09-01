@@ -52,7 +52,22 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     case outOfScriptBounds(call: Int)
 
     // MARK: - Private Helper Methods
-    private static let l10nBundle = Bundle.main
+    private final class BundleHelper {}
+
+    private static let l10nBundle: Bundle = {
+        #if SWIFT_PACKAGE
+            // For Swift packages, try to find the bundle by identifier
+            let bundleIdentifier = "com.convenience-init.AsyncNet"
+            if let bundle = Bundle(identifier: bundleIdentifier) {
+                return bundle
+            }
+            // Fallback to the bundle containing this class
+            return Bundle(for: BundleHelper.self)
+        #else
+            // For non-package builds, use the bundle containing this class
+            return Bundle(for: BundleHelper.self)
+        #endif
+    }()
 
     private static func statusMessage(_ format: String, _ statusCode: Int) -> String {
         return String(

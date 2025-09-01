@@ -290,3 +290,10 @@ public extension AsyncRequestable {
 	}
 }
 
+/// Protocol abstraction for URLSession to enable mocking in tests
+public protocol URLSessionProtocol: Sendable {
+	func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+extension URLSession: URLSessionProtocol {}
+

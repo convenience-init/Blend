@@ -70,20 +70,49 @@ public actor AsyncNetConfig {
     /// Default maximum upload size for image uploads (in bytes)
     public static let defaultMaxUploadSize: Int = 10 * 1024 * 1024  // 10MB
 
+    /// Minimum allowed upload size (1 KB)
+    private static let minUploadSize: Int = 1024  // 1KB
+
+    /// Maximum allowed upload size (100 MB)
+    private static let maxUploadSize: Int = 100 * 1024 * 1024  // 100MB
+
     /// Default timeout duration for network requests (in seconds)
     private var _timeoutDuration: TimeInterval = AsyncNetConfig.defaultTimeout
 
     /// Maximum upload size for image uploads (in bytes)
     private var _maxUploadSize: Int = AsyncNetConfig.defaultMaxUploadSize
 
+    /// Initial effective maximum upload size (captures environment override or default)
+    private var _initialMaxUploadSize: Int = AsyncNetConfig.defaultMaxUploadSize
+
     /// Private initializer to enforce singleton pattern
     private init() {
         // Initialize maxUploadSize from environment variable if available
-        if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_UPLOAD_SIZE"],
-            let size = Int(envValue), size > 0
-        {
-            _maxUploadSize = size
+        if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_UPLOAD_SIZE"] {
+            if let size = Int(envValue) {
+                if size >= AsyncNetConfig.minUploadSize && size <= AsyncNetConfig.maxUploadSize {
+                    _maxUploadSize = size
+                } else {
+                    // Log warning for out-of-bounds values
+                    let minMB = AsyncNetConfig.minUploadSize / (1024 * 1024)
+                    let maxMB = AsyncNetConfig.maxUploadSize / (1024 * 1024)
+                    let providedMB = size / (1024 * 1024)
+
+                    print(
+                        "Warning: ASYNC_NET_MAX_UPLOAD_SIZE value \(size) bytes (\(providedMB) MB) is out of range. "
+                            + "Valid range is \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes "
+                            + "(\(minMB) - \(maxMB) MB). Using default: \(AsyncNetConfig.defaultMaxUploadSize) bytes.")
+                }
+            } else {
+                // Log warning for invalid integer parsing
+                print(
+                    "Warning: ASYNC_NET_MAX_UPLOAD_SIZE value '\(envValue)' is not a valid integer. "
+                        + "Using default: \(AsyncNetConfig.defaultMaxUploadSize) bytes.")
+            }
         }
+
+        // Capture the initial effective value (environment override or default)
+        _initialMaxUploadSize = _maxUploadSize
     }
 
     /// Test-only initializer for creating isolated instances in tests
@@ -92,6 +121,8 @@ public actor AsyncNetConfig {
     #if DEBUG || TESTING
         internal init(timeoutDuration: TimeInterval = AsyncNetConfig.defaultTimeout) {
             self._timeoutDuration = timeoutDuration
+            self._maxUploadSize = AsyncNetConfig.defaultMaxUploadSize
+            self._initialMaxUploadSize = AsyncNetConfig.defaultMaxUploadSize
         }
     #endif
 
@@ -136,6 +167,6 @@ public actor AsyncNetConfig {
 
     /// Resets the maximum upload size to the configured default (see AsyncNetConfig.defaultMaxUploadSize)
     public func resetMaxUploadSize() {
-        _maxUploadSize = AsyncNetConfig.defaultMaxUploadSize
+        _maxUploadSize = _initialMaxUploadSize
     }
 }

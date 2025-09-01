@@ -211,10 +211,8 @@ public struct AsyncNetImageView: View {
     let autoUpload: Bool
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
     @State internal var model: AsyncImageModel
-    /// Track if auto-upload has been attempted for the current image to prevent redundant uploads
-    @State private var hasAttemptedAutoUpload = false
-    /// Track image load completion to trigger auto-upload reliably
-    @State private var imageLoadId = UUID()
+    /// Prevents multiple auto-upload attempts
+    @State private var hasAttemptedAutoUpload: Bool = false
 
     public init(
         url: String? = nil,
@@ -298,21 +296,16 @@ public struct AsyncNetImageView: View {
         }
         .task(id: url) {
             await model.loadImage(from: url)
-            // Update ID after successful load to trigger auto-upload
-            if model.loadedImage != nil {
-                imageLoadId = UUID()
+            // Perform auto-upload immediately after successful load
+            if model.loadedImage != nil && autoUpload && uploadURL != nil && !hasAttemptedAutoUpload
+            {
+                hasAttemptedAutoUpload = true
+                await performUpload()
             }
         }
-        .onChange(of: imageLoadId) { _, _ in
-            // Reset upload attempt flag for new images, then check if we should auto-upload
+        .onChange(of: url) { _, _ in
+            // Reset flag when URL changes
             hasAttemptedAutoUpload = false
-            
-            if autoUpload, model.loadedImage != nil, uploadURL != nil {
-                hasAttemptedAutoUpload = true
-                Task {
-                    await performUpload()
-                }
-            }
         }
     }
 

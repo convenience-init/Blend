@@ -24,10 +24,10 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 | URLSession Pause/Resume | Improved | Improved |
 | CFNetwork APIs | Updates in latest SDKs | Updates in latest SDKs |
 
-> [^1]: [Apple URLSession Documentation](https://developer.apple.com/documentation/foundation/urlsession)
-> [^2]: [HTTP/3 Support](https://developer.apple.com/documentation/foundation/urlsession/3767356-httpversion)
-> [^3]: [TLS Protocol Versions](https://developer.apple.com/documentation/security/tls_protocol_versions)
-> [^4]: [CFNetwork Framework](https://developer.apple.com/documentation/cfnetwork)
+> [^1]: [URLSession Pause and Resume Documentation](https://developer.apple.com/documentation/foundation/pausing-and-resuming-uploads)
+> [^2]: [WWDC 2021: Accelerate networking with HTTP/3 and QUIC](https://developer.apple.com/videos/play/wwdc2021/10095/)
+> [^3]: [Transport Layer Security (TLS) Protocol Versions](https://developer.apple.com/documentation/security/tls_protocol_versions)
+> [^4]: [CFNetwork Framework Reference](https://developer.apple.com/documentation/cfnetwork)
 
 ## Installation
 

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 #if canImport(OSLog)
     import OSLog
@@ -241,16 +242,24 @@ public actor DefaultNetworkCache: NetworkCache {
 
     private func performLightweightCleanup() async {
         let now = timeProvider()
+        var nodesToRemove: [Node] = []
+        let cleanupLimit = min(10, cache.count / 4)  // Check up to 25% or 10 entries
+        var checked = 0
 
-        // Lightweight cleanup: only check and remove expired entries from the tail
-        // This is efficient since expired entries tend to be older (towards the tail)
-        while let tailNode = tail {
-            if now - tailNode.timestamp >= expiration {
-                removeTail()
-            } else {
-                // Tail is not expired, no need to check further
-                break
+        // Start from tail and work backwards, checking for expired entries
+        var current = tail
+        while let node = current, checked < cleanupLimit {
+            if now - node.timestamp >= expiration {
+                nodesToRemove.append(node)
             }
+            current = node.prev
+            checked += 1
+        }
+
+        // Remove expired nodes
+        for node in nodesToRemove {
+            removeNode(node)
+            cache.removeValue(forKey: node.key)
         }
     }
 }
@@ -286,13 +295,13 @@ public actor AdvancedNetworkManager {
         let key = cacheKey ?? generateRequestKey(from: request)
         if let cached = await cache.get(forKey: key) {
             #if canImport(OSLog)
-                asyncNetLogger.debug("Cache hit for key: \(key)")
+                asyncNetLogger.debug("Cache hit for key: \(key, privacy: .public)")
             #endif
             return cached
         }
         if let task = inFlightTasks[key] {
             #if canImport(OSLog)
-                asyncNetLogger.debug("Request deduplication for key: \(key)")
+                asyncNetLogger.debug("Request deduplication for key: \(key, privacy: .public)")
             #endif
             return try await task.value
         }
@@ -322,11 +331,11 @@ public actor AdvancedNetworkManager {
                             #if canImport(OSLog)
                                 if attempt > 0 {
                                     asyncNetLogger.info(
-                                        "Request succeeded after \(attempt) retries for key: \(key)"
+                                        "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .public)"
                                     )
                                 } else {
                                     asyncNetLogger.debug(
-                                        "Request succeeded on first attempt for key: \(key)")
+                                        "Request succeeded on first attempt for key: \(key, privacy: .public)")
                                 }
                             #endif
                             return data
@@ -346,7 +355,8 @@ public actor AdvancedNetworkManager {
                     } else {
                         // Non-HTTP response: return data without caching
                         #if canImport(OSLog)
-                            asyncNetLogger.debug("Non-HTTP response received for key: \(key)")
+                            asyncNetLogger.debug(
+                                "Non-HTTP response received for key: \(key, privacy: .public)")
                         #endif
                         return data
                     }
@@ -354,7 +364,7 @@ public actor AdvancedNetworkManager {
                     lastError = error
                     #if canImport(OSLog)
                         asyncNetLogger.warning(
-                            "Request attempt \(attempt + 1) failed for key: \(key), error: \(error.localizedDescription)"
+                            "Request attempt \(attempt + 1, privacy: .public) failed for key: \(key, privacy: .public), error: \(error.localizedDescription, privacy: .public)"
                         )
                     #endif
                     // shouldRetry and backoff use the attempt index (0-based)
@@ -375,8 +385,9 @@ public actor AdvancedNetworkManager {
 
                     // Apply backoff with jitter for both custom and default retry paths
                     var delay = retryPolicy.backoff?(attempt) ?? 0.0
-                    // Apply additional jitter if provided separately
-                    if let jitterProvider = retryPolicy.jitterProvider {
+                    // Only apply additional jitter if no custom backoff was provided
+                    // (to avoid double-jitter when backoff already includes jitter)
+                    if retryPolicy.backoff == nil, let jitterProvider = retryPolicy.jitterProvider {
                         delay += jitterProvider(attempt)
                     }
                     let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
@@ -384,7 +395,7 @@ public actor AdvancedNetworkManager {
                     if attempt < retryPolicy.maxRetries && cappedDelay > 0 {
                         #if canImport(OSLog)
                             asyncNetLogger.debug(
-                                "Retrying request for key: \(key) after \(cappedDelay) seconds")
+                                "Retrying request for key: \(key, privacy: .public) after \(cappedDelay, privacy: .public) seconds")
                         #endif
                         try await Task.sleep(nanoseconds: UInt64(cappedDelay * 1_000_000_000))
                     }
@@ -395,7 +406,8 @@ public actor AdvancedNetworkManager {
                 throw lastError
             }
             #if canImport(OSLog)
-                asyncNetLogger.error("All retry attempts exhausted for key: \(key)")
+                asyncNetLogger.error(
+                    "All retry attempts exhausted for key: \(key, privacy: .public)")
             #endif
             throw lastError
                 ?? NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
@@ -434,12 +446,12 @@ public struct RetryPolicy: Sendable {
     public static let `default` = RetryPolicy(
         maxRetries: 3,
         shouldRetry: { error, _ in
-            // Don't retry HTTP 4xx client errors or noResponse errors
+            // Don't retry HTTP 3xx redirects, 4xx client errors or noResponse errors
             if let networkError = error as? NetworkError {
                 switch networkError {
                 case .httpError(let statusCode, _):
-                    // Don't retry 4xx client errors
-                    if (400...499).contains(statusCode) {
+                    // Don't retry 3xx redirects or 4xx client errors
+                    if (300...399).contains(statusCode) || (400...499).contains(statusCode) {
                         return false
                     }
                 case .noResponse:
@@ -482,18 +494,10 @@ public struct RetryPolicy: Sendable {
         maxRetries: Int = 3, maxBackoff: TimeInterval = 60.0, timeoutInterval: TimeInterval = 30.0,
         jitterProvider: (@Sendable (Int) -> TimeInterval)? = nil
     ) -> RetryPolicy {
-        let defaultJitter: (@Sendable (Int) -> TimeInterval) = { attempt in
-            // Deterministic jitter based on attempt number: sin(attempt) * 0.25 + 0.25
-            // This gives values between 0 and 0.5, similar to the original random range
-            return sin(Double(attempt)) * 0.25 + 0.25
-        }
-
-        let jitter = jitterProvider ?? defaultJitter
-
         return RetryPolicy(
             maxRetries: maxRetries,
             shouldRetry: { _, _ in true },
-            backoff: { attempt in pow(2.0, Double(attempt)) + jitter(attempt) },
+            backoff: { attempt in pow(2.0, Double(attempt)) },
             maxBackoff: maxBackoff,
             timeoutInterval: timeoutInterval,
             jitterProvider: jitterProvider
@@ -528,7 +532,7 @@ public struct RetryPolicy: Sendable {
         return RetryPolicy(
             maxRetries: maxRetries,
             shouldRetry: { _, _ in true },
-            backoff: { attempt in pow(2.0, Double(attempt)) + jitterProvider(attempt) },
+            backoff: { attempt in pow(2.0, Double(attempt)) },
             maxBackoff: maxBackoff,
             timeoutInterval: timeoutInterval,
             jitterProvider: jitterProvider
@@ -552,7 +556,7 @@ public struct RetryPolicy: Sendable {
         return RetryPolicy(
             maxRetries: maxRetries,
             shouldRetry: { _, _ in true },
-            backoff: { attempt in pow(2.0, Double(attempt)) + jitterProvider(attempt) },
+            backoff: { attempt in pow(2.0, Double(attempt)) },
             maxBackoff: maxBackoff,
             timeoutInterval: timeoutInterval,
             jitterProvider: jitterProvider

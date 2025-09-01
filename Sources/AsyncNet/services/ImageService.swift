@@ -9,13 +9,6 @@
     import SwiftUI
 #endif
 
-/// Protocol abstraction for URLSession to enable mocking in tests
-public protocol URLSessionProtocol: Sendable {
-    func data(for request: URLRequest) async throws -> (Data, URLResponse)
-}
-
-extension URLSession: URLSessionProtocol {}
-
 /// Shared URLSession instance with optimized caching configuration
 /// Created outside actor isolation to avoid expensive actor-hop overhead
 private let sharedURLSession: URLSession = {
@@ -71,7 +64,7 @@ public actor ImageService {
         if encodedSize > maxUploadSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes exceeds limit of \(maxUploadSize) bytes (raw size: \(imageData.count) bytes)"
+                    "Upload rejected: Base64-encoded image size \(encodedSize, privacy: .public) bytes exceeds limit of \(maxUploadSize, privacy: .public) bytes (raw size: \(imageData.count, privacy: .public) bytes)"
                 )
             #else
                 print(
@@ -86,7 +79,7 @@ public actor ImageService {
         if encodedSize > maxRecommendedSize {
             #if canImport(OSLog)
                 asyncNetLogger.info(
-                    "Warning: Large base64-encoded image (\(encodedSize) bytes, raw: \(imageData.count) bytes) approaches upload limit. Consider using multipart upload."
+                    "Warning: Large base64-encoded image (\(encodedSize, privacy: .public) bytes, raw: \(imageData.count, privacy: .public) bytes) approaches upload limit. Consider using multipart upload."
                 )
             #else
                 print(
@@ -294,7 +287,15 @@ public actor ImageService {
                     delay = config.baseDelay * pow(2.0, Double(attempt))
                 }
                 let jitter = Double.random(in: 0...config.jitter)
+                
+                // Check for cancellation before sleeping
+                try Task.checkCancellation()
+
                 try await Task.sleep(nanoseconds: UInt64((delay + jitter) * 1_000_000_000))
+                
+                // Check for cancellation before next attempt
+                try Task.checkCancellation()
+
                 attempt += 1
                 continue
             }
@@ -521,7 +522,7 @@ public actor ImageService {
         if imageData.count > maxUploadSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
+                    "Upload rejected: Image size \(imageData.count, privacy: .public) bytes exceeds limit of \(maxUploadSize, privacy: .public) bytes"
                 )
             #else
                 print(
@@ -568,8 +569,15 @@ public actor ImageService {
         }
 
         // Add image data
-        // Determine MIME type from image data
-        let mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
+        // Determine MIME type: prefer configured value, then detect from data, then fallback
+        let mimeType: String
+        let trimmedConfiguredMimeType = configuration.mimeType.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        if !trimmedConfiguredMimeType.isEmpty {
+            mimeType = trimmedConfiguredMimeType
+        } else {
+            mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
+        }
 
         let imageBoundaryString = "--\(boundary)\r\n"
         let imageDispositionString =

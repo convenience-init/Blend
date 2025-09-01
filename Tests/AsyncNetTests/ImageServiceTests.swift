@@ -322,6 +322,13 @@ struct ImageServiceTests {
         // Capture original max upload size for restoration
         _ = await AsyncNetConfig.shared.maxUploadSize
 
+        // Ensure cleanup happens regardless of test outcome
+        defer {
+            Task {
+                await AsyncNetConfig.shared.resetMaxUploadSize()
+            }
+        }
+
         do {
             // Set a small max upload size for testing
             try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
@@ -345,14 +352,18 @@ struct ImageServiceTests {
             await AsyncNetConfig.shared.resetMaxUploadSize()
             throw error
         }
-        
-        // Restore to default
-        await AsyncNetConfig.shared.resetMaxUploadSize()
     }
 
     @Test func testUploadImageBase64PayloadTooLarge() async throws {
         // Capture original max upload size for restoration
         _ = await AsyncNetConfig.shared.maxUploadSize
+
+        // Ensure cleanup happens regardless of test outcome
+        defer {
+            Task {
+                await AsyncNetConfig.shared.resetMaxUploadSize()
+            }
+        }
 
         do {
             // Set a small max upload size for testing
@@ -377,9 +388,6 @@ struct ImageServiceTests {
             await AsyncNetConfig.shared.resetMaxUploadSize()
             throw error
         }
-        
-        // Restore to default
-        await AsyncNetConfig.shared.resetMaxUploadSize()
     }
 }
 @Suite("Image Service Performance Benchmarks")
