@@ -322,18 +322,11 @@ struct ImageServiceTests {
         // Capture original max upload size for restoration
         _ = await AsyncNetConfig.shared.maxUploadSize
 
-        // Ensure cleanup happens regardless of test outcome
-        defer {
-            Task {
-                await AsyncNetConfig.shared.resetMaxUploadSize()
-            }
-        }
-
         do {
-            // Set a small max upload size for testing
-            try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
+            // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
+            try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
-            let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
+            let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
             let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
             let service = ImageService(
                 imageCacheCountLimit: 100,
@@ -343,10 +336,12 @@ struct ImageServiceTests {
                 urlSession: mockSession
             )
 
-            await #expect(throws: NetworkError.payloadTooLarge(size: 200, limit: 100)) {
+            await #expect(throws: NetworkError.payloadTooLarge(size: 2048, limit: 1024)) {
                 _ = try await service.uploadImageMultipart(
                     largeImageData, to: URL(string: "https://mock.api/upload")!)
             }
+            // Restore after successful test
+            await AsyncNetConfig.shared.resetMaxUploadSize()
         } catch {
             // Restore original config even if test fails
             await AsyncNetConfig.shared.resetMaxUploadSize()
@@ -358,18 +353,11 @@ struct ImageServiceTests {
         // Capture original max upload size for restoration
         _ = await AsyncNetConfig.shared.maxUploadSize
 
-        // Ensure cleanup happens regardless of test outcome
-        defer {
-            Task {
-                await AsyncNetConfig.shared.resetMaxUploadSize()
-            }
-        }
-
         do {
-            // Set a small max upload size for testing
-            try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
+            // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
+            try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
-            let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
+            let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
             let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
             let service = ImageService(
                 imageCacheCountLimit: 100,
@@ -379,10 +367,12 @@ struct ImageServiceTests {
                 urlSession: mockSession
             )
 
-            await #expect(throws: NetworkError.payloadTooLarge(size: 268, limit: 100)) {
+            await #expect(throws: NetworkError.payloadTooLarge(size: 2732, limit: 1024)) {
                 _ = try await service.uploadImageBase64(
                     largeImageData, to: URL(string: "https://mock.api/upload")!)
             }
+            // Restore after successful test
+            await AsyncNetConfig.shared.resetMaxUploadSize()
         } catch {
             // Restore original config even if test fails
             await AsyncNetConfig.shared.resetMaxUploadSize()

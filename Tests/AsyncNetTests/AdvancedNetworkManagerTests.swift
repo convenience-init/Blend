@@ -294,6 +294,14 @@ struct AsyncRequestableTests {
         typealias ResponseModel = TestModel
         let urlSession: URLSessionProtocol
         func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
+            // Fail fast: Validate GET requests don't have a body before building any components
+            if endPoint.method == .get && endPoint.body != nil {
+                throw NetworkError.invalidEndpoint(
+                    reason:
+                        "GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
+                )
+            }
+
             // Build URL from Endpoint properties
             var components = URLComponents()
             components.scheme = endPoint.scheme.rawValue
@@ -317,12 +325,12 @@ struct AsyncRequestableTests {
                     request.setValue(value, forHTTPHeaderField: key)
                 }
             }
+            
+            // Only set httpBody for non-GET methods (GET validation already done above)
             if let body = endPoint.body {
-                if endPoint.method == .get {
-                    throw NetworkError.invalidBodyForGET
-                }
                 request.httpBody = body
             }
+            
             // Set timeout from endpoint (preferring timeoutDuration over legacy timeout)
             if let timeout = endPoint.effectiveTimeout {
                 request.timeoutInterval = timeout
@@ -387,11 +395,17 @@ struct AsyncRequestableTests {
 
         do {
             _ = try await service.sendRequest(to: endpoint)
-            #expect(Bool(false), "Expected invalidBodyForGET error")
+            #expect(Bool(false), "Expected invalidEndpoint error for GET with body")
         } catch let error as NetworkError {
-            #expect(error == .invalidBodyForGET)
+            if case let .invalidEndpoint(reason) = error {
+                #expect(
+                    reason.contains("GET requests must not have a body"),
+                    "Should contain descriptive error message")
+            } else {
+                #expect(Bool(false), "Expected NetworkError.invalidEndpoint")
+            }
         } catch {
-            #expect(Bool(false), "Expected NetworkError.invalidBodyForGET")
+            #expect(Bool(false), "Expected NetworkError.invalidEndpoint")
         }
     }
 

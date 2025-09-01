@@ -208,14 +208,16 @@ struct MockURLSessionTests {
         } catch {
             // This should probably be some kind of error when no data/response is available
             if let networkError = error as? NetworkError,
-                case let .outOfScriptBounds(call) = networkError
+                case let .invalidMockConfiguration(callIndex, missingData, missingResponse) =
+                    networkError
             {
-                #expect(
-                    call == 2, "Expected outOfScriptBounds error for call 2 with no data/response")
+                #expect(callIndex == 2, "Expected invalidMockConfiguration error for call 2")
+                #expect(missingData == true, "Expected missingData to be true")
+                #expect(missingResponse == true, "Expected missingResponse to be true")
             } else {
                 #expect(
                     Bool(false),
-                    "Expected NetworkError.outOfScriptBounds for call with no data/response")
+                    "Expected NetworkError.invalidMockConfiguration for call with no data/response")
             }
         }
 

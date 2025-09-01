@@ -135,7 +135,13 @@ actor MockURLSession: URLSessionProtocol {
 
         // Return scripted data and response
         guard let data = script.data, let response = script.response else {
-            throw NetworkError.outOfScriptBounds(call: currentCallIndex + 1)
+            let missingData = script.data == nil
+            let missingResponse = script.response == nil
+            throw NetworkError.invalidMockConfiguration(
+                callIndex: currentCallIndex + 1,
+                missingData: missingData,
+                missingResponse: missingResponse
+            )
         }
 
         // Ensure the response is returned as the correct type

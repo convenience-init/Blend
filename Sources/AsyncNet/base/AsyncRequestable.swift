@@ -195,6 +195,14 @@ public extension AsyncRequestable {
 	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
 	/// - Throws: `NetworkError` if the endpoint configuration is invalid.
 	private func buildAsyncRequest(for endPoint: Endpoint) throws -> URLRequest? {
+		// Fail fast: Validate GET requests don't have a body before building any components
+		if endPoint.method == .get && endPoint.body != nil {
+			throw NetworkError.invalidEndpoint(
+				reason:
+					"GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
+			)
+		}
+
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
 		components.host = endPoint.host
@@ -208,12 +216,10 @@ public extension AsyncRequestable {
 		var asyncRequest = URLRequest(url: url)
 		asyncRequest.allHTTPHeaderFields = endPoint.resolvedHeaders
 		asyncRequest.httpMethod = endPoint.method.rawValue
+		
+		// Only set httpBody for non-GET methods (GET validation already done above)
 		if let body = endPoint.body {
-			if endPoint.method == .get {
-				throw NetworkError.invalidBodyForGET
-			} else {
-				asyncRequest.httpBody = body
-			}
+			asyncRequest.httpBody = body
 		}
 		return asyncRequest
 	}
@@ -243,8 +249,7 @@ public extension AsyncRequestable {
 	/// - Returns: The decoded response model of type `ResponseModel`, automatically decoded from JSON.
 	///
 	/// - Throws:
-	///   - `NetworkError.invalidEndpoint` if the endpoint URL cannot be constructed
-	///   - `NetworkError.invalidBodyForGET` if attempting to send a body with a GET request
+	///   - `NetworkError.invalidEndpoint` if the endpoint URL cannot be constructed or if attempting to send a body with a GET request
 	///   - `NetworkError.decodingError` if the response cannot be decoded to the expected type
 	///   - `NetworkError.httpError` for HTTP status codes outside 200-299 range
 	///   - `CancellationError` if the request is cancelled

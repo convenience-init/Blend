@@ -26,8 +26,8 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
 - **CI Build Commands**: Use these explicit commands in your CI matrix/job:
-  - `swift build --configuration Debug -Xswiftc '-Xfrontend -enable-actor-data-race-checks' -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
-  - `swift test --configuration Debug -Xswiftc '-Xfrontend -enable-actor-data-race-checks' -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
+  - `swift build --configuration Debug -Xswiftc -strict-concurrency=complete -Xswiftc -Xfrontend -enable-actor-data-race-checks -Xswiftc -Xfrontend -warn-concurrency`
+  - `swift test --configuration Debug -Xswiftc -strict-concurrency=complete -Xswiftc -Xfrontend -enable-actor-data-race-checks -Xswiftc -Xfrontend -warn-concurrency`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 

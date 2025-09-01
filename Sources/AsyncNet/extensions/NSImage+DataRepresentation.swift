@@ -8,8 +8,7 @@
     extension NSImage {
         /// Returns the underlying CGImage representation
         public var cgImage: CGImage? {
-            var proposedRect = CGRect(origin: .zero, size: size)
-            return cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+            return cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
 
         /// Creates JPEG data representation with compression quality
@@ -83,6 +82,10 @@
         /// Creates a rasterized bitmap representation of the image
         /// - Returns: NSBitmapImageRep containing the rasterized image, or nil if creation fails
         private func rasterizedBitmap() -> NSBitmapImageRep? {
+            assert(
+                Thread.isMainThread,
+                "rasterizedBitmap() uses AppKit drawing and must run on the main thread")
+
             let targetSize = size
 
             // Ensure we have valid dimensions
@@ -93,6 +96,25 @@
             // Calculate pixel dimensions using ceiling to prevent clipping
             let pixelsWide = Int(ceil(targetSize.width))
             let pixelsHigh = Int(ceil(targetSize.height))
+
+            // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
+            let MAX_DIMENSION = 16384  // 16K pixels max per dimension (reasonable for most use cases)
+            let MAX_PIXELS = 100 * 1024 * 1024  // 100M pixels max total (approx 400MB at 32bpp)
+
+            // Check individual dimensions
+            guard pixelsWide <= MAX_DIMENSION, pixelsHigh <= MAX_DIMENSION else {
+                return nil
+            }
+
+            // Check total pixel count to prevent excessive memory usage
+            // Use multiplication that checks for overflow
+            guard pixelsWide <= Int.max / pixelsHigh else {
+                return nil  // Would overflow
+            }
+            let totalPixels = pixelsWide * pixelsHigh
+            guard totalPixels <= MAX_PIXELS else {
+                return nil
+            }
 
             // Validate that ceiled dimensions are valid
             guard pixelsWide > 0, pixelsHigh > 0 else {
@@ -117,9 +139,6 @@
                 return nil
             }
 
-            assert(
-                Thread.isMainThread,
-                "rasterizedBitmap() uses AppKit drawing and must run on the main thread")
             // Set up graphics context for drawing
             NSGraphicsContext.saveGraphicsState()
             defer { NSGraphicsContext.restoreGraphicsState() }

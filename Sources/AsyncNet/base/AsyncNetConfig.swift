@@ -21,7 +21,10 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
         case .invalidTimeoutDuration:
             return "Provide a finite timeout duration greater than 0 seconds."
         case .invalidMaxUploadSize:
-            return "Provide a maximum upload size greater than 0 bytes."
+            let minMB = AsyncNetConfig.minUploadSize / (1024 * 1024)
+            let maxMB = AsyncNetConfig.maxUploadSize / (1024 * 1024)
+            return
+                "Provide a maximum upload size between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
         }
     }
 }
@@ -71,10 +74,10 @@ public actor AsyncNetConfig {
     public static let defaultMaxUploadSize: Int = 10 * 1024 * 1024  // 10MB
 
     /// Minimum allowed upload size (1 KB)
-    private static let minUploadSize: Int = 1024  // 1KB
+    public static let minUploadSize: Int = 1024  // 1KB
 
     /// Maximum allowed upload size (100 MB)
-    private static let maxUploadSize: Int = 100 * 1024 * 1024  // 100MB
+    public static let maxUploadSize: Int = 100 * 1024 * 1024  // 100MB
 
     /// Default timeout duration for network requests (in seconds)
     private var _timeoutDuration: TimeInterval = AsyncNetConfig.defaultTimeout
@@ -150,12 +153,16 @@ public actor AsyncNetConfig {
     }
 
     /// Sets the maximum upload size for image uploads
-    /// - Parameter size: The maximum upload size in bytes (must be > 0)
+    /// - Parameter size: The maximum upload size in bytes (must be between 1KB and 100MB)
     /// - Throws: AsyncNetConfigError.invalidMaxUploadSize if the size is invalid
     public func setMaxUploadSize(_ size: Int) throws(AsyncNetConfigError) {
-        guard size > 0 else {
+        guard size >= AsyncNetConfig.minUploadSize && size <= AsyncNetConfig.maxUploadSize else {
+            let minMB = AsyncNetConfig.minUploadSize / (1024 * 1024)
+            let maxMB = AsyncNetConfig.maxUploadSize / (1024 * 1024)
+            let providedMB = size / (1024 * 1024)
             throw .invalidMaxUploadSize(
-                "Size must be greater than 0, got \(size)")
+                "Size must be between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB), got \(size) bytes (\(providedMB) MB)"
+            )
         }
         _maxUploadSize = size
     }

@@ -43,6 +43,8 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     case authenticationFailed
     /// Payload too large error with actual size and configured limit
     case payloadTooLarge(size: Int, limit: Int)
+    /// Error case for invalid mock configuration with call index and missing components
+    case invalidMockConfiguration(callIndex: Int, missingData: Bool, missingResponse: Bool)
     /// Represents a transport-level error (e.g., connection, timeout, DNS) not classified as HTTP status error.
     /// - Parameters:
     ///   - code: The URLError.Code associated with the transport error.
@@ -447,6 +449,21 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
                     value: "Payload too large: %d bytes exceeds limit of %d bytes",
                     comment: "Error message for payload too large with size and limit"), size, limit
             )
+        case .invalidMockConfiguration(let callIndex, let missingData, let missingResponse):
+            var missingComponents: [String] = []
+            if missingData { missingComponents.append("data") }
+            if missingResponse { missingComponents.append("response") }
+            let componentsString = missingComponents.joined(separator: " and ")
+            return String(
+                format: NSLocalizedString(
+                    "Invalid mock configuration: Call %d is missing %@", tableName: nil,
+                    bundle: NetworkError.l10nBundle,
+                    value: "Invalid mock configuration: Call %d is missing %@",
+                    comment:
+                        "Error message for invalid mock configuration with call index and missing components"
+                ),
+                callIndex, componentsString
+            )
         }
     }
 
@@ -607,6 +624,13 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
                 bundle: NetworkError.l10nBundle,
                 value: "Reduce the payload size or use multipart upload for large files.",
                 comment: "Recovery suggestion for payload too large errors")
+        case .invalidMockConfiguration:
+            return NSLocalizedString(
+                "Check the mock script configuration and ensure all calls have both data and response configured.",
+                tableName: nil, bundle: NetworkError.l10nBundle,
+                value:
+                    "Check the mock script configuration and ensure all calls have both data and response configured.",
+                comment: "Recovery suggestion for invalid mock configuration errors")
         }
     }
 
@@ -797,6 +821,12 @@ extension NetworkError {
             .payloadTooLarge(let lhsSize, let lhsLimit), .payloadTooLarge(let rhsSize, let rhsLimit)
         ):
             return lhsSize == rhsSize && lhsLimit == rhsLimit
+        case (
+            .invalidMockConfiguration(let lhsCallIndex, let lhsMissingData, let lhsMissingResponse),
+            .invalidMockConfiguration(let rhsCallIndex, let rhsMissingData, let rhsMissingResponse)
+        ):
+            return lhsCallIndex == rhsCallIndex && lhsMissingData == rhsMissingData
+                && lhsMissingResponse == rhsMissingResponse
         default:
             return false
         }

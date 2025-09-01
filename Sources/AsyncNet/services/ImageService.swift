@@ -554,12 +554,27 @@ public actor ImageService {
             let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
             let valueString = "\(value)\r\n"
 
-            guard let boundaryData = boundaryString.data(using: .utf8),
-                let dispositionData = dispositionString.data(using: .utf8),
-                let valueData = valueString.data(using: .utf8)
+            // Validate UTF-8 encoding for each component with specific error messages
+            guard let boundaryData = boundaryString.data(using: .utf8, allowLossyConversion: false)
             else {
                 throw NetworkError.invalidEndpoint(
-                    reason: "Failed to encode form field '\(key)' with value '\(value)'"
+                    reason:
+                        "Failed to encode multipart boundary for form field '\(key)' - contains invalid UTF-8 characters"
+                )
+            }
+            guard
+                let dispositionData = dispositionString.data(
+                    using: .utf8, allowLossyConversion: false)
+            else {
+                throw NetworkError.invalidEndpoint(
+                    reason:
+                        "Failed to encode Content-Disposition header for form field '\(key)' - contains invalid UTF-8 characters"
+                )
+            }
+            guard let valueData = valueString.data(using: .utf8, allowLossyConversion: false) else {
+                throw NetworkError.invalidEndpoint(
+                    reason:
+                        "Failed to encode value for form field '\(key)' with value '\(value)' - contains invalid UTF-8 characters"
                 )
             }
             
@@ -585,14 +600,39 @@ public actor ImageService {
         let imageTypeString = "Content-Type: \(mimeType)\r\n\r\n"
         let closingBoundaryString = "\r\n--\(boundary)--\r\n"
 
-        guard let imageBoundaryData = imageBoundaryString.data(using: .utf8),
-            let imageDispositionData = imageDispositionString.data(using: .utf8),
-            let imageTypeData = imageTypeString.data(using: .utf8),
-            let closingBoundaryData = closingBoundaryString.data(using: .utf8)
+        // Validate UTF-8 encoding for image multipart components with specific error messages
+        guard
+            let imageBoundaryData = imageBoundaryString.data(
+                using: .utf8, allowLossyConversion: false)
         else {
             throw NetworkError.invalidEndpoint(
                 reason:
-                    "Failed to encode multipart form data strings for image upload (boundary: '\(boundary)', fieldName: '\(configuration.fieldName)', fileName: '\(configuration.fileName)', mimeType: '\(mimeType)')"
+                    "Failed to encode image boundary - contains invalid UTF-8 characters (boundary: '\(boundary)')"
+            )
+        }
+        guard
+            let imageDispositionData = imageDispositionString.data(
+                using: .utf8, allowLossyConversion: false)
+        else {
+            throw NetworkError.invalidEndpoint(
+                reason:
+                    "Failed to encode image Content-Disposition header - contains invalid UTF-8 characters (fieldName: '\(configuration.fieldName)', fileName: '\(configuration.fileName)')"
+            )
+        }
+        guard let imageTypeData = imageTypeString.data(using: .utf8, allowLossyConversion: false)
+        else {
+            throw NetworkError.invalidEndpoint(
+                reason:
+                    "Failed to encode image Content-Type header - contains invalid UTF-8 characters (mimeType: '\(mimeType)')"
+            )
+        }
+        guard
+            let closingBoundaryData = closingBoundaryString.data(
+                using: .utf8, allowLossyConversion: false)
+        else {
+            throw NetworkError.invalidEndpoint(
+                reason:
+                    "Failed to encode closing boundary - contains invalid UTF-8 characters (boundary: '\(boundary)')"
             )
         }
         
@@ -905,16 +945,65 @@ private struct UploadPayload: Encodable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: DynamicCodingKeys.self)
 
-        // Encode standard fields
-        try container.encode(fieldName, forKey: DynamicCodingKeys(stringValue: "fieldName")!)
-        try container.encode(fileName, forKey: DynamicCodingKeys(stringValue: "fileName")!)
-        try container.encode(
-            compressionQuality, forKey: DynamicCodingKeys(stringValue: "compressionQuality")!)
-        try container.encode(base64Data, forKey: DynamicCodingKeys(stringValue: "data")!)
+        // Encode standard fields with safe key creation
+        guard let fieldNameKey = DynamicCodingKeys(stringValue: "fieldName") else {
+            throw EncodingError.invalidValue(
+                "fieldName",
+                EncodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Failed to create coding key for fieldName"
+                )
+            )
+        }
+        try container.encode(fieldName, forKey: fieldNameKey)
 
-        // Encode additional fields
+        guard let fileNameKey = DynamicCodingKeys(stringValue: "fileName") else {
+            throw EncodingError.invalidValue(
+                "fileName",
+                EncodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Failed to create coding key for fileName"
+                )
+            )
+        }
+        try container.encode(fileName, forKey: fileNameKey)
+
+        guard let compressionQualityKey = DynamicCodingKeys(stringValue: "compressionQuality")
+        else {
+            throw EncodingError.invalidValue(
+                "compressionQuality",
+                EncodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Failed to create coding key for compressionQuality"
+                )
+            )
+        }
+        try container.encode(compressionQuality, forKey: compressionQualityKey)
+
+        guard let dataKey = DynamicCodingKeys(stringValue: "data") else {
+            throw EncodingError.invalidValue(
+                "data",
+                EncodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Failed to create coding key for data"
+                )
+            )
+        }
+        try container.encode(base64Data, forKey: dataKey)
+
+        // Encode additional fields with safe key creation
         for (key, value) in additionalFields {
-            try container.encode(value, forKey: DynamicCodingKeys(stringValue: key)!)
+            guard let additionalKey = DynamicCodingKeys(stringValue: key) else {
+                throw EncodingError.invalidValue(
+                    key,
+                    EncodingError.Context(
+                        codingPath: [],
+                        debugDescription:
+                            "Failed to create coding key for additional field '\(key)'"
+                    )
+                )
+            }
+            try container.encode(value, forKey: additionalKey)
         }
     }
 }

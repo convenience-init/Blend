@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-latest, macos-13, macos-14]
+        runner: [macos-latest, macos-14]
         target: [macos, ios, tvos]
         xcode: [16]
         swift: [5.10.1, 6.0.1]
@@ -29,10 +29,8 @@ jobs:
             build: spm
           - target: tvos
             build: spm
-          # macos-13 and macos-14 don't support Xcode 16
+          # macos-13 doesn't support Xcode 16
           - runner: macos-13
-            xcode: 16
-          - runner: macos-14
             xcode: 16
           # Swift version compatibility exclusions
           - xcode: 16
@@ -62,7 +60,7 @@ jobs:
 
       - name: Set up Swift (macOS SPM)
         if: runner.os == 'macOS' && matrix.target == 'macos' && matrix.build == 'spm'
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@v2.3.0
 
       - name: Set up Xcode (macOS/iOS/tvOS)
         if: runner.os == 'macOS' && matrix.build == 'xcode'
@@ -88,9 +86,29 @@ jobs:
         id: find_ios_simulator
         run: |
           set -euo pipefail
+
+          echo "=== iOS Simulator Discovery ==="
+
           # Find an available iPhone simulator and capture both name and UDID
-          JSON_OUTPUT=$(xcrun simctl list --json devices available)
-          IOS_LINE=$(echo "$JSON_OUTPUT" | jq -r '
+          echo "Querying available iOS simulators..."
+          if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>&1); then
+            echo "ERROR: xcrun simctl list failed with exit code $?"
+            echo "xcrun output: $JSON_OUTPUT"
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            exit 1
+          fi
+
+          # Validate JSON output is non-empty
+          if [ -z "$JSON_OUTPUT" ]; then
+            echo "ERROR: xcrun simctl list returned empty output"
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            exit 1
+          fi
+
+          echo "Parsing JSON output with jq..."
+          if ! IOS_LINE=$(echo "$JSON_OUTPUT" | jq -r '
             .devices
             | to_entries[]
             | select(.key | contains("iOS"))
@@ -98,26 +116,68 @@ jobs:
             | select(.name | contains("iPhone"))
             | select(.isAvailable == true)
             | select(.state == "Shutdown" or .state == "Booted")
-            | [.name, .udid] | @tsv' | head -1 || true)
+            | [.name, .udid] | @tsv' | head -1 2>&1); then
+            echo "ERROR: jq parsing failed with exit code $?"
+            echo "jq output: $IOS_LINE"
+            echo "JSON output was:"
+            echo "$JSON_OUTPUT"
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            exit 1
+          fi
 
           if [ -n "${IOS_LINE:-}" ]; then
             IOS_NAME="$(echo "$IOS_LINE" | cut -f1)"
             IOS_UDID="$(echo "$IOS_LINE" | cut -f2)"
+            echo "Found available iOS simulator: '$IOS_NAME' (UDID: $IOS_UDID)"
           else
-            # Fallback to a common device if none found (may still fail if not installed)
+            echo "No available iOS simulators found, attempting fallback to 'iPhone 14'..."
+
+            # Verify fallback device exists
+            if ! xcrun simctl list devices available | grep -q "iPhone 14"; then
+              echo "ERROR: Fallback device 'iPhone 14' not found in available simulators"
+              echo "Full list of available devices:"
+              xcrun simctl list devices available
+              echo ""
+              echo "JSON devices list:"
+              echo "$JSON_OUTPUT" | jq '.devices' 2>/dev/null || echo "JSON parsing failed"
+              exit 1
+            fi
+
             IOS_NAME="iPhone 14"
             IOS_UDID=""
+            echo "Using fallback iOS simulator: '$IOS_NAME'"
           fi
 
           if [ -n "$IOS_UDID" ]; then
-            # Boot and wait until simulator is ready (no-op if already booted)
-            xcrun simctl boot "$IOS_UDID" || true
-            xcrun simctl bootstatus "$IOS_UDID" -b
+            echo "Booting simulator with UDID: $IOS_UDID"
+            if ! xcrun simctl boot "$IOS_UDID" 2>&1; then
+              echo "ERROR: Failed to boot simulator '$IOS_NAME' (UDID: $IOS_UDID)"
+              echo "Available devices list:"
+              xcrun simctl list devices available
+              echo ""
+              echo "Simulator status:"
+              xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$IOS_NAME" || true
+              exit 1
+            fi
+
+            echo "Waiting for simulator to be ready..."
+            if ! xcrun simctl bootstatus "$IOS_UDID" -b 2>&1; then
+              echo "ERROR: Failed to wait for simulator boot status '$IOS_NAME' (UDID: $IOS_UDID)"
+              echo "Available devices list:"
+              xcrun simctl list devices available
+              echo ""
+              echo "Simulator status:"
+              xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$IOS_NAME" || true
+              exit 1
+            fi
+          else
+            echo "No UDID available, skipping boot (will use platform=name format)"
           fi
 
           echo "ios_simulator_name=$IOS_NAME" >> "$GITHUB_OUTPUT"
           echo "ios_simulator_udid=$IOS_UDID" >> "$GITHUB_OUTPUT"
-          echo "Found iOS Simulator: name='$IOS_NAME' udid='${IOS_UDID:-N/A}'"
+          echo "Successfully configured iOS Simulator: name='$IOS_NAME' udid='${IOS_UDID:-N/A}'"
           
       - name: Build (iOS)
         if: matrix.target == 'ios'
@@ -130,9 +190,29 @@ jobs:
         id: find_tvos_simulator
         run: |
           set -euo pipefail
+
+          echo "=== tvOS Simulator Discovery ==="
+
           # Find an available Apple TV simulator and capture both name and UDID
-          JSON_OUTPUT=$(xcrun simctl list --json devices available)
-          TVOS_LINE=$(echo "$JSON_OUTPUT" | jq -r '
+          echo "Querying available tvOS simulators..."
+          if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>&1); then
+            echo "ERROR: xcrun simctl list failed with exit code $?"
+            echo "xcrun output: $JSON_OUTPUT"
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            exit 1
+          fi
+
+          # Validate JSON output is non-empty
+          if [ -z "$JSON_OUTPUT" ]; then
+            echo "ERROR: xcrun simctl list returned empty output"
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            exit 1
+          fi
+
+          echo "Parsing JSON output with jq..."
+          if ! TVOS_LINE=$(echo "$JSON_OUTPUT" | jq -r '
             .devices
             | to_entries[]
             | select(.key | contains("tvOS"))
@@ -140,26 +220,68 @@ jobs:
             | select(.name | contains("Apple TV"))
             | select(.isAvailable == true)
             | select(.state == "Shutdown" or .state == "Booted")
-            | [.name, .udid] | @tsv' | head -1 || true)
+            | [.name, .udid] | @tsv' | head -1 2>&1); then
+            echo "ERROR: jq parsing failed with exit code $?"
+            echo "jq output: $TVOS_LINE"
+            echo "JSON output was:"
+            echo "$JSON_OUTPUT"
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            exit 1
+          fi
 
           if [ -n "${TVOS_LINE:-}" ]; then
             TVOS_NAME="$(echo "$TVOS_LINE" | cut -f1)"
             TVOS_UDID="$(echo "$TVOS_LINE" | cut -f2)"
+            echo "Found available tvOS simulator: '$TVOS_NAME' (UDID: $TVOS_UDID)"
           else
-            # Fallback to Apple TV 4K if no valid device found
+            echo "No available tvOS simulators found, attempting fallback to 'Apple TV 4K'..."
+
+            # Verify fallback device exists
+            if ! xcrun simctl list devices available | grep -q "Apple TV 4K"; then
+              echo "ERROR: Fallback device 'Apple TV 4K' not found in available simulators"
+              echo "Full list of available devices:"
+              xcrun simctl list devices available
+              echo ""
+              echo "JSON devices list:"
+              echo "$JSON_OUTPUT" | jq '.devices' 2>/dev/null || echo "JSON parsing failed"
+              exit 1
+            fi
+
             TVOS_NAME="Apple TV 4K"
             TVOS_UDID=""
+            echo "Using fallback tvOS simulator: '$TVOS_NAME'"
           fi
 
           if [ -n "$TVOS_UDID" ]; then
-            # Boot and wait until simulator is ready (no-op if already booted)
-            xcrun simctl boot "$TVOS_UDID" || true
-            xcrun simctl bootstatus "$TVOS_UDID" -b
+            echo "Booting simulator with UDID: $TVOS_UDID"
+            if ! xcrun simctl boot "$TVOS_UDID" 2>&1; then
+              echo "ERROR: Failed to boot simulator '$TVOS_NAME' (UDID: $TVOS_UDID)"
+              echo "Available devices list:"
+              xcrun simctl list devices available
+              echo ""
+              echo "Simulator status:"
+              xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$TVOS_NAME" || true
+              exit 1
+            fi
+
+            echo "Waiting for simulator to be ready..."
+            if ! xcrun simctl bootstatus "$TVOS_UDID" -b 2>&1; then
+              echo "ERROR: Failed to wait for simulator boot status '$TVOS_NAME' (UDID: $TVOS_UDID)"
+              echo "Available devices list:"
+              xcrun simctl list devices available
+              echo ""
+              echo "Simulator status:"
+              xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$TVOS_NAME" || true
+              exit 1
+            fi
+          else
+            echo "No UDID available, skipping boot (will use platform=name format)"
           fi
 
           echo "tvos_simulator=$TVOS_NAME" >> "$GITHUB_OUTPUT"
           echo "tvos_simulator_udid=$TVOS_UDID" >> "$GITHUB_OUTPUT"
-          echo "Found tvOS Simulator: name='$TVOS_NAME' udid='${TVOS_UDID:-N/A}'"
+          echo "Successfully configured tvOS Simulator: name='$TVOS_NAME' udid='${TVOS_UDID:-N/A}'"
           
       - name: Verify iOS Simulators
         if: matrix.target == 'ios'

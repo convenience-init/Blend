@@ -34,7 +34,7 @@ public protocol NetworkCache: Sendable {
 /// All accesses to the internal time state are synchronized to prevent data races.
 public final class TestClock: @unchecked Sendable {
     private var _now: ContinuousClock.Instant = .now
-    private var lock = os_unfair_lock()
+    private var lock = os_unfair_lock_s()
 
     public init() {}
 
