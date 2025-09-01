@@ -26,8 +26,8 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
 - **CI Build Commands**: Use these explicit commands in your CI matrix/job:
-  - `swift build -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency`
-  - `swift test -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency`
+  - `swift build --configuration Debug -Xswiftc -enable-actor-data-race-checks -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
+  - `swift test --configuration Debug -Xswiftc -enable-actor-data-race-checks -Xswiftc '-Xfrontend -warn-concurrency' -Xswiftc '-Xfrontend -strict-concurrency=complete'`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
@@ -87,6 +87,7 @@ struct CreateUserEndpoint: Endpoint {
     
     // Initialize with pre-encoded body to avoid repeated encoding and side effects
     init(request: CreateUserRequest, logger: Logger? = nil) throws {
+        self.request = request
         do {
             self.body = try JSONEncoder().encode(request)
         } catch {

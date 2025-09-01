@@ -69,7 +69,7 @@ actor MockURLSession: URLSessionProtocol {
         self.artificialDelay = artificialDelay
         precondition(
             nextData != nil || nextResponse != nil || nextError != nil,
-            "MockNetworking.init requires at least one of nextData, nextResponse, or nextError"
+            "MockURLSession.init requires at least one of nextData, nextResponse, or nextError"
         )
         scriptedScripts = [(nextData, nextResponse, nextError)]
     }

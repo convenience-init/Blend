@@ -73,6 +73,7 @@ public class AsyncImageModel {
         guard let url = url else {
             if self.loadToken == token {
                 self.hasError = true
+                self.error = NetworkError.invalidEndpoint(reason: "URL is required")
                 self.isLoading = false
             }
             return
@@ -210,6 +211,8 @@ public struct AsyncNetImageView: View {
     let autoUpload: Bool
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
     @State internal var model: AsyncImageModel
+    /// Track if auto-upload has been attempted for the current image to prevent redundant uploads
+    @State private var hasAttemptedAutoUpload = false
 
     public init(
         url: String? = nil,
@@ -295,8 +298,11 @@ public struct AsyncNetImageView: View {
             await model.loadImage(from: url)
         }
         .task(id: model.loadedImage) {
-            // Auto-upload after image loads if enabled
+            // Reset upload attempt flag for new images, then check if we should auto-upload
+            hasAttemptedAutoUpload = false
+
             if autoUpload, model.loadedImage != nil, uploadURL != nil {
+                hasAttemptedAutoUpload = true
                 await performUpload()
             }
         }

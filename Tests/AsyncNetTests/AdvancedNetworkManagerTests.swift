@@ -263,7 +263,7 @@ struct AdvancedNetworkManagerTests {
             #expect(Bool(false), "Expected non-retryable error to be thrown")
         } catch {
             #expect(error is NetworkError)
-            if case NetworkError.invalidEndpoint(let reason) = error {
+            if let netErr = error as? NetworkError, case .invalidEndpoint(let reason) = netErr {
                 #expect(reason == "Test")
             } else {
                 #expect(Bool(false), "Expected invalidEndpoint error")
@@ -299,8 +299,8 @@ struct AsyncRequestableTests {
             }
             var request = URLRequest(url: url)
             request.httpMethod = endPoint.method.rawValue
-            if let headers = endPoint.headers {
-                for (key, value) in headers {
+            if let resolvedHeaders = endPoint.resolvedHeaders {
+                for (key, value) in resolvedHeaders {
                     request.setValue(value, forHTTPHeaderField: key)
                 }
             }
@@ -632,8 +632,27 @@ struct NetworkErrorTests {
     }
 
     @Test func testCacheExpiration() async throws {
-        // Create cache with very short expiration (0.1 seconds)
-        let cache = DefaultNetworkCache(maxSize: 10, expiration: 0.1)
+        // Create a TestClock for deterministic time control
+        final class TestClock: @unchecked Sendable {
+            private var _now: ContinuousClock.Instant = .now
+
+            func now() -> ContinuousClock.Instant {
+                _now
+            }
+
+            func advance(by duration: Duration) {
+                _now = _now.advanced(by: duration)
+            }
+        }
+
+        let testClock = TestClock()
+
+        // Create cache with very short expiration (0.1 seconds) and test time provider
+        let cache = DefaultNetworkCache(
+            maxSize: 10,
+            expiration: 0.1,
+            timeProvider: { testClock.now() }
+        )
         let testData = Data([0x01, 0x02, 0x03])
         let key = "test-expiration-key"
 
@@ -644,8 +663,8 @@ struct NetworkErrorTests {
         var retrieved = await cache.get(forKey: key)
         #expect(retrieved == testData, "Data should be retrievable immediately after caching")
 
-        // Wait for expiration
-        try await Task.sleep(nanoseconds: 150_000_000)  // 0.15 seconds
+        // Advance TestClock by 150ms (past the 100ms expiration)
+        testClock.advance(by: .milliseconds(150))
 
         // Try to retrieve again - should return nil due to expiration
         retrieved = await cache.get(forKey: key)
@@ -701,10 +720,10 @@ struct NetworkErrorTests {
             )
         } catch {
             #expect(error is NetworkError)
-            if let networkError = error as? NetworkError, case .networkUnavailable = networkError {
-                // Success - custom logic prevented retry of networkUnavailable error
+            if let netErr = error as? NetworkError, case .networkUnavailable = netErr {
+                // Success - caught the expected NetworkError.networkUnavailable
             } else {
-                #expect(Bool(false), "Expected networkUnavailable error")
+                #expect(Bool(false), "Expected NetworkError.networkUnavailable, got \(error)")
             }
         }
 

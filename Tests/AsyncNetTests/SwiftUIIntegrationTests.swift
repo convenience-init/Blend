@@ -166,17 +166,33 @@ import Testing
             }
 
             // Calculate durations and total concurrent time
-            let model1Duration = endTimes["model1"]!.timeIntervalSince(startTimes["model1"]!)
-            let model2Duration = endTimes["model2"]!.timeIntervalSince(startTimes["model2"]!)
-            let model3Duration = endTimes["model3"]!.timeIntervalSince(startTimes["model3"]!)
+            // Safely collect timing data using compactMap
+            let modelKeys = ["model1", "model2", "model3"]
+            let allStartTimes = modelKeys.compactMap { startTimes[$0] }
+            let allEndTimes = modelKeys.compactMap { endTimes[$0] }
+
+            // Assert we have timing data for all expected models
+            #expect(allStartTimes.count == 3, "Should have start times for all 3 models")
+            #expect(allEndTimes.count == 3, "Should have end times for all 3 models")
+
+            guard allStartTimes.count == 3 && allEndTimes.count == 3 else {
+                Issue.record("Missing timing data for one or more models")
+                return
+            }
+
+            // Calculate individual durations
+            let model1Duration = allEndTimes[0].timeIntervalSince(allStartTimes[0])
+            let model2Duration = allEndTimes[1].timeIntervalSince(allStartTimes[1])
+            let model3Duration = allEndTimes[2].timeIntervalSince(allStartTimes[2])
 
             // Calculate total concurrent time (max end time - min start time)
-            let allStartTimes = [
-                startTimes["model1"]!, startTimes["model2"]!, startTimes["model3"]!,
-            ]
-            let allEndTimes = [endTimes["model1"]!, endTimes["model2"]!, endTimes["model3"]!]
-            let minStartTime = allStartTimes.min()!
-            let maxEndTime = allEndTimes.max()!
+            guard let minStartTime = allStartTimes.min(),
+                let maxEndTime = allEndTimes.max()
+            else {
+                Issue.record("Unable to calculate min/max times from timing arrays")
+                return
+            }
+
             let totalConcurrentTime = maxEndTime.timeIntervalSince(minStartTime)
 
             // Verify that loads actually ran concurrently by checking timing overlap
@@ -249,7 +265,7 @@ import Testing
             let result: NetworkError = try await withCheckedThrowingContinuation { continuation in
                 var hasResumed = false
 
-                // Timeout task to prevent hanging
+                // Create a timeout task that will throw on timeout
                 let timeoutTask = Task {
                     try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 second timeout
                     if !hasResumed {
@@ -260,6 +276,7 @@ import Testing
                     }
                 }
 
+                // Create upload task that coordinates with timeout
                 Task {
                     await model.uploadImage(
                         platformImage,
@@ -320,11 +337,23 @@ import Testing
             )
             let successModel = AsyncImageModel(imageService: successService)
 
-            // Perform successful upload
+            // Perform successful upload with coordinated timeout
             let successResult: Result<Data, NetworkError> =
                 try await withCheckedThrowingContinuation { continuation in
                     var hasResumed = false
 
+                    // Create a timeout task that will throw on timeout
+                    let timeoutTask = Task {
+                        try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 second timeout
+                        if !hasResumed {
+                            hasResumed = true
+                            continuation.resume(
+                                throwing: NetworkError.customError(
+                                    "Test timeout", details: "Upload operation took too long"))
+                        }
+                    }
+
+                    // Create upload task that coordinates with timeout
                     Task {
                         await successModel.uploadImage(
                             platformImage,
@@ -332,12 +361,14 @@ import Testing
                             uploadType: .multipart,
                             configuration: ImageService.UploadConfiguration(),
                             onSuccess: { data in
+                                timeoutTask.cancel()
                                 if !hasResumed {
                                     hasResumed = true
                                     continuation.resume(returning: .success(data))
                                 }
                             },
                             onError: { error in
+                                timeoutTask.cancel()
                                 if !hasResumed {
                                     hasResumed = true
                                     continuation.resume(returning: .failure(error))

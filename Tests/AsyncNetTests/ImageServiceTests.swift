@@ -46,7 +46,7 @@ struct ImageServiceTests {
     }
 
     @Test func testFetchImageDataInvalidURL() async throws {
-        let mockSession = MockURLSession(nextData: Data(), nextResponse: HTTPURLResponse())
+        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
         let service = ImageService(
             imageCacheCountLimit: 100,
             imageCacheTotalCostLimit: 50 * 1024 * 1024,
@@ -292,8 +292,16 @@ struct ImageServiceTests {
         // Check for expected fields
         #expect(json["fieldName"] as? String == "file", "Should contain fieldName field")
         #expect(json["fileName"] as? String == "image.jpg", "Should contain fileName field")
-        #expect(
-            json["compressionQuality"] as? Double == 0.8, "Should contain compressionQuality field")
+
+        // Check compressionQuality with floating-point tolerance
+        if let compressionQuality = json["compressionQuality"] as? Double {
+            #expect(
+                abs(compressionQuality - 0.8) < 1e-10,
+                "Should contain compressionQuality field with value close to 0.8")
+        } else {
+            #expect(Bool(false), "Should contain compressionQuality field as Double")
+        }
+
         #expect(json["data"] != nil, "Should contain data field with base64 content")
 
         // Verify base64 data is present and non-empty
@@ -308,6 +316,52 @@ struct ImageServiceTests {
         } else {
             #expect(Bool(false), "Data field should be a string")
         }
+    }
+
+    @Test func testUploadImageMultipartPayloadTooLarge() async throws {
+        // Set a small max upload size for testing
+        try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
+
+        let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
+        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
+
+        await #expect(throws: NetworkError.payloadTooLarge(size: 200, limit: 100)) {
+            _ = try await service.uploadImageMultipart(
+                largeImageData, to: URL(string: "https://mock.api/upload")!)
+        }
+
+        // Reset to default
+        await AsyncNetConfig.shared.resetMaxUploadSize()
+    }
+
+    @Test func testUploadImageBase64PayloadTooLarge() async throws {
+        // Set a small max upload size for testing
+        try await AsyncNetConfig.shared.setMaxUploadSize(100)  // 100 bytes
+
+        let largeImageData = Data(repeating: 0xFF, count: 200)  // 200 bytes, exceeds limit
+        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
+
+        await #expect(throws: NetworkError.payloadTooLarge(size: 200, limit: 100)) {
+            _ = try await service.uploadImageBase64(
+                largeImageData, to: URL(string: "https://mock.api/upload")!)
+        }
+
+        // Reset to default
+        await AsyncNetConfig.shared.resetMaxUploadSize()
     }
 }
 @Suite("Image Service Performance Benchmarks")

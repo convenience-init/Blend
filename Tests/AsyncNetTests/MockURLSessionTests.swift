@@ -60,10 +60,11 @@ struct MockURLSessionTests {
         // Second call should succeed
         do {
             let (data, response) = try await mockSession.data(for: request)
+            let httpResponse = response as? HTTPURLResponse
             #expect(data == imageData)
-            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+            #expect(httpResponse?.statusCode == 200)
         } catch {
-            #expect(Bool(false), "Second call should have succeeded")
+            #expect(Bool(false), "Second call should have succeeded but threw: \(error)")
         }
 
         // Verify call count
@@ -233,79 +234,93 @@ struct MockURLSessionTests {
 
     @Test func testResolvedHeadersNormalization() async {
         // Test 1: Case-insensitive content-type canonicalization
-        var endpoint1 = MockEndpoint()
-        endpoint1.headers = ["content-type": "text/plain", "Authorization": "Bearer token"]
-        endpoint1.contentType = "application/json"  // Should be ignored since content-type exists
+        do {
+            var endpoint1 = MockEndpoint()
+            endpoint1.headers = ["content-type": "text/plain", "Authorization": "Bearer token"]
+            endpoint1.contentType = "application/json"  // Should be ignored since content-type exists
 
-        guard let resolved = endpoint1.resolvedHeaders else {
-            #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
-            return
+            guard let resolved = endpoint1.resolvedHeaders else {
+                #expect(
+                    Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
+                return
+            }
+            #expect(
+                resolved["Content-Type"] == "text/plain",
+                "Should canonicalize content-type to Content-Type")
+            #expect(resolved["Authorization"] == "Bearer token")
+            #expect(resolved.count == 2)
         }
-        #expect(
-            resolved["Content-Type"] == "text/plain",
-            "Should canonicalize content-type to Content-Type")
-        #expect(resolved["Authorization"] == "Bearer token")
-        #expect(resolved.count == 2)
 
         // Test 2: Empty/whitespace header trimming
-        var endpoint2 = MockEndpoint()
-        endpoint2.headers = ["content-type": "  ", "X-Empty": "", "X-Valid": "value"]
-        endpoint2.contentType = nil
+        do {
+            var endpoint2 = MockEndpoint()
+            endpoint2.headers = ["content-type": "  ", "X-Empty": "", "X-Valid": "value"]
+            endpoint2.contentType = nil
 
-        guard let resolved = endpoint2.resolvedHeaders else {
-            #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
-            return
+            guard let resolved = endpoint2.resolvedHeaders else {
+                #expect(
+                    Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
+                return
+            }
+            #expect(resolved["X-Valid"] == "value", "Should keep valid headers")
+            #expect(resolved.count == 1, "Should drop empty/whitespace headers")
         }
-        #expect(resolved["X-Valid"] == "value", "Should keep valid headers")
-        #expect(resolved.count == 1, "Should drop empty/whitespace headers")
 
         // Test 3: contentType injection when no existing content-type (requires body)
-        var endpoint3 = MockEndpoint()
-        endpoint3.headers = ["Authorization": "Bearer token"]
-        endpoint3.contentType = "application/json"
-        endpoint3.body = Data("test body".utf8)  // Add body to trigger Content-Type injection
+        do {
+            var endpoint3 = MockEndpoint()
+            endpoint3.headers = ["Authorization": "Bearer token"]
+            endpoint3.contentType = "application/json"
+            endpoint3.body = Data("test body".utf8)  // Add body to trigger Content-Type injection
 
-        guard let resolved = endpoint3.resolvedHeaders else {
+            guard let resolved = endpoint3.resolvedHeaders else {
+                #expect(
+                    Bool(false),
+                    "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
+                return
+            }
             #expect(
-                Bool(false),
-                "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
-            return
+                resolved["Content-Type"] == "application/json",
+                "Should inject contentType as Content-Type when body is present")
+            #expect(resolved["Authorization"] == "Bearer token")
+            #expect(resolved.count == 2)
         }
-        #expect(
-            resolved["Content-Type"] == "application/json",
-            "Should inject contentType as Content-Type when body is present")
-        #expect(resolved["Authorization"] == "Bearer token")
-        #expect(resolved.count == 2)
 
         // Test 4: Empty contentType should not be injected
-        var endpoint4 = MockEndpoint()
-        endpoint4.headers = ["Authorization": "Bearer token"]
-        endpoint4.contentType = "   "  // Whitespace only
-        endpoint4.body = Data("test body".utf8)  // Add body to test the contentType logic
+        do {
+            var endpoint4 = MockEndpoint()
+            endpoint4.headers = ["Authorization": "Bearer token"]
+            endpoint4.contentType = "   "  // Whitespace only
+            endpoint4.body = Data("test body".utf8)  // Add body to test the contentType logic
 
-        guard let resolved = endpoint4.resolvedHeaders else {
+            guard let resolved = endpoint4.resolvedHeaders else {
+                #expect(
+                    Bool(false),
+                    "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
+                return
+            }
             #expect(
-                Bool(false),
-                "Expected resolvedHeaders to be non-nil for endpoint with headers and body")
-            return
+                resolved["Content-Type"] == nil, "Should not inject empty/whitespace contentType")
+            #expect(resolved["Authorization"] == "Bearer token")
+            #expect(resolved.count == 1)
         }
-        #expect(resolved["Content-Type"] == nil, "Should not inject empty/whitespace contentType")
-        #expect(resolved["Authorization"] == "Bearer token")
-        #expect(resolved.count == 1)
 
         // Test 5: Mixed case content-type keys
-        var endpoint5 = MockEndpoint()
-        // Use a more predictable approach: single key that should be canonicalized
-        endpoint5.headers = ["content-type": "application/xml"]
-        endpoint5.contentType = "application/json"  // Should be ignored since content-type exists
+        do {
+            var endpoint5 = MockEndpoint()
+            // Use a more predictable approach: single key that should be canonicalized
+            endpoint5.headers = ["content-type": "application/xml"]
+            endpoint5.contentType = "application/json"  // Should be ignored since content-type exists
 
-        guard let resolved = endpoint5.resolvedHeaders else {
-            #expect(Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
-            return
+            guard let resolved = endpoint5.resolvedHeaders else {
+                #expect(
+                    Bool(false), "Expected resolvedHeaders to be non-nil for endpoint with headers")
+                return
+            }
+            #expect(
+                resolved["Content-Type"] == "application/xml",
+                "Should canonicalize content-type to Content-Type")
+            #expect(resolved.count == 1)
         }
-        #expect(
-            resolved["Content-Type"] == "application/xml",
-            "Should canonicalize content-type to Content-Type")
-        #expect(resolved.count == 1)
     }
 }

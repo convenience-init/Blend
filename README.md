@@ -47,19 +47,49 @@ dependencies: [
 ]
 ```
 
+Complete `Package.swift` example:
+
+```swift
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "MyApp",
+    platforms: [
+        .iOS(.v18),
+        .macOS(.v15)
+    ],
+    dependencies: [
+        .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
+    ],
+    targets: [
+        .target(
+            name: "MyApp",
+            dependencies: [
+                .product(name: "AsyncNet", package: "async-net")
+            ]
+        ),
+        .testTarget(
+            name: "MyAppTests",
+            dependencies: [
+                "MyApp",
+                .product(name: "AsyncNet", package: "async-net")
+            ]
+        )
+    ]
+)
+```
+
 > **Version Pinning Recommendation**: Use `from: "1.0.0"` to automatically receive non-breaking updates (patch and minor versions) while preventing accidental major version upgrades. This ensures you get bug fixes and minor enhancements without unexpected breaking changes. For more explicit control, you can use version ranges like `"1.0.0"..<"2.0.0"`.
 
 ## Platform Support
 
-**Recommended / Tested:**
+**Supported Platforms:**
 
 - **iOS**: 18.0+ (includes iPadOS 18.0+)
 - **macOS**: 15.0+
 
-**Minimum Supported (compilation only):**
-
-- **iOS**: 18.0+ (includes iPadOS 18.0+)
-- **macOS**: 15.0+
+These platforms are both the minimum supported versions and the recommended/tested versions. AsyncNet requires these minimum versions for full Swift 6 concurrency support and modern SwiftUI integration.
 
 ## Quick Start
 
@@ -240,16 +270,14 @@ struct ProfileView: View {
 }
 
 // Requirements:
-// - iOS 15.0+ / macOS 12.0+ (for SwiftUI support)
-// - iOS 18.0+ / macOS 15.0+ (minimum AsyncNet support)
-// - iOS 18.0+ / macOS 15.0+ (recommended for full feature support)
-// - Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
-// - Xcode 16+ (or Swift 6 toolchain) recommended
-// - SwiftUI framework
-// Dependency Injection Options:
-// 1. Constructor injection: init(imageService: ImageService) { self.imageService = imageService }
-// 2. Environment injection: @Environment(\.imageService) private var imageService
-// 3. Factory pattern: ServiceFactory.makeImageService(for: environment)
+// - **Minimum OS Requirements**: iOS 18.0+ / macOS 15.0+ (required for AsyncNet package)
+// - **Swift Version**: Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
+// - **Xcode**: Xcode 16+ (or Swift 6 toolchain) recommended
+// - **Framework**: SwiftUI framework
+//
+// **Note on SwiftUI Compatibility**: 
+// - AsyncNet requires iOS 18.0+/macOS 15.0+ for full functionality
+// - SwiftUI itself is available on iOS 15.0+/macOS 12.0+, but AsyncNet's modern concurrency features require the newer OS versions
 ```
 
 #### Complete Image Component with Upload
@@ -491,292 +519,70 @@ When handling sensitive images such as user avatars, profile pictures, or any co
 - Use `await imageService.updateCacheConfiguration(CacheConfiguration(maxAge: 0))` to disable time-based caching
 
 **Lifecycle Cache Clearing:**
-Implement cache clearing on platform-specific lifecycle events:
+Implement cache clearing using SwiftUI's ScenePhase for modern, cross-platform lifecycle management:
 
 ```swift
-// iOS: Clear cache on app backgrounding and memory warnings
-#if canImport(UIKit)
-import UIKit
+import SwiftUI
+import AsyncNet
 
-class AppDelegate: UIResponder, UIApplicationDelegate {
-    func applicationWillResignActive(_ application: UIApplication) {
-        Task {
-            await imageService.clearCache()
-        }
-    }
+@main
+struct MyApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    let imageService = ImageService() // Or inject via dependency injection
     
-    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
-        Task {
-            await imageService.clearCache()
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environment(\.imageService, imageService)
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            switch newPhase {
+            case .background:
+                // Clear cache when app goes to background
+                Task {
+                    await imageService.clearCache()
+                }
+            case .inactive:
+                // Optional: Clear cache when app becomes inactive
+                Task {
+                    await imageService.clearCache()
+                }
+            case .active:
+                // App became active - no action needed for cache
+                break
+            @unknown default:
+                // Handle future scene phases
+                break
+            }
         }
     }
 }
-#endif
 
-// macOS: Clear cache on app deactivation
-#if canImport(AppKit)
-import AppKit
-
-class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationWillResignActive(_ notification: Notification) {
-        Task {
-            await imageService.clearCache()
+// Alternative: Handle lifecycle in individual views
+struct SensitiveContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    let imageService: ImageService
+    
+    var body: some View {
+        VStack {
+            Text("Sensitive Content")
+            // Your sensitive content here
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase == .background {
+                Task {
+                    await imageService.clearCache()
+                }
+            }
         }
     }
 }
-#endif
 ```
 
-**Recommended Security Practices:**
+**Benefits of ScenePhase Approach:**
 
-- Use separate `ImageService` instances for sensitive vs. public content
-- Implement cache encryption for highly sensitive environments
-- Monitor cache usage with `imageService.cacheHits` and `imageService.cacheMisses`
-- Clear caches on user logout or session termination
-
-### LRU Cache Implementation
-
-AsyncNet includes a sophisticated **LRU (Least Recently Used) cache** implementation with the following features:
-
-#### Key Features
-
-- **O(1) Operations**: Constant-time cache access, insertion, and eviction
-- **Dual-Layer Caching**: Separate caches for image data and decoded images
-- **Time-Based Expiration**: Configurable cache entry lifetimes
-- **Memory Management**: Automatic eviction based on count and memory limits
-- **Thread-Safe**: Actor-isolated for strict concurrency compliance
-
-#### Cache Architecture
-
-```swift
-// LRU implementation is fully actor-isolated - all operations happen within the cache actor
-// The LRUNode type is private and nested within the actor, ensuring it's never accessed
-// from outside the actor boundary, making @unchecked Sendable unnecessary and unsafe
-
-private actor ImageCache {
-    // Custom LRU Node for O(1) doubly-linked list operations
-    // Node is private to the actor and never crosses actor boundaries
-    private final class LRUNode {
-        let key: NSString
-        var prev: LRUNode?  // Strong reference for proper list integrity
-        var next: LRUNode?  // Strong reference for proper list integrity
-        var timestamp: TimeInterval
-        
-        init(key: NSString, timestamp: TimeInterval) {
-            self.key = key
-            self.timestamp = timestamp
-        }
-    }
-
-    // Cache owns head/tail references strongly to maintain list structure
-    private var lruHead: LRUNode?
-    private var lruTail: LRUNode?
-
-    // All LRU operations are actor-isolated - no cross-actor access possible
-    private func removeLRUNode(_ node: LRUNode) {
-        if node.prev != nil {
-            node.prev?.next = node.next
-        } else {
-            lruHead = node.next
-        }
-        if node.next != nil {
-            node.next?.prev = node.prev
-        } else {
-            lruTail = node.prev
-        }
-        node.prev = nil  // Break cycle
-        node.next = nil  // Break cycle
-    }
-}
-```
-
-**Actor Isolation Benefits:**
-
-- **Thread Safety**: All LRU operations are automatically serialized by the actor
-- **No Race Conditions**: Impossible to have concurrent access to LRU list structure
-- **Memory Safety**: No need for `@unchecked Sendable` since nodes never cross actor boundaries
-- **Maintainability**: Actor isolation provides clear ownership and mutation boundaries
-
-#### Cache Metrics & Monitoring
-
-```swift
-// Access cache performance metrics in an async context
-Task {
-    let hits = await imageService.cacheHits
-    let misses = await imageService.cacheMisses
-    let hitRate = (hits + misses) == 0 ? 0.0 : Double(hits) / Double(hits + misses)
-
-    // Monitor cache efficiency
-    print("Cache hit rate: \(hitRate * 100)%")
-}
-```
-
-#### Advanced Cache Configuration
-
-```swift
-// Configure cache with custom settings
-let imageService = ImageService(
-    cacheCountLimit: 200,           // Max 200 entries
-    cacheTotalCostLimit: 100 * 1024 * 1024  // Max 100MB
-)
-
-// Update cache configuration at runtime in an async context
-Task {
-    let newConfig = CacheConfiguration(
-        maxAge: 1800,      // 30 minutes
-        maxLRUCount: 150   // Max 150 entries
-    )
-    await imageService.updateCacheConfiguration(newConfig)
-}
-```
-
-#### Cache Eviction Strategy
-
-The LRU cache implements a **hybrid eviction strategy**:
-
-1. **Time-Based Eviction**: Entries older than `maxAge` are automatically removed
-2. **Count-Based Eviction**: When cache exceeds `maxLRUCount`, least recently used entries are evicted
-3. **Memory-Based Eviction**: NSCache automatically evicts entries when memory limits are reached
-
-#### Performance Characteristics
-
-- **Lookup**: O(1) - Hash table access
-- **Insertion**: O(1) - Doubly-linked list operations
-- **Eviction**: O(1) - Tail removal from LRU list
-- **Memory**: Bounded by configurable limits
-- **Thread Safety**: Actor isolation ensures no race conditions
-
-### Custom Upload Configuration
-
-```swift
-import AsyncNet
-
-let imageService = ImageService()
-
-let customConfig = ImageService.UploadConfiguration(
-    fieldName: "image_file",
-    fileName: "user_avatar.png",
-    compressionQuality: 0.9,
-    additionalFields: [
-        "user_id": "12345",
-        "category": "avatar",
-        "version": "2.0"
-    ]
-)
-
-// Declare platformImage - in real code, this would be loaded from assets or user input
-// Safe approach using AsyncNet helper
-if let platformImage = ImageService.platformImage(from: "sample_image") {
-    // Use platformImage for upload
-} else {
-    // Handle image loading failure
-    throw NetworkError.imageProcessingFailed
-}
-
-// Alternative: Platform-specific loading with safe casting
-/*
-#if canImport(UIKit)
-import UIKit
-if let uiImage = UIImage(named: "sample_image") {
-    let platformImage: PlatformImage = uiImage
-    // Use platformImage for upload
-} else {
-    throw NetworkError.imageProcessingFailed
-}
-#elseif canImport(AppKit)
-import AppKit
-if let nsImage = NSImage(named: "sample_image") {
-    let platformImage: PlatformImage = nsImage
-    // Use platformImage for upload
-} else {
-    throw NetworkError.imageProcessingFailed
-}
-#endif
-*/
-```
-
-### Advanced Networking Features
-
-AsyncNet includes `AdvancedNetworkManager` for enhanced networking capabilities:
-
-```swift
-import AsyncNet
-
-// Create advanced network manager with caching and interceptors
-let cache = DefaultNetworkCache()
-let interceptors: [NetworkInterceptor] = []
-let networkManager = AdvancedNetworkManager(cache: cache, interceptors: interceptors)
-
-// Use with AsyncRequestable
-class UserService: AsyncRequestable {
-    func getUsers() async throws -> [User] {
-        let endpoint = UsersEndpoint()
-        return try await sendRequestAdvanced(
-            to: endpoint,
-            networkManager: networkManager,
-            cacheKey: "users",
-            retryPolicy: .default
-        )
-    }
-}
-```
-
-## Testing & Coverage
-
-AsyncNet uses strict Swift 6 concurrency and comprehensive unit tests for all public APIs, error paths, and platform-specific features (iOS 18+, macOS 15+). Tests use protocol-based mocking for networking and cover:
-
-- AsyncRequestable protocol
-- Endpoint protocol
-- NetworkError enum
-- ImageService actor (fetch, upload, cache)
-- PlatformImage conversion (UIImage/NSImage)
-- SwiftUI integration tests
-- Error path validation
-
-### Running Tests
-
-```bash
-swift test --enable-code-coverage
-```
-
-### CI/CD
-
-All PRs and pushes to main run tests and report coverage via GitHub Actions (see `.github/workflows/ci.yml`).
-
-### Coverage Goals
-
-- 50%+ coverage in Phase 1
-- 90%+ coverage in Phase 4
-
-### Test Strategy
-
-- Protocol-based mocking for network layer
-- Platform-specific tests for iOS/macOS
-- SwiftUI integration tests
-- Error path validation
-
-## Architecture
-
-AsyncNet follows a protocol-oriented design with these core components:
-
-- **`AsyncRequestable`**: Generic networking protocol for API requests
-- **`Endpoint`**: Protocol defining request structure  
-- **`ImageService`**: Actor-based image service with dependency injection support
-- **`AdvancedNetworkManager`**: Enhanced networking with caching, retry, and interceptors
-- **`NetworkError`**: Comprehensive error handling with Sendable conformance
-- **SwiftUI Extensions**: Native SwiftUI integration with AsyncNetImageView and AsyncImageModel
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-## License
-
-AsyncNet is available under the MIT license. See the [LICENSE](LICENSE) file for more info.
-
-## Best Practices & Migration Guide
-
-### Swift 6 Concurrency
-
-- Always use actor isolation and Sendable types for thread safety.
-- Inject services (e.g., `ImageService`) for strict concurrency and testability.
+- **Cross-platform**: Works identically on iOS, macOS, watchOS, and tvOS
+- **Multi-scene support**: Handles multiple windows/scenes correctly in iOS 13+ and macOS 10.15+
+- **Modern SwiftUI**: Uses SwiftUI's built-in lifecycle management
+- **Consistent behavior**: Same lifecycle events across all platforms
+- **Future-proof**: Automatically supports new scene phases as they're added

@@ -65,12 +65,21 @@ public actor ImageService {
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
-        // Warn if image is large (base64 adds ~33% overhead)
-        let maxRecommendedSize = 10 * 1024 * 1024  // 10MB
-        if imageData.count > maxRecommendedSize {
-            // Consider using multipart upload for large images
+        // Check upload size limit
+        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        if imageData.count > maxUploadSize {
+            // Log the rejection
             print(
-                "Warning: Large image (\(imageData.count) bytes) will be ~33% larger when base64 encoded"
+                "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
+            )
+            throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxUploadSize)
+        }
+
+        // Warn if image is large (base64 adds ~33% overhead)
+        let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
+        if imageData.count > maxRecommendedSize {
+            print(
+                "Warning: Large image (\(imageData.count) bytes) will be ~33% larger when base64 encoded. Consider using multipart upload."
             )
         }
 
@@ -151,7 +160,12 @@ public actor ImageService {
         let inLRU = lruDict[cacheKey] != nil
         let inImageCache = imageCache.object(forKey: cacheKey) != nil
         let inDataCache = dataCache.object(forKey: cacheKey) != nil
-        return inLRU && (inImageCache || inDataCache)
+        let isCached = inImageCache || inDataCache
+        // If cached but not in LRU, reinsert to maintain LRU behavior
+        if isCached && !inLRU {
+            addOrUpdateLRUNode(for: cacheKey)
+        }
+        return isCached
     }
     // cacheHits and cacheMisses are public actor variables for test access
     // MARK: - Request/Response Interceptor Support
@@ -416,9 +430,10 @@ public actor ImageService {
         return try await fetchTask.value
     }
 
-    /// Converts image data to PlatformImage on the @MainActor (UI context)
+    /// Converts image data to PlatformImage
     /// - Parameter data: Image data
     /// - Returns: PlatformImage (UIImage/NSImage)
+    /// - Note: This method runs on the current actor. If the result is used for UI updates, ensure the call is dispatched to the main actor.
     public static func platformImage(from data: Data) -> PlatformImage? {
         return PlatformImage(data: data)
     }
@@ -473,6 +488,15 @@ public actor ImageService {
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
+        // Check upload size limit
+        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        if imageData.count > maxUploadSize {
+            // Log the rejection
+            print(
+                "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
+            )
+            throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxUploadSize)
+        }
 
         // Create multipart request
         var request = URLRequest(url: url)

@@ -166,7 +166,7 @@ jobs:
         run: |
           echo "Available iOS Simulators:"
           xcrun simctl list devices available | grep -A 5 -B 5 "iOS" || true
-          echo "Using simulator: ${{ steps.find_ios_simulator.outputs.ios_simulator }}"
+          echo "Using simulator: ${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
 
       - name: Verify tvOS Simulators
         if: matrix.target == 'tvos'

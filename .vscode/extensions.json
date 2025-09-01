@@ -1,5 +1,6 @@
 {
     "recommendations": [
-        "swiftlang.swift-vscode"
+        "swiftlang.swift-vscode",
+        "vadimcn.vscode-lldb"
     ]
 }

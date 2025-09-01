@@ -18,6 +18,21 @@ public protocol NetworkCache: Sendable {
     func clear() async
 }
 
+// MARK: - Test Clock for Deterministic Testing
+public final class TestClock: @unchecked Sendable {
+    private var _now: ContinuousClock.Instant = .now
+
+    public init() {}
+
+    public func now() -> ContinuousClock.Instant {
+        _now
+    }
+
+    public func advance(by duration: Duration) {
+        _now = _now.advanced(by: duration)
+    }
+}
+
 // MARK: - Default Network Cache Implementation
 public actor DefaultNetworkCache: NetworkCache {
     // LRU Node for doubly-linked list
@@ -26,9 +41,9 @@ public actor DefaultNetworkCache: NetworkCache {
         var data: Data
         var prev: Node?
         var next: Node?
-        var timestamp: TimeInterval
+        var timestamp: ContinuousClock.Instant
 
-        init(key: String, data: Data, timestamp: TimeInterval = Date().timeIntervalSince1970) {
+        init(key: String, data: Data, timestamp: ContinuousClock.Instant) {
             self.key = key
             self.data = data
             self.timestamp = timestamp
@@ -39,11 +54,29 @@ public actor DefaultNetworkCache: NetworkCache {
     private var head: Node?
     private var tail: Node?
     private let maxSize: Int
-    private let expiration: TimeInterval
+    private let expiration: Duration
 
-    public init(maxSize: Int = 100, expiration: TimeInterval = 600) {
+    // Time provider for testing - can be overridden
+    private let timeProvider: () -> ContinuousClock.Instant
+
+    public init(
+        maxSize: Int = 100,
+        expiration: TimeInterval = 600
+    ) {
         self.maxSize = maxSize
-        self.expiration = expiration
+        self.expiration = .seconds(expiration)
+        self.timeProvider = { ContinuousClock().now }
+    }
+
+    // Test-only initializer
+    internal init(
+        maxSize: Int = 100,
+        expiration: TimeInterval = 600,
+        timeProvider: @escaping () -> ContinuousClock.Instant
+    ) {
+        self.maxSize = maxSize
+        self.expiration = .seconds(expiration)
+        self.timeProvider = timeProvider
     }
 
     public func get(forKey key: String) async -> Data? {
@@ -51,7 +84,7 @@ public actor DefaultNetworkCache: NetworkCache {
             return nil
         }
 
-        let now = Date().timeIntervalSince1970
+        let now = timeProvider()
         // Check if entry has expired
         if now - node.timestamp >= expiration {
             // Remove expired entry
@@ -66,7 +99,7 @@ public actor DefaultNetworkCache: NetworkCache {
     }
 
     public func set(_ data: Data, forKey key: String) async {
-        let now = Date().timeIntervalSince1970
+        let now = timeProvider()
 
         if let existingNode = cache[key] {
             // Update existing node with new timestamp
@@ -108,7 +141,7 @@ public actor DefaultNetworkCache: NetworkCache {
     /// This method traverses the entire cache and can be called periodically
     /// or when you want to ensure all expired entries are removed
     public func cleanupExpiredEntries() async {
-        let now = Date().timeIntervalSince1970
+        let now = timeProvider()
         var nodesToRemove: [Node] = []
 
         // Collect expired nodes
@@ -188,7 +221,7 @@ public actor DefaultNetworkCache: NetworkCache {
     }
 
     private func performLightweightCleanup() async {
-        let now = Date().timeIntervalSince1970
+        let now = timeProvider()
 
         // Lightweight cleanup: only check and remove expired entries from the tail
         // This is efficient since expired entries tend to be older (towards the tail)
