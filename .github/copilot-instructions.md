@@ -18,16 +18,16 @@ This codebase is a Swift networking library with comprehensive image handling, b
   - Set "Strict Concurrency Checking" to "Complete"
   - Enable "Sendable Checking" for all targets
 - **Xcode Flags**: Use these additional compiler flags for maximum concurrency safety:
+  - `-Xfrontend -strict-concurrency=complete` (matches Xcode “Strict Concurrency: Complete”)
   - `-Xfrontend -warn-concurrency` (additional concurrency warnings)
-  - `-Xfrontend -enable-actor-data-race-checks` (data race detection)
-
+  - `-Xfrontend -enable-actor-data-race-checks` (optional; prefer Debug-only due to overhead)
 **CI/CD Requirements:**
 - Use Xcode 16+ in GitHub Actions or other CI systems
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
 - **CI Build Commands**: Use these explicit commands in your CI matrix/job:
-  - `swift build -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency`
-  - `swift test -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency`
+  - `swift build -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency`
+  - `swift test -Xswiftc -enable-actor-data-race-checks -Xfrontend -warn-concurrency -Xfrontend -strict-concurrency`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
@@ -83,21 +83,16 @@ struct CreateUserEndpoint: Endpoint {
     var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
     
     // Pre-encoded body stored as immutable Data - encoding happens once in init
-    let body: Data?
-    
-    // Store encoding error for inspection if needed
-    let encodingError: Error?
+    let body: Data
     
     // Initialize with pre-encoded body to avoid repeated encoding and side effects
-    init(request: CreateUserRequest, logger: Logger? = nil) {
+    init(request: CreateUserRequest, logger: Logger? = nil) throws {
         do {
             self.body = try JSONEncoder().encode(request)
-            self.encodingError = nil
         } catch {
-            self.body = nil
-            self.encodingError = error
             // Surface encoding error via logger instead of print
             logger?.error("Failed to encode CreateUserRequest: \(error.localizedDescription)")
+            throw error
         }
     }
     
@@ -108,7 +103,7 @@ struct CreateUserEndpoint: Endpoint {
 **Timeout Configuration Guidance:**
 - **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
 - **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
-- **Duration Conversion**: Convert Swift `Duration` to `TimeInterval` (e.g., `duration.timeInterval`) before setting `URLRequest.timeoutInterval`
+- **Duration Conversion**: Convert Swift `Duration` to `TimeInterval` (e.g., `URLRequest.timeoutInterval = TimeInterval(duration)`) before setting the request timeout
 - **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback
 - **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults
 
@@ -127,7 +122,7 @@ class YourService: AsyncRequestable {
     // Example with typed request body - caller provides the endpoint
     func createUser(name: String, email: String) async throws -> User {
         let request = CreateUserRequest(name: name, email: email)
-        let endpoint = CreateUserEndpoint(request: request)
+        let endpoint = try CreateUserEndpoint(request: request)
         return try await sendRequest(to: endpoint, expecting: User.self)
     }
     

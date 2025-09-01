@@ -34,16 +34,6 @@ actor MockURLSession: URLSessionProtocol {
         _recordedRequests.last
     }
 
-    /// Initialize with single scripted result (backward compatibility)
-    init(nextData: Data? = nil, nextResponse: URLResponse? = nil, nextError: Error? = nil) {
-        self.artificialDelay = 0
-        precondition(
-            nextData != nil || nextResponse != nil || nextError != nil,
-            "MockNetworking.init requires at least one of nextData, nextResponse, or nextError"
-        )
-        self.scriptedScripts = [(nextData, nextResponse, nextError)]
-    }
-
     /// Initialize with multiple scripted results for testing multi-call scenarios
     init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
         precondition(
@@ -62,6 +52,26 @@ actor MockURLSession: URLSessionProtocol {
     init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
         self.artificialDelay = 0
         self.scriptedScripts = scriptedCalls
+    }
+
+    /// Initialize with a single scripted response
+    /// - Parameters:
+    ///   - nextData: The data to return for the next request
+    ///   - nextResponse: The response to return for the next request
+    ///   - nextError: The error to return for the next request (if any)
+    ///   - artificialDelay: Artificial delay in nanoseconds to simulate network latency
+    init(
+        nextData: Data? = nil,
+        nextResponse: URLResponse? = nil,
+        nextError: Error? = nil,
+        artificialDelay: UInt64 = 0
+    ) {
+        self.artificialDelay = artificialDelay
+        precondition(
+            nextData != nil || nextResponse != nil || nextError != nil,
+            "MockNetworking.init requires at least one of nextData, nextResponse, or nextError"
+        )
+        scriptedScripts = [(nextData, nextResponse, nextError)]
     }
 
     /// Load a new script sequence for the mock session
@@ -94,26 +104,6 @@ actor MockURLSession: URLSessionProtocol {
         if !keepScript {
             scriptedScripts.removeAll()
         }
-    }
-
-    /// Initialize with a single scripted response
-    /// - Parameters:
-    ///   - nextData: The data to return for the next request
-    ///   - nextResponse: The response to return for the next request
-    ///   - nextError: The error to return for the next request (if any)
-    ///   - artificialDelay: Artificial delay in nanoseconds to simulate network latency
-    init(
-        nextData: Data? = nil,
-        nextResponse: URLResponse? = nil,
-        nextError: Error? = nil,
-        artificialDelay: UInt64 = 0
-    ) {
-        self.artificialDelay = artificialDelay
-        precondition(
-            nextData != nil || nextResponse != nil || nextError != nil,
-            "MockNetworking.init requires at least one of nextData, nextResponse, or nextError"
-        )
-        scriptedScripts = [(nextData, nextResponse, nextError)]
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {

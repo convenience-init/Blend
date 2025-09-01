@@ -11,7 +11,7 @@ import Testing
     func currentResidentSizeBytes() -> UInt64? {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(
-            MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
+            MemoryLayout<mach_task_basic_info_data_t>.size / MemoryLayout<natural_t>.size)
         let kerr = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                 task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
@@ -34,14 +34,26 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "image/jpeg", "Mime-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         let result = try await service.fetchImageData(from: "https://mock.api/test")
         #expect(result == imageData)
     }
 
     @Test func testFetchImageDataInvalidURL() async throws {
         let mockSession = MockURLSession(nextData: Data(), nextResponse: HTTPURLResponse())
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
 
         do {
             _ = try await service.fetchImageData(from: "not a url")
@@ -70,7 +82,13 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         await #expect(throws: NetworkError.unauthorized(data: imageData, statusCode: 401)) {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
         }
@@ -87,7 +105,13 @@ struct ImageServiceTests {
             ]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
 
         do {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
@@ -114,7 +138,13 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "application/json"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         let result = try await service.uploadImageMultipart(
             imageData, to: URL(string: "https://mock.api/upload")!)
         #expect(result == imageData)
@@ -219,7 +249,13 @@ struct ImageServiceTests {
             headerFields: ["Content-Type": "application/json"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         let result = try await service.uploadImageBase64(
             imageData, to: URL(string: "https://mock.api/upload")!)
         #expect(result == imageData)
@@ -286,13 +322,18 @@ struct ImageServicePerformanceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         let start = ContinuousClock().now
         _ = try await service.fetchImageData(from: "https://mock.api/test")
         let duration = ContinuousClock().now - start
         let elapsedSeconds =
-            TimeInterval(duration.components.seconds) + Double(duration.components.attoseconds)
-            / 1_000_000_000_000_000_000
+            Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
         print("DEBUG: Cold start latency: \(elapsedSeconds * 1000) ms")
         #expect(duration < .seconds(0.1))  // <100ms for mock network call
     }
@@ -306,7 +347,13 @@ struct ImageServicePerformanceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
 
         // Test that caching works by making multiple requests
         let url = "https://mock.api/test"
@@ -340,7 +387,13 @@ struct ImageServicePerformanceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
 
         // Test memory usage during caching operations
         let url = "https://mock.api/test"
@@ -386,7 +439,13 @@ struct ImageServicePerformanceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         let url = "https://mock.api/test"
 
         // Make multiple requests to the same URL
@@ -407,45 +466,45 @@ struct ImageServicePerformanceTests {
             headerFields: ["Content-Type": "image/jpeg"]
         )!
         let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
-        let service = ImageService(urlSession: mockSession)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
         let url = "https://mock.api/test"
         let concurrentRequests = 100
         let maxConcurrentTasks = 10
         var results = [Bool](repeating: false, count: concurrentRequests)
 
-        // Use an actor to control concurrency
-        actor ConcurrencyController {
-            private var activeTasks = 0
-            private let maxConcurrent: Int
+        // Use deterministic concurrency limiting with TaskGroup
+        await withTaskGroup(of: (Int, Bool).self) { group in
+            var activeTasks = 0
 
-            init(maxConcurrent: Int) {
-                self.maxConcurrent = maxConcurrent
-            }
+            for i in 0..<concurrentRequests {
+                // If we've reached the concurrency limit, wait for a task to complete
+                while activeTasks >= maxConcurrentTasks {
+                    if let completedResult = await group.next() {
+                        let (completedIndex, success) = completedResult
+                        results[completedIndex] = success
+                        activeTasks -= 1
+                    } else {
+                        // Group is empty, break out of waiting
+                        break
+                    }
+                }
 
-            func acquireSlot() async {
-                while activeTasks >= maxConcurrent {
-                    await Task.yield()
+                // Add the next task
+                group.addTask {
+                    let result = try? await service.fetchImageData(from: url)
+                    let success = result == imageData
+                    return (i, success)
                 }
                 activeTasks += 1
             }
 
-            func releaseSlot() async {
-                activeTasks -= 1
-            }
-        }
-
-        let controller = ConcurrencyController(maxConcurrent: maxConcurrentTasks)
-
-        await withTaskGroup(of: (Int, Bool).self) { group in
-            for i in 0..<concurrentRequests {
-                group.addTask {
-                    await controller.acquireSlot()
-                    let result = try? await service.fetchImageData(from: url)
-                    let success = result == imageData
-                    await controller.releaseSlot()
-                    return (i, success)
-                }
-            }
+            // Collect remaining results
             for await (i, success) in group {
                 results[i] = success
             }

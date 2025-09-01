@@ -284,33 +284,27 @@ public actor AdvancedNetworkManager {
                         )
                     #endif
                     // shouldRetry and backoff use the attempt index (0-based)
-                    if let shouldRetry = retryPolicy.shouldRetry {
-                        // Custom retry logic provided - respect its decision completely
-                        if !shouldRetry(error, attempt) {
-                            break
-                        }
-                        // Custom logic says to retry, so continue with backoff
+                    // Determine if we should retry based on custom logic or default behavior
+                    let shouldRetryAttempt: Bool
+                    if let customShouldRetry = retryPolicy.shouldRetry {
+                        shouldRetryAttempt = customShouldRetry(error, attempt)
                     } else {
-                        // No custom retry logic - use default behavior
+                        // Default behavior: always retry (maxRetries controls total attempts)
                         _ = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
-                        // Compute base backoff delay
-                        var delay = retryPolicy.backoff?(attempt) ?? 0.0
-                        // Apply additional jitter if provided separately
-                        if let jitterProvider = retryPolicy.jitterProvider {
-                            delay += jitterProvider(attempt)
-                        }
-                        let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
-                        // Only sleep if this is not the final attempt
-                        if attempt < retryPolicy.maxRetries && cappedDelay > 0 {
-                            #if canImport(OSLog)
-                                asyncNetLogger.debug(
-                                    "Retrying request for key: \(key) after \(cappedDelay) seconds")
-                            #endif
-                            try await Task.sleep(nanoseconds: UInt64(cappedDelay * 1_000_000_000))
-                        }
+                        shouldRetryAttempt = true
                     }
 
-                    let delay = retryPolicy.backoff?(attempt) ?? 0.0
+                    // If custom logic says don't retry, break immediately
+                    if !shouldRetryAttempt {
+                        break
+                    }
+
+                    // Apply backoff with jitter for both custom and default retry paths
+                    var delay = retryPolicy.backoff?(attempt) ?? 0.0
+                    // Apply additional jitter if provided separately
+                    if let jitterProvider = retryPolicy.jitterProvider {
+                        delay += jitterProvider(attempt)
+                    }
                     let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
                     // Only sleep if this is not the final attempt
                     if attempt < retryPolicy.maxRetries && cappedDelay > 0 {
@@ -356,6 +350,13 @@ public actor AdvancedNetworkManager {
 
 // MARK: - Retry Policy
 public struct RetryPolicy: Sendable {
+    public let maxRetries: Int
+    public let shouldRetry: (@Sendable (Error, Int) -> Bool)?
+    public let backoff: (@Sendable (Int) -> TimeInterval)?
+    public let maxBackoff: TimeInterval
+    public let timeoutInterval: TimeInterval
+    public let jitterProvider: (@Sendable (Int) -> TimeInterval)?
+
     public static let `default` = RetryPolicy(
         maxRetries: 3,
         shouldRetry: { _, _ in true },  // Always allow retry; maxRetries controls total attempts
@@ -368,13 +369,6 @@ public struct RetryPolicy: Sendable {
         maxBackoff: 60.0,
         timeoutInterval: 30.0
     )
-
-    public let maxRetries: Int
-    public let shouldRetry: (@Sendable (Error, Int) -> Bool)?
-    public let backoff: (@Sendable (Int) -> TimeInterval)?
-    public let maxBackoff: TimeInterval
-    public let timeoutInterval: TimeInterval
-    public let jitterProvider: (@Sendable (Int) -> TimeInterval)?
 
     public init(
         maxRetries: Int,

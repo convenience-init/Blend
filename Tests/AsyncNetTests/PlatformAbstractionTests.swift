@@ -192,12 +192,13 @@ struct PlatformAbstractionTests {
                 // Try to force TIFF corruption by modifying the bitmap data directly
                 if let bitmapData = rep.bitmapData {
                     let dataPtr = UnsafeMutablePointer<UInt8>(bitmapData)
-                    // Corrupt some bytes in the bitmap data
-                    if rep.bytesPerRow > 0 && rep.pixelsHigh > 0 {
-                        let bytesToCorrupt = min(10, rep.bytesPerRow * rep.pixelsHigh)
-                        for i in 0..<bytesToCorrupt {
-                            dataPtr[i] = UInt8.random(in: 0...255)
-                        }
+                    // Safely corrupt some bytes in the bitmap data
+                    let totalBytes = rep.bytesPerRow * rep.pixelsHigh
+                    guard totalBytes > 0 else { return }
+                    let bytesToCorrupt = min(10, totalBytes)
+                    let buffer = UnsafeMutableBufferPointer(start: dataPtr, count: totalBytes)
+                    for i in 0..<bytesToCorrupt {
+                        buffer[i] = UInt8.random(in: 0...255)
                     }
                 }
             }

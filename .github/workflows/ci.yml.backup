@@ -118,7 +118,7 @@ jobs:
           echo "ios_simulator_name=$IOS_NAME" >> "$GITHUB_OUTPUT"
           echo "ios_simulator_udid=$IOS_UDID" >> "$GITHUB_OUTPUT"
           echo "Found iOS Simulator: name='$IOS_NAME' udid='${IOS_UDID:-N/A}'"
-          
+
       - name: Build (iOS)
         if: matrix.target == 'ios'
         run: |
@@ -160,7 +160,7 @@ jobs:
           echo "tvos_simulator=$TVOS_NAME" >> "$GITHUB_OUTPUT"
           echo "tvos_simulator_udid=$TVOS_UDID" >> "$GITHUB_OUTPUT"
           echo "Found tvOS Simulator: name='$TVOS_NAME' udid='${TVOS_UDID:-N/A}'"
-          
+
       - name: Verify iOS Simulators
         if: matrix.target == 'ios'
         run: |
@@ -201,7 +201,7 @@ jobs:
         run: |
           # Find the first .profdata file in the workspace
           PROFDATA_PATH=$(find . -name "*.profdata" -type f | head -1)
-          
+
           if [ -n "$PROFDATA_PATH" ] && [ -f "$PROFDATA_PATH" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "profdata_path=$PROFDATA_PATH" >> "$GITHUB_OUTPUT"

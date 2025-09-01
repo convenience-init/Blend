@@ -853,7 +853,7 @@ struct AsyncNetConfigTests {
         #expect(initialTimeout == 60.0, "Initial timeout should be 60 seconds")
 
         // Test setting new timeout
-        await config.setTimeoutDuration(30.0)
+        try await config.setTimeoutDuration(30.0)
         let newTimeout = await config.timeoutDuration
         #expect(newTimeout == 30.0, "Timeout should be updated to 30 seconds")
 
@@ -868,7 +868,7 @@ struct AsyncNetConfigTests {
         let config = AsyncNetConfig(timeoutDuration: 60.0)
 
         // Set custom timeout
-        await config.setTimeoutDuration(45.0)
+        try await config.setTimeoutDuration(45.0)
 
         // Verify setting worked
         let afterSet = await config.timeoutDuration
