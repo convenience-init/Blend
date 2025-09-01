@@ -56,7 +56,7 @@ public protocol AsyncRequestable {
 	/// ```swift
 	/// let users: [User] = try await sendRequest(to: UsersEndpoint())
 	/// ```
-	associatedtype ResponseModel
+	associatedtype CustomResponseModel
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable
 	
 	/// A configurable JSONDecoder for consistent decoding across the AsyncNet module.
@@ -119,7 +119,7 @@ public extension AsyncRequestable {
 	///
 	/// - Parameters:
 	///   - endPoint: The endpoint to send the request to.
-	/// - Returns: The decoded response model of type `ResponseModel`.
+	/// - Returns: The decoded response model of the specified type.
 	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
 	
 	/// Default JSONDecoder configuration for AsyncNet.

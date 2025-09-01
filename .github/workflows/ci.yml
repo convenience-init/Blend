@@ -8,6 +8,16 @@ on:
   pull_request:
     branches: [ main ]
 
+# Set minimal read-only permissions for security
+permissions:
+  contents: read
+  actions: write
+
+# Prevent duplicate workflow runs and cancel in-progress jobs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ${{ matrix.runner }}
@@ -74,7 +84,10 @@ jobs:
         if: matrix.target == 'macos' && matrix.build == 'spm'
         run: |
           if [[ "${{ matrix.swift }}" == 6.* ]]; then
-            swift build -Xswiftc -strict-concurrency=complete
+            swift build --configuration Debug \
+              -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+              -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+              -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks
           else
             swift build
           fi
@@ -93,9 +106,10 @@ jobs:
 
           # Find an available iPhone simulator and capture both name and UDID
           echo "Querying available iOS simulators..."
-          if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>&1); then
+          if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>/dev/null); then
+            STDERR_OUTPUT=$(xcrun simctl list --json devices available 2>&1 >/dev/null)
             echo "ERROR: xcrun simctl list failed with exit code $?"
-            echo "xcrun output: $JSON_OUTPUT"
+            echo "xcrun stderr output: $STDERR_OUTPUT"
             echo "Available devices list:"
             xcrun simctl list devices available || true
             exit 1
@@ -118,9 +132,18 @@ jobs:
             | select(.name | contains("iPhone"))
             | select(.isAvailable == true)
             | select(.state == "Shutdown" or .state == "Booted")
-            | [.name, .udid] | @tsv' | head -1 2>&1); then
+            | [.name, .udid] | @tsv' | head -1 2>/dev/null); then
+            STDERR_OUTPUT=$(echo "$JSON_OUTPUT" | jq -r '
+              .devices
+              | to_entries[]
+              | select(.key | contains("iOS"))
+              | .value[]
+              | select(.name | contains("iPhone"))
+              | select(.isAvailable == true)
+              | select(.state == "Shutdown" or .state == "Booted")
+              | [.name, .udid] | @tsv' | head -1 2>&1 >/dev/null)
             echo "ERROR: jq parsing failed with exit code $?"
-            echo "jq output: $IOS_LINE"
+            echo "jq stderr output: $STDERR_OUTPUT"
             echo "JSON output was:"
             echo "$JSON_OUTPUT"
             echo "Available devices list:"
@@ -197,9 +220,10 @@ jobs:
 
           # Find an available Apple TV simulator and capture both name and UDID
           echo "Querying available tvOS simulators..."
-          if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>&1); then
+          if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>/dev/null); then
+            STDERR_OUTPUT=$(xcrun simctl list --json devices available 2>&1 >/dev/null)
             echo "ERROR: xcrun simctl list failed with exit code $?"
-            echo "xcrun output: $JSON_OUTPUT"
+            echo "xcrun stderr output: $STDERR_OUTPUT"
             echo "Available devices list:"
             xcrun simctl list devices available || true
             exit 1
@@ -222,9 +246,18 @@ jobs:
             | select(.name | contains("Apple TV"))
             | select(.isAvailable == true)
             | select(.state == "Shutdown" or .state == "Booted")
-            | [.name, .udid] | @tsv' | head -1 2>&1); then
+            | [.name, .udid] | @tsv' | head -1 2>/dev/null); then
+            STDERR_OUTPUT=$(echo "$JSON_OUTPUT" | jq -r '
+              .devices
+              | to_entries[]
+              | select(.key | contains("tvOS"))
+              | .value[]
+              | select(.name | contains("Apple TV"))
+              | select(.isAvailable == true)
+              | select(.state == "Shutdown" or .state == "Booted")
+              | [.name, .udid] | @tsv' | head -1 2>&1 >/dev/null)
             echo "ERROR: jq parsing failed with exit code $?"
-            echo "jq output: $TVOS_LINE"
+            echo "jq stderr output: $STDERR_OUTPUT"
             echo "JSON output was:"
             echo "$JSON_OUTPUT"
             echo "Available devices list:"
@@ -303,7 +336,11 @@ jobs:
         if: matrix.target == 'macos' && matrix.build == 'spm'
         run: |
           if [[ "${{ matrix.swift }}" == 6.* ]]; then
-            swift test -Xswiftc -strict-concurrency=complete --enable-code-coverage
+            swift test --configuration Debug \
+              -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+              -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+              -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks \
+              --enable-code-coverage
           else
             swift test --enable-code-coverage
           fi

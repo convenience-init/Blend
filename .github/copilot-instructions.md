@@ -26,8 +26,14 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
 - **CI Build Commands**: Use these explicit commands in your CI matrix/job:
-  - `swift build --configuration Debug -Xswiftc -strict-concurrency=complete -Xswiftc -Xfrontend -enable-actor-data-race-checks -Xswiftc -Xfrontend -warn-concurrency`
-  - `swift test --configuration Debug -Xswiftc -strict-concurrency=complete -Xswiftc -Xfrontend -enable-actor-data-race-checks -Xswiftc -Xfrontend -warn-concurrency`
+  - `swift build --configuration Debug \
+     -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+     -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+     -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks`
+  - `swift test --configuration Debug \
+     -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+     -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+     -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
@@ -104,6 +110,8 @@ struct CreateUserEndpoint: Endpoint {
 **Timeout Configuration Guidance:**
 - **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
 - **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
+- **Resource Timeout** (`URLSessionConfiguration.timeoutIntervalForResource`): Controls the total time for the entire resource transfer (including redirects, authentication, and data transfer). This is crucial for long uploads/downloads where `timeoutIntervalForRequest` may timeout before the transfer completes.
+- **Zero Timeout Behavior**: A timeout value of `0` means "no timeout" - the request/resource will wait indefinitely. Use with caution.
 - **Duration Conversion**: Use this portable helper to convert Swift `Duration` to `TimeInterval`:
   ```swift
   /// Portable Duration to TimeInterval conversion
@@ -123,152 +131,12 @@ struct CreateUserEndpoint: Endpoint {
   }
   // Leave unset when nil so session's timeoutIntervalForRequest (default: 60s) applies
   ```
-- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback
-- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults
-
-### 2. Service Implementation Pattern (Swift 6 Compliant)
-```swift
-class YourService: AsyncRequestable {
-    // Core method that handles all endpoint types
-    func sendRequest<T: Decodable & Sendable>(
-        to endpoint: some Endpoint,
-        expecting responseType: T.Type
-    ) async throws -> T {
-        // Implementation delegates to AsyncRequestable.sendRequest
-        return try await (self as AsyncRequestable).sendRequest(to: endpoint, expecting: responseType)
-    }
-    
-    // Example with typed request body - caller provides the endpoint
-    func createUser(name: String, email: String) async throws -> User {
-        let request = CreateUserRequest(name: name, email: email)
-        let endpoint = try CreateUserEndpoint(request: request)
-        return try await sendRequest(to: endpoint, expecting: User.self)
-    }
-    
-    // Usage examples:
-    func exampleUsage() async throws {
-        // Using specific endpoint types
-        let user = try await createUser(name: "John", email: "john@example.com")
-        
-        // Using generic method with any endpoint
-        let endpoint = YourEndpoint()
-        let data: SomeResponse = try await sendRequest(to: endpoint, expecting: SomeResponse.self)
-    }
-}
-```
-
-### 3. Cross-Platform Image Handling
-Always use `PlatformImage` type, never `UIImage`/`NSImage` directly. The codebase handles platform differences automatically through conditional compilation and NSImage extensions.
-
-### 4. SwiftUI Integration Pattern
-View modifiers follow this naming: `.asyncImage()`, `.imageUploader()`, `AsyncNetImageView` - they wrap underlying `ImageService` calls with proper state management and loading states.
-
-### 5. Image Upload Patterns
-// Note: ImageService upload APIs are Data-based. Always convert PlatformImage (UIImage/NSImage) to Data before sending to the actor. Crossing actor boundaries with non-Sendable types (such as PlatformImage) is not allowed; use Data or a Sendable CGImage wrapper for all actor interactions.
-
-// Cross-platform image conversion: Use platformImageToData() helper instead of calling jpegData directly on PlatformImage
-```swift
-// Convert PlatformImage to Data before upload
-let imageData = try platformImageToData(platformImage, compressionQuality: 0.8)
-```
-
-### 6. Swift 6 Actor Patterns
-`ImageService` is actor-based and provided via dependency injection. All image operations are actor-isolated and concurrency-safe. Example usage:
-```swift
-import Foundation
-import SwiftUI
-
-public actor ImageService {
-    private let imageCache: NSCache<NSString, NSData>
-    private let urlSession: URLSession
-
-    public init(cacheConfiguration: CacheConfiguration = .default) {
-        // Dependency-injectable initialization
-    }
-
-    // Concurrency-safe: return Data (Sendable)
-    public func fetchImageData(from urlString: String) async throws -> Data {
-        // Actor-isolated implementation
-    }
-}
-
-@MainActor
-func platformImage(from data: Data) -> PlatformImage? {
-    PlatformImage(data: data)
-}
-
-struct ContentView: View {
-    let imageService: ImageService
-
-    @State private var image: PlatformImage?
-
-    init(imageService: ImageService = ImageService()) {
-        self.imageService = imageService
-    }
-
-    var body: some View {
-        // ...existing code...
-        VStack {
-            if let image = image {
-                SwiftUI.Image(platformImage: image)
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            do {
-                let data = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
-                if Task.isCancelled { return }
-                await MainActor.run {
-                    let loadedImage = platformImage(from: data)
-                    image = loadedImage
-                }
-            } catch {
-                // Handle error (e.g., show error UI)
-            }
-        }
-        // ...existing code...
-    }
-}
-```
-// Note: Always cross actor boundaries with true Sendable types (e.g., Data). CGImage is not Sendable by default and must either be converted to a Sendable representation (like Data), wrapped with an explicit @unchecked Sendable conformance, or handled via @MainActor helpers (convert to PlatformImage/UIImage/NSImage on the main thread) before crossing actor boundaries. Use @MainActor helpers for UI conversion to PlatformImage.
-// SwiftUI.Image extension available: SwiftUI.Image(platformImage:) provides cross-platform Image creation from PlatformImage (UIImage/NSImage)
-
-### 6.1 Platform Image Conversion Helper
-
-```swift
-/// Cross-platform image conversion helper for AsyncNet
-/// Converts PlatformImage (UIImage/NSImage) to Data for actor-safe transmission
-///
-/// - Parameters:
-///   - image: The PlatformImage to convert (UIImage on iOS, NSImage on macOS)
-///   - compressionQuality: JPEG compression quality from 0.0 (maximum compression) to 1.0 (minimum compression)
-/// - Returns: Data representation of the image
-/// - Throws: NetworkError.imageProcessingFailed if image processing fails
-///
-/// **Platform Behavior:**
-/// - **iOS/iPadOS**: Uses `UIImage.jpegData(compressionQuality:)` for JPEG encoding
-/// - **macOS**: Converts NSImage to NSBitmapImageRep/CGImage and encodes to JPEG/PNG as appropriate
-///   - Prefers JPEG for photographic content, PNG for graphics with transparency
-///   - Falls back to TIFF representation if bitmap conversion fails
-///
-/// **Thread Safety:** Must be called on @MainActor due to UI-related PlatformImage operations.
-///
-/// **Error Handling:** Throws NetworkError.imageProcessingFailed for:
-/// - Invalid or corrupted image data
-/// - Unsupported image formats
-/// - Memory allocation failures during conversion
-/// - Platform-specific encoding failures
-///
-/// **Usage Note:** Always call from @MainActor context:
-```swift
-@MainActor
-func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data
-```
-
-**Example Usage:**
-```swift
-// Convert PlatformImage to Data before upload
-let imageData = try platformImageToData(platformImage, compressionQuality: 0.8)
-// Use imageData for upload or storage
-```
+- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback. Setting it to `0` disables timeouts entirely.
+- **Session Configuration Example**: Configure both per-request and resource timeouts:
+  ```swift
+  let configuration = URLSessionConfiguration.default
+  configuration.timeoutIntervalForRequest = 30.0  // 30s per-request timeout
+  configuration.timeoutIntervalForResource = 300.0 // 5min total resource timeout (for large uploads)
+  let session = URLSession(configuration: configuration)
+  ```
+- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults. For large file uploads/downloads, ensure `timeoutIntervalForResource` is sufficiently long.

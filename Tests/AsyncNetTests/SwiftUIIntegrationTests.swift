@@ -7,6 +7,22 @@ import Testing
 #endif
 
 #if canImport(SwiftUI)
+    /// Actor to coordinate continuation resumption and prevent race conditions
+    /// between timeout tasks and upload callbacks
+    private actor CoordinationActor {
+        private var hasResumed = false
+
+        /// Attempts to resume the continuation. Returns true if this call should
+        /// actually resume (i.e., it's the first call), false if already resumed.
+        func tryResume() -> Bool {
+            if hasResumed {
+                return false
+            }
+            hasResumed = true
+            return true
+        }
+    }
+
     @Suite("AsyncImageModel Tests")
     struct SwiftUIIntegrationTests {
         static let minimalPNGBase64 =
@@ -31,6 +47,7 @@ import Testing
         private static let defaultTestURL = URL(string: "https://mock.api/test")!
         private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
         private static let defaultFailURL = URL(string: "https://mock.api/fail")!
+        private static let defaultFailRetryURL = URL(string: "https://mock.api/fail-retry")!
         private static let concurrentTestURL1 = URL(string: "https://mock.api/test1")!
         private static let concurrentTestURL2 = URL(string: "https://mock.api/test2")!
         private static let concurrentTestURL3 = URL(string: "https://mock.api/test3")!
@@ -297,13 +314,12 @@ import Testing
 
             // Use withCheckedThrowingContinuation to properly handle the error with timeout protection
             let result: NetworkError = try await withCheckedThrowingContinuation { continuation in
-                var hasResumed = false
+                let coordinationActor = CoordinationActor()
 
                 // Create a timeout task that will throw on timeout
                 let timeoutTask = Task {
                     try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 second timeout
-                    if !hasResumed {
-                        hasResumed = true
+                    if await coordinationActor.tryResume() {
                         continuation.resume(
                             throwing: NetworkError.customError(
                                 "Test timeout", details: "Upload operation took too long"))
@@ -319,18 +335,20 @@ import Testing
                         configuration: ImageService.UploadConfiguration(),
                         onSuccess: { _ in
                             timeoutTask.cancel()
-                            if !hasResumed {
-                                hasResumed = true
-                                continuation.resume(
-                                    throwing: NetworkError.customError(
-                                        "Unexpected success in error test", details: nil))
+                            Task {
+                                if await coordinationActor.tryResume() {
+                                    continuation.resume(
+                                        throwing: NetworkError.customError(
+                                            "Unexpected success in error test", details: nil))
+                                }
                             }
                         },
                         onError: { error in
                             timeoutTask.cancel()
-                            if !hasResumed {
-                                hasResumed = true
-                                continuation.resume(returning: error)
+                            Task {
+                                if await coordinationActor.tryResume() {
+                                    continuation.resume(returning: error)
+                                }
                             }
                         }
                     )
@@ -374,13 +392,12 @@ import Testing
             // Perform successful upload with coordinated timeout
             let successResult: Result<Data, NetworkError> =
                 try await withCheckedThrowingContinuation { continuation in
-                    var hasResumed = false
+                    let coordinationActor = CoordinationActor()
 
                     // Create a timeout task that will throw on timeout
                     let timeoutTask = Task {
                         try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 second timeout
-                        if !hasResumed {
-                            hasResumed = true
+                        if await coordinationActor.tryResume() {
                             continuation.resume(
                                 throwing: NetworkError.customError(
                                     "Test timeout", details: "Upload operation took too long"))
@@ -396,16 +413,18 @@ import Testing
                             configuration: ImageService.UploadConfiguration(),
                             onSuccess: { data in
                                 timeoutTask.cancel()
-                                if !hasResumed {
-                                    hasResumed = true
-                                    continuation.resume(returning: .success(data))
+                                Task {
+                                    if await coordinationActor.tryResume() {
+                                        continuation.resume(returning: .success(data))
+                                    }
                                 }
                             },
                             onError: { error in
                                 timeoutTask.cancel()
-                                if !hasResumed {
-                                    hasResumed = true
-                                    continuation.resume(returning: .failure(error))
+                                Task {
+                                    if await coordinationActor.tryResume() {
+                                        continuation.resume(returning: .failure(error))
+                                    }
                                 }
                             }
                         )
@@ -465,7 +484,7 @@ import Testing
             let model = AsyncImageModel(imageService: service)
 
             // Initial failed load (this will exhaust the built-in retries and fail)
-            await model.loadImage(from: Self.defaultFailURL.absoluteString)
+            await model.loadImage(from: Self.defaultTestURL.absoluteString)
             #expect(model.loadedImage == nil, "Should have no image after failed load")
             #expect(model.hasError == true, "Should have error after failed load")
             #expect(
@@ -476,7 +495,7 @@ import Testing
 
             // Now simulate a successful retry on the same model instance
             // This will use the success response from the mock session
-            await model.loadImage(from: Self.defaultFailURL.absoluteString)
+            await model.loadImage(from: Self.defaultTestURL.absoluteString)
             #expect(model.error == nil, "Error should be nil after successful retry")
             #expect(model.loadedImage != nil, "Should have loaded image after successful retry")
             #expect(model.hasError == false, "hasError should be false after successful retry")

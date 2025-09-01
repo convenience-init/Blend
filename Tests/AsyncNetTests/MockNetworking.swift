@@ -166,7 +166,7 @@ struct MockEndpoint: Endpoint, Equatable {
     let contentType: String?
     let timeout: TimeInterval?
     let timeoutDuration: Duration?
-    var body: Data?
+    let body: Data?
     let port: Int?
     let fragment: String?
 

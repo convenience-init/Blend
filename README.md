@@ -502,9 +502,11 @@ When handling sensitive images such as user avatars, profile pictures, or any co
 
 **Opt-out of Caching:**
 
-- Set `cacheCountLimit: 0` and `cacheTotalCostLimit: 0` when initializing `ImageService` for sensitive content
-- Use `ImageService(cacheCountLimit: 0, cacheTotalCostLimit: 0)` to disable all caching
-- Call `await imageService.removeFromCache(key: "sensitive-image-url")` immediately after use
+- **Important**: Setting `cacheCountLimit: 0` or `cacheTotalCostLimit: 0` does **NOT** disable caching - it means "no limit" (unlimited caching). Avoid this configuration for sensitive content.
+- To disable caching, do not attach an `NSCache` instance or pass `nil`/`no-op` cache to `ImageService`
+- Use `ImageService` constructor flags or configuration that explicitly disables caching when available
+- Call `cache.removeAllObjects()` on the underlying `NSCache` to clear all cached items
+- Call `await imageService.removeFromCache(key: "sensitive-image-url")` immediately after use to clear specific sensitive items
 
 **Avoid Caching PII-Containing Assets:**
 

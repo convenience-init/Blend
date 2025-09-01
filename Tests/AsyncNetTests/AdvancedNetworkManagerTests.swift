@@ -291,7 +291,7 @@ struct AdvancedNetworkManagerTests {
 struct AsyncRequestableTests {
     struct TestModel: Decodable, Equatable { let value: Int }
     struct MockService: AsyncRequestable {
-        typealias ResponseModel = TestModel
+        typealias CustomResponseModel = Int
         let urlSession: URLSessionProtocol
         func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
             // Fail fast: Validate GET requests don't have a body before building any components
@@ -390,8 +390,7 @@ struct AsyncRequestableTests {
                 headerFields: ["Content-Type": "application/json"]
             ))
         let service = MockService(urlSession: mockSession)
-        var endpoint = MockEndpoint()
-        endpoint.body = Data("test body".utf8)  // Add body to GET request
+        let endpoint = MockEndpoint(body: Data("test body".utf8))  // Add body to GET request
 
         do {
             _ = try await service.sendRequest(to: endpoint)
@@ -438,7 +437,7 @@ struct AsyncRequestableTests {
     @Test func testJsonDecoderConfiguration() async throws {
         // Test that conforming types have access to the jsonDecoder property
         struct SimpleService: AsyncRequestable {
-            typealias ResponseModel = Int
+            typealias CustomResponseModel = Int
 
             func sendRequest(to endPoint: Endpoint) async throws -> Int {
                 // Just test that jsonDecoder is accessible and returns a JSONDecoder
@@ -456,7 +455,7 @@ struct AsyncRequestableTests {
     @Test func testCustomJsonDecoderInjection() async throws {
         // Test that custom decoders can be injected for testing
         struct TestService: AsyncRequestable {
-            typealias ResponseModel = TestModel
+            typealias CustomResponseModel = TestModel
             let customDecoder: JSONDecoder
 
             var jsonDecoder: JSONDecoder {

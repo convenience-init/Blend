@@ -58,6 +58,15 @@ public actor ImageService {
         to url: URL,
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
+        // Pre-check to avoid memory issues with very large images
+        let maxSafeRawSize = 50 * 1024 * 1024  // 50MB raw = ~67MB base64
+        if imageData.count > maxSafeRawSize {
+            throw NetworkError.payloadTooLarge(
+                size: imageData.count,
+                limit: maxSafeRawSize
+            )
+        }
+
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
         let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
         let encodedSize = ((imageData.count + 2) / 3) * 4
@@ -279,6 +288,11 @@ public actor ImageService {
                         throw wrappedError
                     }
                 }
+                // Check if this would be the final attempt - if so, don't sleep, just throw
+                if attempt + 1 >= config.maxAttempts {
+                    throw wrappedError
+                }
+
                 // Custom backoff strategy
                 let delay: TimeInterval
                 if let backoff = config.backoff {

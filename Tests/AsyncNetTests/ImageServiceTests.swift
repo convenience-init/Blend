@@ -327,7 +327,13 @@ struct ImageServiceTests {
             try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
             let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
-            let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+            let mockResponse = HTTPURLResponse(
+                url: URL(string: "https://mock.api/upload")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )
+            let mockSession = MockURLSession(nextData: Data(), nextResponse: mockResponse)
             let service = ImageService(
                 imageCacheCountLimit: 100,
                 imageCacheTotalCostLimit: 50 * 1024 * 1024,

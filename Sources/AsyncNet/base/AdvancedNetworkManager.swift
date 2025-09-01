@@ -33,10 +33,12 @@ public protocol NetworkCache: Sendable {
 /// TestClock provides a controllable clock for deterministic testing.
 /// All accesses to the internal time state are synchronized to prevent data races.
 public final class TestClock: @unchecked Sendable {
-    private var _now: ContinuousClock.Instant = .now
+    private var _now: ContinuousClock.Instant
     private var lock = os_unfair_lock_s()
 
-    public init() {}
+    public init() {
+        _now = ContinuousClock().now
+    }
 
     /// Returns the current time value in a thread-safe manner
     public func now() -> ContinuousClock.Instant {
@@ -317,18 +319,19 @@ public actor AdvancedNetworkManager {
             // Check for cancellation at the start
             try Task.checkCancellation()
 
-            var interceptedRequest = request
-            for interceptor in interceptors {
-                interceptedRequest = await interceptor.willSend(request: interceptedRequest)
-            }
-            // Set timeout from retry policy
-            interceptedRequest.timeoutInterval = retryPolicy.timeoutInterval
-
             var lastError: Error?
             // Initial attempt plus maxRetries additional attempts
             for attempt in 0...(retryPolicy.maxRetries) {
                 // Check for cancellation before each retry attempt
                 try Task.checkCancellation()
+
+                // Create fresh intercepted request for each attempt
+                var interceptedRequest = request
+                for interceptor in interceptors {
+                    interceptedRequest = await interceptor.willSend(request: interceptedRequest)
+                }
+                // Set timeout from retry policy for this attempt
+                interceptedRequest.timeoutInterval = retryPolicy.timeoutInterval
 
                 do {
                     let (data, response) = try await urlSession.data(for: interceptedRequest)
@@ -340,8 +343,12 @@ public actor AdvancedNetworkManager {
                     if let httpResponse = response as? HTTPURLResponse {
                         switch httpResponse.statusCode {
                         case 200...299:
-                            // Only cache successful responses
-                            await cache.set(data, forKey: key)
+                            // Only cache successful responses for safe/idempotent HTTP methods
+                            let shouldCache = shouldCacheResponse(
+                                for: interceptedRequest, response: httpResponse)
+                            if shouldCache {
+                                await cache.set(data, forKey: key)
+                            }
                             #if canImport(OSLog)
                                 if attempt > 0 {
                                     asyncNetLogger.info(
@@ -456,6 +463,33 @@ public actor AdvancedNetworkManager {
         }
 
         return "\(method)|\(urlString)|\(bodyString)|\(headersString)"
+    }
+
+    /// Determines if a response should be cached based on HTTP method and Cache-Control headers
+    private func shouldCacheResponse(for request: URLRequest, response: HTTPURLResponse) -> Bool {
+        // Only cache responses for safe/idempotent HTTP methods
+        let method = request.httpMethod?.uppercased() ?? "GET"
+        let safeMethods = ["GET", "HEAD"]
+        guard safeMethods.contains(method) else {
+            return false
+        }
+
+        // Check Cache-Control headers
+        if let cacheControl = response.allHeaderFields["Cache-Control"] as? String {
+            let directives = cacheControl.lowercased()
+
+            // Don't cache if no-store or private directives are present
+            if directives.contains("no-store") || directives.contains("private") {
+                return false
+            }
+
+            // Don't cache if max-age=0
+            if directives.contains("max-age=0") {
+                return false
+            }
+        }
+
+        return true
     }
 }
 
@@ -614,7 +648,7 @@ public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecke
         lock.lock()
         defer { lock.unlock() }
         // Simple linear congruential generator for reproducibility
-        state = 2_862_933_555_777_941_757 * state + 3_037_000_493
+        state = (2_862_933_555_777_941_757 &* state) &+ 3_037_000_493
         return state
     }
 }
