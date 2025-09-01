@@ -5,7 +5,7 @@ import UIKit
 import AppKit
 #endif
 
-extension Image {
+public extension Image {
     /// Cross-platform initializer for PlatformImage
     static func from(platformImage: PlatformImage) -> Image {
 #if os(macOS)
@@ -38,17 +38,16 @@ public enum UploadType: String, Sendable {
 /// await model.loadImage(from: url)
 /// await model.uploadImage(image, to: uploadURL, uploadType: .multipart, configuration: config)
 /// ```
-@Observable
 @MainActor
-public class AsyncImageModel {
-    public var loadedImage: PlatformImage?
-    public var isLoading: Bool = false
-    public var hasError: Bool = false
-    public var isUploading: Bool = false
-    public var error: NetworkError?
+public class AsyncImageModel: ObservableObject {
+    @Published public var loadedImage: PlatformImage?
+    @Published public var isLoading: Bool = false
+    @Published public var hasError: Bool = false
+    @Published public var isUploading: Bool = false
+    @Published public var error: NetworkError?
     private var loadToken: UUID? = nil
     
-    private let imageService: ImageService
+    private weak var imageService: ImageService?
     
     public init(imageService: ImageService) {
         self.imageService = imageService
@@ -59,7 +58,15 @@ public class AsyncImageModel {
         self.loadToken = token
         
         // Early exit if task is already cancelled
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { 
+            if self.loadToken == token {
+                self.isLoading = false
+                self.loadedImage = nil
+                self.hasError = false
+                self.error = nil
+            }
+            return 
+        }
         
         guard let url = url else {
             if self.loadToken == token {
@@ -70,7 +77,15 @@ public class AsyncImageModel {
         }
         
         // Check again before starting the network request
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { 
+            if self.loadToken == token {
+                self.isLoading = false
+                self.loadedImage = nil
+                self.hasError = false
+                self.error = nil
+            }
+            return 
+        }
         
         if self.loadToken == token {
             self.isLoading = true
@@ -78,6 +93,14 @@ public class AsyncImageModel {
             self.error = nil
         }
         do {
+            guard let imageService = imageService else {
+                if self.loadToken == token {
+                    self.hasError = true
+                    self.error = NetworkError.networkUnavailable
+                    self.isLoading = false
+                }
+                return
+            }
             let data = try await imageService.fetchImageData(from: url)
             if self.loadToken == token {
                 self.loadedImage = ImageService.platformImage(from: data)
@@ -100,7 +123,9 @@ public class AsyncImageModel {
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
             self.error = error
-            onError?(error)  // Already on main thread via @MainActor
+            Task { @MainActor in
+                onError?(error)
+            }
             return
         }
         isUploading = true
@@ -108,11 +133,22 @@ public class AsyncImageModel {
         
         guard let imageData = ImageService.platformImageToData(image, compressionQuality: configuration.compressionQuality) else {
             self.error = NetworkError.imageProcessingFailed
-            onError?(NetworkError.imageProcessingFailed)  // Already on main thread via @MainActor
+            Task { @MainActor in
+                onError?(NetworkError.imageProcessingFailed)
+            }
             return
         }
         
         do {
+            guard let imageService = imageService else {
+                let error = NetworkError.networkUnavailable
+                self.error = error
+                Task { @MainActor in
+                    onError?(error)
+                }
+                return
+            }
+            
             let responseData: Data
             switch uploadType {
                 case .multipart:
@@ -128,11 +164,15 @@ public class AsyncImageModel {
                         configuration: configuration
                     )
             }
-            onSuccess?(responseData)  // Already on main thread via @MainActor
+            Task { @MainActor in
+                onSuccess?(responseData)
+            }
         } catch {
             let netError = error as? NetworkError ?? NetworkError.wrap(error)
             self.error = netError
-            onError?(netError)  // Already on main thread via @MainActor
+            Task { @MainActor in
+                onError?(netError)
+            }
         }
     }
 }
@@ -142,7 +182,7 @@ public class AsyncImageModel {
 /// Use `AsyncNetImageView` for robust, cross-platform image display and upload in SwiftUI, with support for dependency injection, upload progress, and error states.
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
-/// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms.
+/// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms. The view automatically reloads when the URL changes.
 ///
 /// ### Usage Example
 /// ```swift
@@ -151,10 +191,15 @@ public class AsyncImageModel {
 ///     uploadURL: URL(string: "https://api.example.com/upload"),
 ///     uploadType: .multipart,
 ///     configuration: ImageService.UploadConfiguration(),
+///     autoUpload: true, // Automatically upload after loading
 ///     onUploadSuccess: { data in print("Upload successful: \(data)") },
 ///     onUploadError: { error in print("Upload failed: \(error)") },
 ///     imageService: imageService
 /// )
+///
+/// // Or trigger upload programmatically:
+/// let imageView = AsyncNetImageView(/* parameters */)
+/// let success = await imageView.uploadImage()
 /// ```
 public struct AsyncNetImageView: View {
     let url: String?
@@ -165,8 +210,9 @@ public struct AsyncNetImageView: View {
     /// Error callback always receives NetworkError
     let onUploadError: ((NetworkError) -> Void)?
     let imageService: ImageService
-    /// Use @State for correct SwiftUI lifecycle management of @Observable model
-    @State private var model: AsyncImageModel
+    let autoUpload: Bool
+    /// Use @StateObject for correct SwiftUI lifecycle management of @Observable model
+    @StateObject internal var model: AsyncImageModel
     
     public init(
         url: String? = nil,
@@ -175,6 +221,7 @@ public struct AsyncNetImageView: View {
         configuration: ImageService.UploadConfiguration = ImageService.UploadConfiguration(),
         onUploadSuccess: ((Data) -> Void)? = nil,
         onUploadError: ((NetworkError) -> Void)? = nil,
+        autoUpload: Bool = false,
         imageService: ImageService
     ) {
         self.url = url
@@ -183,16 +230,38 @@ public struct AsyncNetImageView: View {
         self.configuration = configuration
         self.onUploadSuccess = onUploadSuccess
         self.onUploadError = onUploadError
+        self.autoUpload = autoUpload
         self.imageService = imageService
-        self._model = State(initialValue: AsyncImageModel(imageService: imageService))
+        self._model = StateObject(wrappedValue: AsyncImageModel(imageService: imageService))
     }
     
     public var body: some View {
         Group {
             if let loadedImage = model.loadedImage {
-                Image.from(platformImage: loadedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                ZStack(alignment: .bottomTrailing) {
+                    Image.from(platformImage: loadedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                    
+                    // Upload button overlay when uploadURL is provided
+                    if uploadURL != nil {
+                        Button(action: {
+                            Task {
+                                await performUpload()
+                            }
+                        }) {
+                            Image(systemName: model.isUploading ? "arrow.up.circle.fill" : "arrow.up.circle")
+                                .font(.title2)
+                                .foregroundStyle(model.isUploading ? .blue : .white)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .shadow(radius: 2)
+                        }
+                        .disabled(model.isUploading)
+                        .padding(12)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
             } else if model.hasError {
                 ContentUnavailableView {
                     Label("Image Failed to Load", systemImage: "photo")
@@ -230,5 +299,36 @@ public struct AsyncNetImageView: View {
         .task {
             await model.loadImage(from: url)
         }
+        .task(id: url) {
+            await model.loadImage(from: url)
+        }
+        .task(id: model.loadedImage) {
+            // Auto-upload after image loads if enabled
+            if autoUpload, model.loadedImage != nil, uploadURL != nil {
+                await performUpload()
+            }
+        }
+    }
+    
+    /// Performs the image upload with proper error handling
+    private func performUpload() async {
+        guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else { return }
+        
+        await model.uploadImage(
+            loadedImage,
+            to: uploadURL,
+            uploadType: uploadType,
+            configuration: configuration,
+            onSuccess: onUploadSuccess,
+            onError: onUploadError
+        )
+    }
+    
+    /// Public method to programmatically trigger image upload
+    /// - Returns: True if upload was initiated, false if no image loaded or uploadURL not set
+    public func uploadImage() async -> Bool {
+        guard model.loadedImage != nil, uploadURL != nil else { return false }
+        await performUpload()
+        return true
     }
 }

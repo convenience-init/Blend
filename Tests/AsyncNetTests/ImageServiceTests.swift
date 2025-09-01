@@ -9,7 +9,7 @@ import Darwin.Mach
 /// Get current resident memory size in bytes using Mach APIs
 func currentResidentSizeBytes() -> UInt64? {
     var info = mach_task_basic_info()
-    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
     let kerr = withUnsafeMutablePointer(to: &info) {
         $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
             task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
@@ -251,7 +251,7 @@ struct ImageServicePerformanceTests {
         let start = ContinuousClock().now
         _ = try await service.fetchImageData(from: "https://mock.api/test")
         let duration = ContinuousClock().now - start
-        let elapsedSeconds = TimeInterval(duration.components.seconds) + Double(duration.components.attoseconds) / 1_000_000_000_000_000
+        let elapsedSeconds = TimeInterval(duration.components.seconds) + Double(duration.components.attoseconds) / 1_000_000_000_000_000_000
         print("DEBUG: Cold start latency: \(elapsedSeconds * 1000) ms")
         #expect(duration < .seconds(0.1)) // <100ms for mock network call
     }
@@ -268,6 +268,40 @@ struct ImageServicePerformanceTests {
         let service = ImageService(urlSession: mockSession)
         
         // Test that caching works by making multiple requests
+        let url = "https://mock.api/test"
+        
+        // First request (cache miss)
+        let result1 = try await service.fetchImageData(from: url)
+        #expect(result1 == imageData)
+        
+        // Second request (should be cache hit)
+        let result2 = try await service.fetchImageData(from: url)
+        #expect(result2 == imageData)
+        
+        // Third request (should still be cache hit)
+        let result3 = try await service.fetchImageData(from: url)
+        #expect(result3 == imageData)
+        
+        // Verify that only 1 network call was made despite 3 requests
+        #expect(await mockSession.callCount == 1)
+        
+        // Verify that the cache is working by checking recorded requests
+        let recordedRequests = await mockSession.recordedRequests
+        #expect(recordedRequests.count == 1, "Only one network request should have been made")
+    }
+
+    @Test func testCachingMemoryUsage() async throws {
+        let imageData = Data(repeating: 0xFF, count: 1024 * 1024) // 1MB image
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(urlSession: mockSession)
+        
+        // Test memory usage during caching operations
         let url = "https://mock.api/test"
         
         // Sample memory before operations
@@ -296,13 +330,6 @@ struct ImageServicePerformanceTests {
             #expect(abs(memoryDelta) < 10 * 1024 * 1024, "Memory growth should be reasonable during caching operations")
         }
         #endif
-        
-        // Verify that only 1 network call was made despite 3 requests
-        #expect(await mockSession.callCount == 1)
-        
-        // Verify that the cache is working by checking recorded requests
-        let recordedRequests = await mockSession.recordedRequests
-        #expect(recordedRequests.count == 1, "Only one network request should have been made")
     }
 
     @Test func testCacheHitRate() async throws {
@@ -338,12 +365,40 @@ struct ImageServicePerformanceTests {
         let service = ImageService(urlSession: mockSession)
         let url = "https://mock.api/test"
         let concurrentRequests = 100
+        let maxConcurrentTasks = 10
         var results = [Bool](repeating: false, count: concurrentRequests)
+        
+        // Use an actor to control concurrency
+        actor ConcurrencyController {
+            private var activeTasks = 0
+            private let maxConcurrent: Int
+            
+            init(maxConcurrent: Int) {
+                self.maxConcurrent = maxConcurrent
+            }
+            
+            func acquireSlot() async {
+                while activeTasks >= maxConcurrent {
+                    await Task.yield()
+                }
+                activeTasks += 1
+            }
+            
+            func releaseSlot() async {
+                activeTasks -= 1
+            }
+        }
+        
+        let controller = ConcurrencyController(maxConcurrent: maxConcurrentTasks)
+        
         await withTaskGroup(of: (Int, Bool).self) { group in
             for i in 0..<concurrentRequests {
                 group.addTask {
+                    await controller.acquireSlot()
                     let result = try? await service.fetchImageData(from: url)
-                    return (i, result == imageData)
+                    let success = result == imageData
+                    await controller.releaseSlot()
+                    return (i, success)
                 }
             }
             for await (i, success) in group {

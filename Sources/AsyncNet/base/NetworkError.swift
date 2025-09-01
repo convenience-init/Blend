@@ -21,12 +21,14 @@ import Foundation
 ///
 /// Enhanced error system for AsyncNet (ASYNC-302)
 public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
-    case custom(message: String, details: String?)
+    case customError(message: String, details: String?)
     // MARK: - Specific Error Cases
     /// HTTP error with status code and optional response data (Sendable)
     case httpError(statusCode: Int, data: Data?)
     /// Decoding error with underlying error and optional data (Sendable)
-    case decodingError(underlying: Error, data: Data?)
+    case decodingError(underlying: any Error & Sendable, data: Data?)
+    /// Dedicated decoding failure with detailed context and underlying DecodingError
+    case decodingFailed(reason: String, underlying: any Error & Sendable, data: Data?)
     case networkUnavailable
     case requestTimeout(duration: TimeInterval)
     case invalidEndpoint(reason: String)
@@ -48,8 +50,8 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     case outOfScriptBounds(call: Int)
 
     // MARK: - Private Helper Methods
-    private static func statusMessage(_ formatKey: String, _ statusCode: Int) -> String {
-        return String(format: NSLocalizedString(formatKey, comment: "Error message for HTTP errors with status code"), statusCode)
+    private static func statusMessage(_ format: String, _ statusCode: Int) -> String {
+        return String(format: NSLocalizedString(format, comment: "Error message for HTTP errors with status code"), statusCode)
     }
 
     private static func transportErrorDescription(_ code: URLError.Code) -> String {
@@ -136,6 +138,25 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         }
     }
 
+    private static func decodingErrorReason(_ error: DecodingError) -> String {
+        switch error {
+        case .dataCorrupted(let context):
+            let pathDescription = context.codingPath.isEmpty ? "root" : context.codingPath.map { $0.stringValue }.joined(separator: ".")
+            return "Data corrupted at '\(pathDescription)': \(context.debugDescription)"
+        case .keyNotFound(let key, let context):
+            let pathDescription = context.codingPath.isEmpty ? "root" : context.codingPath.map { $0.stringValue }.joined(separator: ".")
+            return "Required key '\(key.stringValue)' not found at '\(pathDescription)': \(context.debugDescription)"
+        case .typeMismatch(let type, let context):
+            let pathDescription = context.codingPath.isEmpty ? "root" : context.codingPath.map { $0.stringValue }.joined(separator: ".")
+            return "Type mismatch at '\(pathDescription)', expected \(type): \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            let pathDescription = context.codingPath.isEmpty ? "root" : context.codingPath.map { $0.stringValue }.joined(separator: ".")
+            return "Value not found at '\(pathDescription)', expected \(type): \(context.debugDescription)"
+        @unknown default:
+            return "Unknown decoding error: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - LocalizedError Conformance
     public var errorDescription: String? {
     switch self {
@@ -143,14 +164,16 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             return NetworkError.statusMessage("HTTP error: Status code %d", statusCode)
         case .decodingError(let underlying, _):
             return String(format: NSLocalizedString("Decoding error: %@", comment: "Error message for decoding failures with underlying description"), underlying.localizedDescription)
+        case .decodingFailed(let reason, _, _):
+            return String(format: NSLocalizedString("Decoding failed: %@", comment: "Error message for detailed decoding failures"), reason)
         case .networkUnavailable:
             return NSLocalizedString("Network unavailable.", comment: "Error message when network is not available")
         case .requestTimeout(let duration):
             return String(format: NSLocalizedString("Request timed out after %.2f seconds.", comment: "Error message for request timeouts with duration"), duration)
         case .invalidEndpoint(let reason):
             return String(format: NSLocalizedString("Invalid endpoint: %@", comment: "Error message for invalid endpoints with reason"), reason)
-        case .unauthorized(_, _):
-            return NSLocalizedString("Not authorized.", comment: "Error message for unauthorized access")
+        case .unauthorized(_, let statusCode):
+            return String(format: NSLocalizedString("Not authorized (status %d).", comment: "Error message for unauthorized access with HTTP status code"), statusCode)
         case .noResponse:
             return NSLocalizedString("No network response.", comment: "Error message when no response is received")
         case .badMimeType(let mimeType):
@@ -169,7 +192,7 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             return NSLocalizedString("Authentication failed.", comment: "Error message for authentication failures")
         case .transportError(let code, let underlying):
             return String(format: NSLocalizedString("Transport error: %@ - %@", comment: "Error message for transport errors with code and description"), NetworkError.transportErrorDescription(code), underlying.localizedDescription)
-        case .custom(let message, let details):
+        case .customError(let message, let details):
             if let details = details {
                 return String(format: NSLocalizedString("%@: %@", comment: "Custom error message with details"), message, details)
             } else {
@@ -182,7 +205,7 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
 
     public var recoverySuggestion: String? {
         switch self {
-        case .custom:
+        case .customError:
             return NSLocalizedString("Please try again or contact support.", comment: "Recovery suggestion for custom errors")
         case .httpError(let statusCode, _):
             switch statusCode {
@@ -196,6 +219,8 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             }
         case .decodingError:
             return NSLocalizedString("Ensure the response format matches the expected model.", comment: "Recovery suggestion for decoding errors")
+        case .decodingFailed:
+            return NSLocalizedString("Check the response data format and ensure it matches the expected model structure.", comment: "Recovery suggestion for detailed decoding failures")
         case .networkUnavailable:
             return NSLocalizedString("Check your internet connection.", comment: "Recovery suggestion for network unavailable errors")
         case .requestTimeout:
@@ -217,7 +242,7 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .invalidBodyForGET:
             return NSLocalizedString("Remove the body from GET requests or use a different HTTP method.", comment: "Recovery suggestion for invalid body in GET request errors")
         case .requestCancelled:
-            return NSLocalizedString("The request was cancelled before completion.", comment: "Recovery suggestion for cancelled requests")
+            return NSLocalizedString("Check cancellation logic and consider retrying if appropriate.", comment: "Recovery suggestion for cancelled requests - verify logic and retry if needed")
         case .authenticationFailed:
             return NSLocalizedString("Verify your credentials and try again.", comment: "Recovery suggestion for authentication failures")
         case .transportError:
@@ -238,10 +263,17 @@ public extension NetworkError {
     /// Creates a custom error with a formatted message and optional details
     static func customError(_ message: String, details: String? = nil) -> NetworkError {
     // Use a dedicated custom error case for non-arbitrary error information
-    return .custom(message: message, details: details)
+    return .customError(message: message, details: details)
     }
 
-    /// Wraps a generic error as a network error
+    /// Wraps an Error into a NetworkError.
+    /// 
+    /// This synchronous version uses a static default timeout duration for backward compatibility.
+    /// For configurable timeout behavior and thread-safe configuration, use `wrapAsync(_:config:)` instead.
+    ///
+    /// - Parameter error: The error to wrap
+    /// - Returns: A NetworkError representation of the input error
+    @available(*, deprecated, message: "Use wrapAsync(_:config:) for configurable timeout behavior and thread safety")
     static func wrap(_ error: Error) -> NetworkError {
         if let networkError = error as? NetworkError {
             return networkError
@@ -277,29 +309,86 @@ public extension NetworkError {
                 return .transportError(code: urlError.code, underlying: urlError)
             }
         }
+        // Handle DecodingError specifically with detailed context
+        if let decodingError = error as? DecodingError {
+            let reason = NetworkError.decodingErrorReason(decodingError)
+            return .decodingFailed(reason: reason, underlying: decodingError, data: nil)
+        }
         // Fallback to custom error
-    return .custom(message: "Unknown error", details: String(describing: error))
+        return .customError(message: "Unknown error", details: String(describing: error))
+    }
+
+    /// Wraps an Error into a NetworkError with configurable timeout duration.
+    /// This async version allows for thread-safe configuration of timeout behavior.
+    /// - Parameters:
+    ///   - error: The error to wrap
+    ///   - config: The configuration to use for timeout duration
+    /// - Returns: A NetworkError representation of the input error
+    @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
+    static func wrapAsync(_ error: Error, config: AsyncNetConfig) async -> NetworkError {
+        switch error {
+        case let urlError as URLError:
+            switch urlError.code {
+            case .timedOut:
+                return .requestTimeout(duration: await config.timeoutDuration)
+            case .notConnectedToInternet:
+                return .networkUnavailable
+            case .networkConnectionLost:
+                return .networkUnavailable
+            case .cannotConnectToHost:
+                return .networkUnavailable
+            case .cannotFindHost:
+                return .invalidEndpoint(reason: "Host not found")
+            case .dnsLookupFailed:
+                return .invalidEndpoint(reason: "DNS lookup failed")
+            case .secureConnectionFailed:
+                return .transportError(code: urlError.code, underlying: urlError)
+            case .cancelled:
+                return .requestCancelled
+            default:
+                return .transportError(code: urlError.code, underlying: urlError)
+            }
+        case let decodingError as DecodingError:
+            let reason = NetworkError.decodingErrorReason(decodingError)
+            return .decodingFailed(reason: reason, underlying: decodingError, data: nil)
+        default:
+            return .customError(message: "Unknown error", details: String(describing: error))
+        }
     }
 
     /// Default timeout duration used when wrapping URLError.timedOut
-    /// This value can be configured at runtime to adjust the default timeout duration
-    /// used when creating requestTimeout errors from URLError.timedOut instances.
-    /// Note: Access to this property should be synchronized by the caller if used in concurrent contexts.
-    nonisolated(unsafe) static var defaultTimeoutDuration: TimeInterval = 60.0
+    /// This value is immutable to avoid race conditions in concurrent contexts.
+    /// For configurable timeout behavior, use the async wrap function with AsyncNetConfig.
+    /// 
+    /// This constant is kept for backward compatibility with the deprecated synchronous wrap function.
+    /// New code should use AsyncNetConfig.shared.timeoutDuration for configurable timeouts.
+    static let defaultTimeoutDuration: TimeInterval = 60.0
 }
 
 // MARK: - Equatable Conformance
 extension NetworkError {
     public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
         switch (lhs, rhs) {
-        case (.custom(let lhsMessage, let lhsDetails), .custom(let rhsMessage, let rhsDetails)):
+        case (.customError(let lhsMessage, let lhsDetails), .customError(let rhsMessage, let rhsDetails)):
             return lhsMessage == rhsMessage && lhsDetails == rhsDetails
         case (.httpError(let lhsStatus, let lhsData), .httpError(let rhsStatus, let rhsData)):
-            return lhsStatus == rhsStatus && lhsData == rhsData
+            return lhsStatus == rhsStatus && ((lhsData == nil && rhsData == nil) || (lhsData?.count == rhsData?.count))
         case (.decodingError(let lhsError, let lhsData), .decodingError(let rhsError, let rhsData)):
-            // Compare error types and descriptions since Error is not Equatable
-            return type(of: lhsError) == type(of: rhsError) && 
-                   lhsError.localizedDescription == rhsError.localizedDescription && 
+            // Compare error types and NSError properties since Error is not Equatable
+            let lhsNSError = lhsError as NSError
+            let rhsNSError = rhsError as NSError
+            return type(of: lhsError) == type(of: rhsError) &&
+                   lhsNSError.domain == rhsNSError.domain &&
+                   lhsNSError.code == rhsNSError.code &&
+                   lhsData == rhsData
+        case (.decodingFailed(let lhsReason, let lhsError, let lhsData), .decodingFailed(let rhsReason, let rhsError, let rhsData)):
+            // Compare reasons, error types, and NSError properties since Error is not Equatable
+            let lhsNSError = lhsError as NSError
+            let rhsNSError = rhsError as NSError
+            return lhsReason == rhsReason &&
+                   type(of: lhsError) == type(of: rhsError) &&
+                   lhsNSError.domain == rhsNSError.domain &&
+                   lhsNSError.code == rhsNSError.code &&
                    lhsData == rhsData
         case (.networkUnavailable, .networkUnavailable):
             return true

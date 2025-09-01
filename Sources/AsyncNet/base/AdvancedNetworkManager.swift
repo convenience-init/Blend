@@ -25,10 +25,12 @@ public actor DefaultNetworkCache: NetworkCache {
         var data: Data
         var prev: Node?
         var next: Node?
+        var timestamp: TimeInterval
 
-        init(key: String, data: Data) {
+        init(key: String, data: Data, timestamp: TimeInterval = Date().timeIntervalSince1970) {
             self.key = key
             self.data = data
+            self.timestamp = timestamp
         }
     }
 
@@ -48,30 +50,45 @@ public actor DefaultNetworkCache: NetworkCache {
             return nil
         }
 
+        let now = Date().timeIntervalSince1970
+        // Check if entry has expired
+        if now - node.timestamp >= expiration {
+            // Remove expired entry
+            removeNode(node)
+            cache.removeValue(forKey: key)
+            return nil
+        }
+
         // Move accessed node to head (most recently used)
         moveToHead(node)
         return node.data
     }
 
     public func set(_ data: Data, forKey key: String) async {
+        let now = Date().timeIntervalSince1970
+        
         if let existingNode = cache[key] {
-            // Update existing node
+            // Update existing node with new timestamp
             existingNode.data = data
+            existingNode.timestamp = now
             moveToHead(existingNode)
             return
         }
 
-        // Create new node
-        let newNode = Node(key: key, data: data)
+        // Perform lightweight cleanup of expired items before adding new entry
+        await performLightweightCleanup()
+
+        // If at max capacity, evict LRU entry before adding new one
+        if cache.count >= maxSize {
+            removeTail()
+        }
+
+        // Create new node with current timestamp
+        let newNode = Node(key: key, data: data, timestamp: now)
         cache[key] = newNode
 
         // Add to head of list
         addToHead(newNode)
-
-        // Evict if over capacity
-        if cache.count > maxSize {
-            removeTail()
-        }
     }
 
     public func remove(forKey key: String) async {
@@ -84,6 +101,27 @@ public actor DefaultNetworkCache: NetworkCache {
         cache.removeAll()
         head = nil
         tail = nil
+    }
+
+    /// Performs a comprehensive cleanup of expired entries
+    /// This method traverses the entire cache and can be called periodically
+    /// or when you want to ensure all expired entries are removed
+    public func cleanupExpiredEntries() async {
+        let now = Date().timeIntervalSince1970
+        var nodesToRemove: [Node] = []
+        
+        // Collect expired nodes
+        for (_, node) in cache {
+            if now - node.timestamp >= expiration {
+                nodesToRemove.append(node)
+            }
+        }
+        
+        // Remove expired nodes
+        for node in nodesToRemove {
+            removeNode(node)
+            cache.removeValue(forKey: node.key)
+        }
     }
 
     // MARK: - LRU Helper Methods
@@ -146,6 +184,21 @@ public actor DefaultNetworkCache: NetworkCache {
         }
 
         cache.removeValue(forKey: tailNode.key)
+    }
+    
+    private func performLightweightCleanup() async {
+        let now = Date().timeIntervalSince1970
+        
+        // Lightweight cleanup: only check and remove expired entries from the tail
+        // This is efficient since expired entries tend to be older (towards the tail)
+        while let tailNode = tail {
+            if now - tailNode.timestamp >= expiration {
+                removeTail()
+            } else {
+                // Tail is not expired, no need to check further
+                break
+            }
+        }
     }
 }
 
@@ -219,24 +272,31 @@ public actor AdvancedNetworkManager {
                     asyncNetLogger.warning("Request attempt \(attempt + 1) failed for key: \(key), error: \(error.localizedDescription)")
                     #endif
                     // shouldRetry and backoff use the attempt index (0-based)
-                    if let shouldRetry = retryPolicy.shouldRetry, !shouldRetry(error, attempt) {
-                        break
-                    }
-                    // Default retry behavior: retry on network errors and timeouts
-                    let wrappedError = NetworkError.wrap(error)
-                    if case .networkUnavailable = wrappedError {
-                        // Continue to retry
-                    } else if case .requestTimeout = wrappedError {
-                        // Continue to retry timeouts
-                    } else if case .transportError = wrappedError {
-                        // Continue to retry transport errors
+                    if let shouldRetry = retryPolicy.shouldRetry {
+                        // Custom retry logic provided - respect its decision completely
+                        if !shouldRetry(error, attempt) {
+                            break
+                        }
+                        // Custom logic says to retry, so continue with backoff
                     } else {
-                        // Don't retry other types of errors by default
-                        break
+                        // No custom retry logic - use default behavior
+                        let wrappedError = NetworkError.wrap(error)
+                        if case .networkUnavailable = wrappedError {
+                            // Continue to retry
+                        } else if case .requestTimeout = wrappedError {
+                            // Continue to retry timeouts
+                        } else if case .transportError = wrappedError {
+                            // Continue to retry transport errors
+                        } else {
+                            // Don't retry other types of errors by default
+                            break
+                        }
                     }
+                    
                     let delay = retryPolicy.backoff?(attempt) ?? 0.0
                     let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
-                    if cappedDelay > 0 {
+                    // Only sleep if this is not the final attempt
+                    if attempt < retryPolicy.maxRetries && cappedDelay > 0 {
                         #if canImport(OSLog)
                         asyncNetLogger.debug("Retrying request for key: \(key) after \(cappedDelay) seconds")
                         #endif
@@ -259,7 +319,7 @@ public actor AdvancedNetworkManager {
     }
     
     /// Generates a deterministic cache key from request components
-    func generateRequestKey(from request: URLRequest) -> String {
+    private func generateRequestKey(from request: URLRequest) -> String {
         let urlString = request.url?.absoluteString ?? ""
         let method = request.httpMethod ?? "GET"
         let bodyString = request.httpBody?.base64EncodedString() ?? ""
@@ -282,11 +342,17 @@ public struct RetryPolicy: Sendable {
     public let backoff: (@Sendable (Int) -> TimeInterval)?
     public let maxBackoff: TimeInterval
     public let timeoutInterval: TimeInterval
+    public let jitterProvider: (@Sendable (Int) -> TimeInterval)?
     
     public static let `default` = RetryPolicy(
         maxRetries: 3,
         shouldRetry: { _, _ in true }, // Always allow retry; maxRetries controls total attempts
-        backoff: { attempt in pow(2.0, Double(attempt)) + Double.random(in: 0...0.5) },
+        backoff: { attempt in 
+            // Deterministic jitter based on attempt number: sin(attempt) * 0.25 + 0.25
+            // This gives values between 0 and 0.5, similar to the original random range
+            let jitter = sin(Double(attempt)) * 0.25 + 0.25
+            return pow(2.0, Double(attempt)) + jitter
+        },
         maxBackoff: 60.0,
         timeoutInterval: 30.0
     )
@@ -295,22 +361,33 @@ public struct RetryPolicy: Sendable {
                 shouldRetry: (@Sendable (Error, Int) -> Bool)? = nil,
                 backoff: (@Sendable (Int) -> TimeInterval)? = nil,
                 maxBackoff: TimeInterval = 60.0,
-                timeoutInterval: TimeInterval = 30.0) {
+                timeoutInterval: TimeInterval = 30.0,
+                jitterProvider: (@Sendable (Int) -> TimeInterval)? = nil) {
         self.maxRetries = maxRetries
         self.shouldRetry = shouldRetry
         self.backoff = backoff
         self.maxBackoff = maxBackoff
         self.timeoutInterval = timeoutInterval
+        self.jitterProvider = jitterProvider
     }
     
     /// Creates a retry policy with exponential backoff (capped by maxBackoff parameter)
-    public static func exponentialBackoff(maxRetries: Int = 3, maxBackoff: TimeInterval = 60.0, timeoutInterval: TimeInterval = 30.0) -> RetryPolicy {
+    public static func exponentialBackoff(maxRetries: Int = 3, maxBackoff: TimeInterval = 60.0, timeoutInterval: TimeInterval = 30.0, jitterProvider: (@Sendable (Int) -> TimeInterval)? = nil) -> RetryPolicy {
+        let defaultJitter: (@Sendable (Int) -> TimeInterval) = { attempt in
+            // Deterministic jitter based on attempt number: sin(attempt) * 0.25 + 0.25
+            // This gives values between 0 and 0.5, similar to the original random range
+            return sin(Double(attempt)) * 0.25 + 0.25
+        }
+        
+        let jitter = jitterProvider ?? defaultJitter
+        
         return RetryPolicy(
             maxRetries: maxRetries,
             shouldRetry: { _, _ in true },
-            backoff: { attempt in pow(2.0, Double(attempt)) + Double.random(in: 0...0.5) },
+            backoff: { attempt in pow(2.0, Double(attempt)) + jitter(attempt) },
             maxBackoff: maxBackoff,
-            timeoutInterval: timeoutInterval
+            timeoutInterval: timeoutInterval,
+            jitterProvider: jitterProvider
         )
     }
     
@@ -318,14 +395,83 @@ public struct RetryPolicy: Sendable {
     public static func custom(maxRetries: Int = 3, 
                              maxBackoff: TimeInterval = 60.0,
                              timeoutInterval: TimeInterval = 30.0,
-                             backoff: @escaping (@Sendable (Int) -> TimeInterval)) -> RetryPolicy {
+                             backoff: @escaping (@Sendable (Int) -> TimeInterval),
+                             jitterProvider: (@Sendable (Int) -> TimeInterval)? = nil) -> RetryPolicy {
         return RetryPolicy(
             maxRetries: maxRetries,
             shouldRetry: { _, _ in true },
             backoff: backoff,
             maxBackoff: maxBackoff,
-            timeoutInterval: timeoutInterval
+            timeoutInterval: timeoutInterval,
+            jitterProvider: jitterProvider
         )
+    }
+    
+    /// Creates a retry policy with exponential backoff and custom jitter provider
+    public static func exponentialBackoffWithJitter(maxRetries: Int = 3, 
+                                                   maxBackoff: TimeInterval = 60.0,
+                                                   timeoutInterval: TimeInterval = 30.0,
+                                                   jitterProvider: @escaping (@Sendable (Int) -> TimeInterval)) -> RetryPolicy {
+        return RetryPolicy(
+            maxRetries: maxRetries,
+            shouldRetry: { _, _ in true },
+            backoff: { attempt in pow(2.0, Double(attempt)) + jitterProvider(attempt) },
+            maxBackoff: maxBackoff,
+            timeoutInterval: timeoutInterval,
+            jitterProvider: jitterProvider
+        )
+    }
+    
+    /// Creates a retry policy with exponential backoff and seeded RNG for reproducible jitter
+    public static func exponentialBackoffWithSeed(maxRetries: Int = 3, 
+                                                 maxBackoff: TimeInterval = 60.0,
+                                                 timeoutInterval: TimeInterval = 30.0,
+                                                 seed: UInt64) -> RetryPolicy {
+        let jitterProvider: (@Sendable (Int) -> TimeInterval) = { attempt in
+            // Use a deterministic hash of seed + attempt for reproducible jitter
+            let hash = seed &+ UInt64(attempt)
+            // Convert hash to a value between 0 and 0.5
+            return Double(hash % 500) / 1000.0
+        }
+        
+        return RetryPolicy(
+            maxRetries: maxRetries,
+            shouldRetry: { _, _ in true },
+            backoff: { attempt in pow(2.0, Double(attempt)) + jitterProvider(attempt) },
+            maxBackoff: maxBackoff,
+            timeoutInterval: timeoutInterval,
+            jitterProvider: jitterProvider
+        )
+    }
+}
+
+/// Example: Create a retry policy with deterministic jitter for testing
+/// ```swift
+/// let policy = RetryPolicy.exponentialBackoffWithJitter(maxRetries: 3) { attempt in
+///     return Double(attempt) * 0.1 // Deterministic jitter based on attempt
+/// }
+/// ```
+///
+/// Example: Create a retry policy with seeded jitter for reproducible tests
+/// ```swift
+/// let policy = RetryPolicy.exponentialBackoffWithSeed(maxRetries: 3, seed: 12345)
+/// ```
+// MARK: - Seeded Random Number Generator
+/// A seeded random number generator for reproducible jitter in tests
+public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecked Sendable {
+    private var state: UInt64
+    private let lock = NSLock()
+    
+    public init(seed: UInt64) {
+        self.state = seed
+    }
+    
+    public func next() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        // Simple linear congruential generator for reproducibility
+        state = 2862933555777941757 * state + 3037000493
+        return state
     }
 }
 

@@ -132,7 +132,7 @@ struct MockURLSessionTests {
             _ = try await mockSession.data(for: URLRequest(url: testURL))
             #expect(Bool(false), "Expected custom error to be thrown")
         } catch {
-            if case let .custom(message, details) = error as? NetworkError {
+            if case let .customError(message, details) = error as? NetworkError {
                 #expect(message == "Custom test error")
                 #expect(details == "Testing error precedence")
             } else {
@@ -196,7 +196,11 @@ struct MockURLSessionTests {
             #expect(Bool(false), "Expected error for call with no data/response")
         } catch {
             // This should probably be some kind of error when no data/response is available
-            #expect(error is NetworkError, "Expected NetworkError for call with no data/response")
+            if case let .outOfScriptBounds(call) = error as? NetworkError {
+                #expect(call == 2, "Expected outOfScriptBounds error for call 2 with no data/response")
+            } else {
+                #expect(Bool(false), "Expected NetworkError.outOfScriptBounds for call with no data/response")
+            }
         }
 
         // Third call should succeed

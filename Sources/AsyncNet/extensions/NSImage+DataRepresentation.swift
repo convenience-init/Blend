@@ -90,11 +90,20 @@ public extension NSImage {
             return nil
         }
         
+        // Calculate pixel dimensions using ceiling to prevent clipping
+        let pixelsWide = Int(ceil(targetSize.width))
+        let pixelsHigh = Int(ceil(targetSize.height))
+        
+        // Validate that ceiled dimensions are valid
+        guard pixelsWide > 0, pixelsHigh > 0 else {
+            return nil
+        }
+        
         // Create bitmap representation with proper configuration
         guard let bitmapRep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
-            pixelsWide: Int(targetSize.width),
-            pixelsHigh: Int(targetSize.height),
+            pixelsWide: pixelsWide,
+            pixelsHigh: pixelsHigh,
             bitsPerSample: 8,
             samplesPerPixel: 4,
             hasAlpha: true,
@@ -116,9 +125,10 @@ public extension NSImage {
         
         NSGraphicsContext.current = context
         
-        // Draw the image into the bitmap context
-        let rect = NSRect(origin: .zero, size: targetSize)
-        draw(in: rect, from: rect, operation: .copy, fraction: 1.0)
+        // Draw the image into the bitmap context using the ceiled dimensions
+        let bitmapSize = NSSize(width: pixelsWide, height: pixelsHigh)
+        let rect = NSRect(origin: .zero, size: bitmapSize)
+        draw(in: rect, from: NSRect(origin: .zero, size: targetSize), operation: .copy, fraction: 1.0)
         
         return bitmapRep
     }

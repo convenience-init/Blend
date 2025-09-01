@@ -12,18 +12,17 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 **Type Safe** - Protocol-oriented design with comprehensive error handling  
 
 > **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
-> 
-> **Support Note**: AsyncNet compiles on iOS 17+/macOS 14+ (minimum supported) with graceful degradation. On earlier versions, advanced networking features like improved HTTP/3 support and enhanced TLS may be limited or unavailable, falling back to standard URLSession behavior.
-
+>
+> **Support Note**: AsyncNet requires iOS 18+/macOS 15+ (minimum supported). Older OS versions are not supported.
 > **Platform Feature Matrix**:
 
-| Feature | iOS 17 | iOS 18+ | macOS 14 | macOS 15+ |
-|---------|--------|---------|----------|-----------|
-| Basic Networking | ✅ | ✅ | ✅ | ✅ |
-| HTTP/3 Support | Limited | Improved/where available | Limited | Improved/where available |
-| TLS 1.3 | Standard | Improved | Standard | Improved |
-| URLSession Pause/Resume | Standard | Improved | Standard | Improved |
-| CFNetwork APIs | Standard | Updates in latest SDKs | Standard | Updates in latest SDKs |
+| Feature | iOS 18+ | macOS 15+ |
+|---------|---------|-----------|
+| Basic Networking | ✅ | ✅ |
+| HTTP/3 Support | Improved/where available | Improved/where available |
+| TLS 1.3 | Improved | Improved |
+| URLSession Pause/Resume | Improved | Improved |
+| CFNetwork APIs | Updates in latest SDKs | Updates in latest SDKs |
 
 > [^1]: [Apple URLSession Documentation](https://developer.apple.com/documentation/foundation/urlsession)
 > [^2]: [HTTP/3 Support](https://developer.apple.com/documentation/foundation/urlsession/3767356-httpversion)
@@ -59,8 +58,8 @@ dependencies: [
 
 **Minimum Supported (compilation only):**
 
-- **iOS**: 17.0+ (includes iPadOS 17.0+)
-- **macOS**: 14.0+
+- **iOS**: 18.0+ (includes iPadOS 18.0+)
+- **macOS**: 15.0+
 
 ## Quick Start
 
@@ -96,20 +95,25 @@ class UserService: AsyncRequestable {
 ```swift
 import AsyncNet
 
+// Platform-conditional imports at the top level
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 let imageService = ImageService()
 
 // Fetch image data and convert to SwiftUI Image
 do {
     let imageData = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 
-    // Platform-standard conversion (requires platform-specific imports)
+    // Platform-standard conversion (platform-specific imports moved to top)
     #if canImport(UIKit)
-    import UIKit
     if let uiImage = UIImage(data: imageData) {
         let swiftUIImage = Image(uiImage: uiImage)
     }
     #elseif canImport(AppKit)
-    import AppKit
     if let nsImage = NSImage(data: imageData) {
         let swiftUIImage = Image(nsImage: nsImage)
     }
@@ -119,24 +123,36 @@ do {
     // let swiftUIImage = ImageService.swiftUIImage(from: imageData)
 
     // Use swiftUIImage in your SwiftUI view
-    // Image(swiftUIImage).resizable().frame(width: 200, height: 200)
+    // swiftUIImage.resizable().frame(width: 200, height: 200)
 } catch {
     print("Failed to load image: \(error)")
 }
 
 // Check cache first (returns PlatformImage/UIImage/NSImage)
 if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image.jpg") {
-    // Platform-standard conversion
+    // Safe conversion using AsyncNet helper (recommended approach)
+    if let swiftUIImage = Image.from(platformImage: cachedImage) {
+        // Use swiftUIImage in your SwiftUI view
+        swiftUIImage.resizable().frame(width: 200, height: 200)
+    } else {
+        // Handle conversion failure gracefully
+        print("Failed to convert cached image to SwiftUI Image")
+    }
+
+    // Alternative: Platform-standard conversion with safe casting
+    /*
     #if canImport(UIKit)
-    let swiftUIImage = Image(uiImage: cachedImage as! UIImage)
+    if let uiImage = cachedImage as? UIImage {
+        let swiftUIImage = Image(uiImage: uiImage)
+        // Use swiftUIImage in your SwiftUI view
+    }
     #elseif canImport(AppKit)
-    let swiftUIImage = Image(nsImage: cachedImage as! NSImage)
+    if let nsImage = cachedImage as? NSImage {
+        let swiftUIImage = Image(nsImage: nsImage)
+        // Use swiftUIImage in your SwiftUI view
+    }
     #endif
-
-    // AsyncNet convenience helper (requires: import AsyncNet)
-    // let swiftUIImage = Image.from(platformImage: cachedImage)
-
-    // Use swiftUIImage in your SwiftUI view
+    */
 }
 ```
 
@@ -227,9 +243,9 @@ struct ProfileView: View {
 // - iOS 15.0+ / macOS 12.0+ (for SwiftUI support)
 // - iOS 17.0+ / macOS 14.0+ (minimum AsyncNet support)
 // - iOS 18.0+ / macOS 15.0+ (recommended for full feature support)
-// - Swift 5.5+ (for async/await)
+// - Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
+// - Xcode 16+ (or Swift 6 toolchain) recommended
 // - SwiftUI framework
-
 // Dependency Injection Options:
 // 1. Constructor injection: init(imageService: ImageService) { self.imageService = imageService }
 // 2. Environment injection: @Environment(\.imageService) private var imageService
@@ -292,19 +308,38 @@ struct PhotoUploadView: View {
     var body: some View {
         VStack {
             if let platformImage = selectedImage {
-                // Platform-standard conversion
+                // Safe conversion using AsyncNet helper (recommended approach)
+                if let swiftUIImage = Image.from(platformImage: platformImage) {
+                    swiftUIImage
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 200)
+                } else {
+                    // Handle conversion failure gracefully
+                    Image(systemName: "photo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 200)
+                }
+
+                // Alternative: Platform-standard conversion with safe casting
+                /*
                 #if canImport(UIKit)
-                Image(uiImage: platformImage as! UIImage)
+                if let uiImage = platformImage as? UIImage {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 200)
+                }
                 #elseif canImport(AppKit)
-                Image(nsImage: platformImage as! NSImage)
+                if let nsImage = platformImage as? NSImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 200)
+                }
                 #endif
-
-                // AsyncNet convenience helper (requires: import AsyncNet)
-                // Image.from(platformImage: platformImage)
-
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 200)
+                */
             }
             
             Button("Select Photo") {
@@ -514,39 +549,53 @@ AsyncNet includes a sophisticated **LRU (Least Recently Used) cache** implementa
 #### Cache Architecture
 
 ```swift
-// Custom LRU Node for O(1) doubly-linked list operations
-private final class LRUNode: @unchecked Sendable {
-    let key: NSString
-    var prev: LRUNode?  // Strong reference for proper list integrity
-    var next: LRUNode?  // Strong reference for proper list integrity
-    var timestamp: TimeInterval
-    
-    init(key: NSString, timestamp: TimeInterval) {
-        self.key = key
-        self.timestamp = timestamp
-    }
-}
+// LRU implementation is fully actor-isolated - all operations happen within the cache actor
+// The LRUNode type is private and nested within the actor, ensuring it's never accessed
+// from outside the actor boundary, making @unchecked Sendable unnecessary and unsafe
 
-// Cache owns head/tail references strongly to maintain list structure
-private var lruHead: LRUNode?
-private var lruTail: LRUNode?
+private actor ImageCache {
+    // Custom LRU Node for O(1) doubly-linked list operations
+    // Node is private to the actor and never crosses actor boundaries
+    private final class LRUNode {
+        let key: NSString
+        var prev: LRUNode?  // Strong reference for proper list integrity
+        var next: LRUNode?  // Strong reference for proper list integrity
+        var timestamp: TimeInterval
+        
+        init(key: NSString, timestamp: TimeInterval) {
+            self.key = key
+            self.timestamp = timestamp
+        }
+    }
 
-// Node removal explicitly nils both prev/next to break cycles
-private func removeLRUNode(_ node: LRUNode) {
-    if node.prev != nil {
-        node.prev?.next = node.next
-    } else {
-        lruHead = node.next
+    // Cache owns head/tail references strongly to maintain list structure
+    private var lruHead: LRUNode?
+    private var lruTail: LRUNode?
+
+    // All LRU operations are actor-isolated - no cross-actor access possible
+    private func removeLRUNode(_ node: LRUNode) {
+        if node.prev != nil {
+            node.prev?.next = node.next
+        } else {
+            lruHead = node.next
+        }
+        if node.next != nil {
+            node.next?.prev = node.prev
+        } else {
+            lruTail = node.prev
+        }
+        node.prev = nil  // Break cycle
+        node.next = nil  // Break cycle
     }
-    if node.next != nil {
-        node.next?.prev = node.prev
-    } else {
-        lruTail = node.prev
-    }
-    node.prev = nil  // Break cycle
-    node.next = nil  // Break cycle
 }
 ```
+
+**Actor Isolation Benefits:**
+
+- **Thread Safety**: All LRU operations are automatically serialized by the actor
+- **No Race Conditions**: Impossible to have concurrent access to LRU list structure
+- **Memory Safety**: No need for `@unchecked Sendable` since nodes never cross actor boundaries
+- **Maintainability**: Actor isolation provides clear ownership and mutation boundaries
 
 #### Cache Metrics & Monitoring
 
@@ -616,23 +665,34 @@ let customConfig = ImageService.UploadConfiguration(
 )
 
 // Declare platformImage - in real code, this would be loaded from assets or user input
-#if canImport(UIKit)
-import UIKit
-let platformImage: PlatformImage = UIImage(named: "sample_image") ?? UIImage()
-#elseif canImport(AppKit)
-import AppKit
-let platformImage: PlatformImage = NSImage(named: "sample_image") ?? NSImage()
-#endif
-
-guard let imageData = platformImage.jpegData(compressionQuality: 0.9) else {
+// Safe approach using AsyncNet helper
+if let platformImage = ImageService.platformImage(from: "sample_image") {
+    // Use platformImage for upload
+} else {
+    // Handle image loading failure
     throw NetworkError.imageProcessingFailed
 }
 
-let response = try await imageService.uploadImageMultipart(
-    imageData,
-    to: URL(string: "https://api.example.com/upload")!,
-    configuration: customConfig
-)
+// Alternative: Platform-specific loading with safe casting
+/*
+#if canImport(UIKit)
+import UIKit
+if let uiImage = UIImage(named: "sample_image") {
+    let platformImage: PlatformImage = uiImage
+    // Use platformImage for upload
+} else {
+    throw NetworkError.imageProcessingFailed
+}
+#elseif canImport(AppKit)
+import AppKit
+if let nsImage = NSImage(named: "sample_image") {
+    let platformImage: PlatformImage = nsImage
+    // Use platformImage for upload
+} else {
+    throw NetworkError.imageProcessingFailed
+}
+#endif
+*/
 ```
 
 ### Advanced Networking Features

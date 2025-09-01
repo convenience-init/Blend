@@ -1,4 +1,4 @@
-````````instructions
+````instructions
 # AsyncNet AI Coding Instructions
 
 This codebase is a Swift networking library with comprehensive image handling, built for **iOS/iPadOS 18+ and macOS 15+** with **Swift 6 strict concurrency compliance** and full SwiftUI integration.
@@ -12,10 +12,24 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - **iOS Deployment Target**: 18.0+ (iPadOS 18.0+ included)
 - **macOS Deployment Target**: 15.0+
 
+**Swift 6 Enforcement Requirements:**
+
+- **Package.swift**: Add `// swift-tools-version: 6.0` at the top of the file to enforce Swift 6 toolchain
+- **Build Settings**: Enable strict concurrency checking in Xcode project settings:
+  - Set "Strict Concurrency Checking" to "Complete"
+  - Enable "Sendable Checking" for all targets
+- **Xcode Flags**: Use these additional compiler flags for maximum concurrency safety:
+  - `-Xfrontend -warn-concurrency` (additional concurrency warnings)
+  - `-Xfrontend -enable-actor-data-race-checks` (data race detection)
+
 **CI/CD Requirements:**
 - Use Xcode 16+ in GitHub Actions or other CI systems
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
+- **CI Environment Variables**: Set `SWIFT_STRICT_CONCURRENCY=complete` in CI matrices to enforce complete concurrency checking
+- **CI Build Flags**: Add these flags to CI build commands:
+  - `swift build -Xswiftc -Xfrontend -Xswiftc -warn-concurrency`
+  - `swift test -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks`
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
@@ -70,15 +84,22 @@ struct CreateUserEndpoint: Endpoint {
     var headers: [String: String]? = ["Content-Type": "application/json"] // Content-Type for request body
     var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
     
-    // Encode the Encodable body to Data
-    var body: Data? {
+    // Pre-encoded body stored as immutable Data - encoding happens once in init
+    let body: Data?
+    
+    // Store encoding error for inspection if needed
+    let encodingError: Error?
+    
+    // Initialize with pre-encoded body to avoid repeated encoding and side effects
+    init(request: CreateUserRequest, logger: Logger? = nil) {
         do {
-            return try JSONEncoder().encode(request)
+            self.body = try JSONEncoder().encode(request)
+            self.encodingError = nil
         } catch {
-            // Log encoding error for debugging - in production, consider using a logging framework
-            print("Failed to encode CreateUserRequest: \(error.localizedDescription)")
-            // Return nil to indicate encoding failure - caller should handle this appropriately
-            return nil
+            self.body = nil
+            self.encodingError = error
+            // Surface encoding error via logger instead of print
+            logger?.error("Failed to encode CreateUserRequest: \(error.localizedDescription)")
         }
     }
     
@@ -89,7 +110,8 @@ struct CreateUserEndpoint: Endpoint {
 **Timeout Configuration Guidance:**
 - **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
 - **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
-- **Nil Handling**: When `timeoutDuration` is `nil`, falls back to session's `timeoutIntervalForRequest` (default: 60 seconds)
+- **Duration Conversion**: Convert Swift `Duration` to `TimeInterval` (e.g., `duration.timeInterval`) before setting `URLRequest.timeoutInterval`
+- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback
 - **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults
 
 ### 2. Service Implementation Pattern (Swift 6 Compliant)
@@ -101,7 +123,7 @@ class YourService: AsyncRequestable {
         expecting responseType: T.Type
     ) async throws -> T {
         // Implementation delegates to AsyncRequestable.sendRequest
-        return try await sendRequest(to: endpoint)
+        return try await (self as AsyncRequestable).sendRequest(to: endpoint, expecting: responseType)
     }
     
     // Example with typed request body - caller provides the endpoint
@@ -133,12 +155,9 @@ View modifiers follow this naming: `.asyncImage()`, `.imageUploader()`, `AsyncNe
 // Note: ImageService upload APIs are Data-based. Always convert PlatformImage (UIImage/NSImage) to Data before sending to the actor. Crossing actor boundaries with non-Sendable types (such as PlatformImage) is not allowed; use Data or a Sendable CGImage wrapper for all actor interactions.
 
 // Cross-platform image conversion: Use platformImageToData() helper instead of calling jpegData directly on PlatformImage
-// This ensures compatibility between iOS (UIImage.jpegData) and macOS (NSImage via NSBitmapImageRep)
 ```swift
 // Convert PlatformImage to Data before upload
-guard let imageData = platformImageToData(platformImage, compressionQuality: 0.8) else {
-    throw NetworkError.imageProcessingFailed
-}
+let imageData = try platformImageToData(platformImage, compressionQuality: 0.8)
 ```
 
 ### 6. Swift 6 Actor Patterns
@@ -212,8 +231,8 @@ struct ContentView: View {
 /// - Parameters:
 ///   - image: The PlatformImage to convert (UIImage on iOS, NSImage on macOS)
 ///   - compressionQuality: JPEG compression quality from 0.0 (maximum compression) to 1.0 (minimum compression)
-/// - Returns: Data representation of the image, or nil if conversion fails
-/// - Throws: ImageProcessingError if image processing fails
+/// - Returns: Data representation of the image
+/// - Throws: NetworkError.imageProcessingFailed if image processing fails
 ///
 /// **Platform Behavior:**
 /// - **iOS/iPadOS**: Uses `UIImage.jpegData(compressionQuality:)` for JPEG encoding
@@ -221,25 +240,23 @@ struct ContentView: View {
 ///   - Prefers JPEG for photographic content, PNG for graphics with transparency
 ///   - Falls back to TIFF representation if bitmap conversion fails
 ///
-/// **Thread Safety:** Synchronous function, safe to call from any thread but must be called on @MainActor
-/// when working with UI-related PlatformImage instances to ensure proper context.
+/// **Thread Safety:** Must be called on @MainActor due to UI-related PlatformImage operations.
 ///
-/// **Error Handling:** Returns nil or throws ImageProcessingError for:
+/// **Error Handling:** Throws NetworkError.imageProcessingFailed for:
 /// - Invalid or corrupted image data
 /// - Unsupported image formats
 /// - Memory allocation failures during conversion
 /// - Platform-specific encoding failures
 ///
-/// **Usage Note:** Callers must handle the nil/throw case appropriately:
-/// ```swift
-/// guard let imageData = try platformImageToData(platformImage, compressionQuality: 0.8) else {
-///     throw NetworkError.imageProcessingFailed
-/// }
-/// // Use imageData for upload or storage
-/// ```
-///
-/// **Actor Boundary Considerations:** Returns Data (Sendable) for safe actor boundary crossing.
-/// Never pass PlatformImage directly across actor boundaries.
-func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data?
+/// **Usage Note:** Always call from @MainActor context:
+```swift
+@MainActor
+func platformImageToData(_ image: PlatformImage, compressionQuality: CGFloat) throws -> Data
 ```
-```````
+
+**Example Usage:**
+```swift
+// Convert PlatformImage to Data before upload
+let imageData = try platformImageToData(platformImage, compressionQuality: 0.8)
+// Use imageData for upload or storage
+```

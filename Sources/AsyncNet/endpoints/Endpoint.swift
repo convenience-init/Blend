@@ -79,8 +79,10 @@ public extension Endpoint {
 		
 		let normalizedHeaders = headers ?? [:]
 		
-		// First pass: canonicalize content-type keys and trim values
+		// First pass: canonicalize all header keys with case-insensitive de-duplication and trim values
 		var canonicalizedHeaders: [String: String] = [:]
+		var normalizedKeyMap: [String: String] = [:] // normalized key -> canonical key
+		
 		for (key, value) in normalizedHeaders {
 			// Trim both key and value
 			let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,8 +98,23 @@ public extension Endpoint {
 			guard !trimmedKey.contains("\r") && !trimmedKey.contains("\n") &&
 			      !trimmedValue.contains("\r") && !trimmedValue.contains("\n") else { continue }
 			
-			// Canonicalize content-type keys to "Content-Type"
-			let canonicalKey = trimmedKey.caseInsensitiveCompare("content-type") == .orderedSame ? "Content-Type" : trimmedKey
+			// Create normalized key for case-insensitive comparison
+			let normalizedKey = trimmedKey.lowercased()
+			
+			// Determine canonical key: use first-seen casing, but ensure Content-Type is always canonical
+			let canonicalKey: String
+			if normalizedKey == "content-type" {
+				canonicalKey = "Content-Type"
+			} else if let existingCanonicalKey = normalizedKeyMap[normalizedKey] {
+				canonicalKey = existingCanonicalKey
+			} else {
+				canonicalKey = trimmedKey
+			}
+			
+			// Store mapping for future de-duplication
+			normalizedKeyMap[normalizedKey] = canonicalKey
+			
+			// Set the header value (last value wins for duplicates)
 			canonicalizedHeaders[canonicalKey] = trimmedValue
 		}
 		
@@ -105,9 +122,10 @@ public extension Endpoint {
 		let hasContentType = canonicalizedHeaders.keys.contains { $0.caseInsensitiveCompare("content-type") == .orderedSame }
 		
 		// Only add contentType if no existing content-type header exists, contentType is non-nil with non-empty trimmed value,
-		// and there's an actual request body present and non-empty
+		// and there's an actual request body present and non-empty, and contentType doesn't contain control characters
 		if !hasContentType, let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines), !contentType.isEmpty,
-		   let body = body, !body.isEmpty {
+		   let body = body, !body.isEmpty,
+		   !contentType.contains(where: { $0.isNewline || $0 == "\r" || $0 == "\n" || $0.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) }) {
 			canonicalizedHeaders["Content-Type"] = contentType
 		}
 		
@@ -137,6 +155,18 @@ public extension Endpoint {
 		}
 		if let t = timeout, t > 0 { return t }
 		return nil
+	}
+	
+	/// Returns the path with a leading slash, ensuring consistent URL construction.
+	///
+	/// This computed property normalizes the path by:
+	/// - Adding a leading "/" if the path doesn't already start with one
+	/// - Returning the original path if it already starts with "/"
+	/// - Preventing subtle URL construction bugs from missing leading slashes
+	///
+	/// Use this property instead of `path` when building URLs to ensure consistency.
+	var normalizedPath: String {
+		path.hasPrefix("/") ? path : "/" + path
 	}
 }
 

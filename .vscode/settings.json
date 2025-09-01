@@ -1,6 +1,6 @@
 {
     "[swift]": {
-        "editor.defaultFormatter": "swiftlang.swift-vscode"
-    },
-    "sweetpad.build.xcodeWorkspacePath": ".swiftpm/xcode/package.xcworkspace"
+        "editor.defaultFormatter": "swiftlang.swift-vscode",
+        "editor.formatOnSave": true
+    }
 }

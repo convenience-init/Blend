@@ -58,6 +58,60 @@ public protocol AsyncRequestable {
 	/// ```
 	associatedtype ResponseModel
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable
+	
+	/// A configurable JSONDecoder for consistent decoding across the AsyncNet module.
+	/// 
+	/// This property allows injection of custom decoders for testing or different runtime contexts.
+	/// The default implementation provides ISO8601 date decoding and snake_case key conversion.
+	/// 
+	/// Override this property in conforming types to customize decoding behavior or inject test decoders.
+	///
+	/// ### Usage Examples
+	/// 
+	/// **Default Configuration:**
+	/// ```swift
+	/// class UserService: AsyncRequestable {
+	///     // Uses default ISO8601 + snake_case decoder
+	///     func getUsers() async throws -> [User] {
+	///         try await sendRequest(to: UsersEndpoint())
+	///     }
+	/// }
+	/// ```
+	/// 
+	/// **Custom Decoder for Testing:**
+	/// ```swift
+	/// class TestUserService: AsyncRequestable {
+	///     let testDecoder: JSONDecoder
+	///     
+	///     init(testDecoder: JSONDecoder = .init()) {
+	///         self.testDecoder = testDecoder
+	///     }
+	///     
+	///     var jsonDecoder: JSONDecoder {
+	///         testDecoder
+	///     }
+	///     
+	///     func getUsers() async throws -> [User] {
+	///         try await sendRequest(to: UsersEndpoint())
+	///     }
+	/// }
+	/// ```
+	/// 
+	/// **Custom Runtime Configuration:**
+	/// ```swift
+	/// class ConfigurableUserService: AsyncRequestable {
+	///     private let _jsonDecoder: JSONDecoder
+	///     
+	///     init(customDecoder: JSONDecoder? = nil) {
+	///         _jsonDecoder = customDecoder ?? Self.defaultJSONDecoder
+	///     }
+	///     
+	///     var jsonDecoder: JSONDecoder {
+	///         _jsonDecoder
+	///     }
+	/// }
+	/// ```
+	var jsonDecoder: JSONDecoder { get }
 }
 
 public extension AsyncRequestable {
@@ -68,18 +122,43 @@ public extension AsyncRequestable {
 	/// - Returns: The decoded response model of type `ResponseModel`.
 	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
 	
-	/// A configured JSONDecoder for consistent decoding across the AsyncNet module.
+	/// Default JSONDecoder configuration for AsyncNet.
 	/// 
 	/// This decoder is configured with:
 	/// - `dateDecodingStrategy`: `.iso8601` for standard date handling
 	/// - `keyDecodingStrategy`: `.convertFromSnakeCase` for API compatibility
 	/// 
-	/// Override this property in conforming types to customize decoding behavior.
-	var jsonDecoder: JSONDecoder {
+	/// Use this as a starting point for custom decoders or inject entirely custom decoders via the jsonDecoder property.
+	/// 
+	/// ### Example
+	/// ```swift
+	/// let customDecoder = AsyncRequestable.defaultJSONDecoder
+	/// customDecoder.dateDecodingStrategy = .deferredToDate // Customize as needed
+	/// ```
+	static var defaultJSONDecoder: JSONDecoder {
 		let decoder = JSONDecoder()
 		decoder.dateDecodingStrategy = .iso8601
 		decoder.keyDecodingStrategy = .convertFromSnakeCase
 		return decoder
+	}
+	
+	/// Default implementation of jsonDecoder using the standard AsyncNet configuration.
+	/// 
+	/// Conforming types can override this property to provide custom decoders for testing
+	/// or different runtime contexts while maintaining the same interface.
+	var jsonDecoder: JSONDecoder {
+		Self.defaultJSONDecoder
+	}
+	
+	/// Applies the endpoint's effective timeout to the given URLRequest.
+	/// 
+	/// - Parameters:
+	///   - endPoint: The endpoint containing the timeout configuration
+	///   - request: The URLRequest to modify (inout parameter)
+	private func applyTimeout(from endPoint: Endpoint, to request: inout URLRequest) {
+		if let timeout = endPoint.effectiveTimeout {
+			request.timeoutInterval = timeout
+		}
 	}
 	
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable {
@@ -87,9 +166,7 @@ public extension AsyncRequestable {
 			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
 		}
 		let session = URLSession.shared
-		if let timeout = endPoint.effectiveTimeout {
-			request.timeoutInterval = timeout
-		}
+		applyTimeout(from: endPoint, to: &request)
 		let (data, response) = try await session.data(for: request)
 		guard let httpResponse = response as? HTTPURLResponse else {
 			throw NetworkError.noResponse
@@ -105,12 +182,6 @@ public extension AsyncRequestable {
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		case 401:
 			throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
-		case 403:
-			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
-		case 404:
-			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
-		case 429:
-			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		case 500 ... 599:
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		default:
@@ -127,7 +198,7 @@ public extension AsyncRequestable {
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
 		components.host = endPoint.host
-		components.path = endPoint.path
+		components.path = endPoint.normalizedPath
 		if let queryItems = endPoint.queryItems {
 			components.queryItems = queryItems
 		}
@@ -209,9 +280,7 @@ public extension AsyncRequestable {
 		guard var request = try buildAsyncRequest(for: endPoint) else {
 			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
 		}
-		if let timeout = endPoint.effectiveTimeout {
-			request.timeoutInterval = timeout
-		}
+		applyTimeout(from: endPoint, to: &request)
 		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
 		do {
 			return try jsonDecoder.decode(ResponseModel.self, from: data)

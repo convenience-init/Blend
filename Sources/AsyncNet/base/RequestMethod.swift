@@ -1,4 +1,4 @@
-/// HTTP request methods used by AsyncNet. Raw values match wire format per RFC 7231.
+/// HTTP request methods used by AsyncNet. Raw values match wire format per RFC 9110 (HTTP Semantics).
 public enum RequestMethod: String, Sendable {
 	case get = "GET"
 	case post = "POST"
@@ -13,21 +13,9 @@ public extension RequestMethod {
 	/// - Parameter raw: The HTTP method string (case-insensitive)
 	/// - Returns: The corresponding RequestMethod, or nil if the method is not supported
 	init?(caseInsensitive raw: String) {
-		let uppercased = raw.uppercased()
-		switch uppercased {
-		case "GET":
-			self = .get
-		case "POST":
-			self = .post
-		case "DELETE":
-			self = .delete
-		case "PUT":
-			self = .put
-		case "PATCH":
-			self = .patch
-		default:
-			return nil
-		}
+		// Normalize to uppercase for case-insensitive matching
+		let normalized = raw.uppercased()
+		self.init(rawValue: normalized)
 	}
 }
 
