@@ -1,0 +1,8 @@
+{
+  "experimentalFeatures": [
+    "suppress-redundant-access-modifiers"
+  ],
+  "diagnostics": {
+    "redundant_access_modifiers": "off"
+  }
+}

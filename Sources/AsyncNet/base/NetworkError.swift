@@ -58,12 +58,8 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
 
     private static let l10nBundle: Bundle = {
         #if SWIFT_PACKAGE
-            // For Swift packages, prefer Bundle.module (Swift 5.3+) when available
-            // If Bundle.module is not available in this environment, fallback to Bundle(for:)
-            // TODO: Use Bundle.module when the package is configured to support it
-            return Bundle(for: BundleHelper.self)
+            return Bundle.module
         #else
-            // For non-package builds, use the bundle containing this class
             return Bundle(for: BundleHelper.self)
         #endif
     }()

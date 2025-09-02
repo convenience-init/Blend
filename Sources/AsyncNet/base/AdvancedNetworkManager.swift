@@ -5,6 +5,10 @@ import os
     import OSLog
 #endif
 
+#if canImport(CryptoKit)
+    import CryptoKit
+#endif
+
 /// AdvancedNetworkManager provides comprehensive network request management with:
 /// - Request deduplication and caching
 /// - Retry logic with exponential backoff and jitter
@@ -305,16 +309,20 @@ public actor AdvancedNetworkManager {
         let key = cacheKey ?? generateRequestKey(from: request)
         if let cached = await cache.get(forKey: key) {
             #if canImport(OSLog)
-                asyncNetLogger.debug("Cache hit for key: \(key, privacy: .public)")
+                asyncNetLogger.debug("Cache hit for key: \(key, privacy: .private)")
             #endif
             return cached
         }
         if let task = inFlightTasks[key] {
             #if canImport(OSLog)
-                asyncNetLogger.debug("Request deduplication for key: \(key, privacy: .public)")
+                asyncNetLogger.debug("Request deduplication for key: \(key, privacy: .private)")
             #endif
             return try await task.value
         }
+        // Capture actor-isolated properties before creating Task to avoid isolation violations
+        let capturedInterceptors = interceptors
+        let capturedURLSession = urlSession
+        let capturedCache = cache
         let newTask = Task<Data, Error> {
             // Check for cancellation at the start
             try Task.checkCancellation()
@@ -327,15 +335,16 @@ public actor AdvancedNetworkManager {
 
                 // Create fresh intercepted request for each attempt
                 var interceptedRequest = request
-                for interceptor in interceptors {
+                for interceptor in capturedInterceptors {
                     interceptedRequest = await interceptor.willSend(request: interceptedRequest)
                 }
                 // Set timeout from retry policy for this attempt
                 interceptedRequest.timeoutInterval = retryPolicy.timeoutInterval
 
                 do {
-                    let (data, response) = try await urlSession.data(for: interceptedRequest)
-                    for interceptor in interceptors {
+                    let (data, response) = try await capturedURLSession.data(
+                        for: interceptedRequest)
+                    for interceptor in capturedInterceptors {
                         await interceptor.didReceive(response: response, data: data)
                     }
                     
@@ -347,16 +356,16 @@ public actor AdvancedNetworkManager {
                             let shouldCache = shouldCacheResponse(
                                 for: interceptedRequest, response: httpResponse)
                             if shouldCache {
-                                await cache.set(data, forKey: key)
+                                await capturedCache.set(data, forKey: key)
                             }
                             #if canImport(OSLog)
                                 if attempt > 0 {
                                     asyncNetLogger.info(
-                                        "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .public)"
+                                        "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .private)"
                                     )
                                 } else {
                                     asyncNetLogger.debug(
-                                        "Request succeeded on first attempt for key: \(key, privacy: .public)")
+                                        "Request succeeded on first attempt for key: \(key, privacy: .private)")
                                 }
                             #endif
                             return data
@@ -377,7 +386,7 @@ public actor AdvancedNetworkManager {
                         // Non-HTTP response: return data without caching
                         #if canImport(OSLog)
                             asyncNetLogger.debug(
-                                "Non-HTTP response received for key: \(key, privacy: .public)")
+                                "Non-HTTP response received for key: \(key, privacy: .private)")
                         #endif
                         return data
                     }
@@ -385,7 +394,7 @@ public actor AdvancedNetworkManager {
                     lastError = error
                     #if canImport(OSLog)
                         asyncNetLogger.warning(
-                            "Request attempt \(attempt + 1, privacy: .public) failed for key: \(key, privacy: .public), error: \(error.localizedDescription, privacy: .public)"
+                            "Request attempt \(attempt + 1, privacy: .public) failed for key: \(key, privacy: .private), error: \(error.localizedDescription, privacy: .public)"
                         )
                     #endif
                     // shouldRetry and backoff use the attempt index (0-based)
@@ -416,7 +425,7 @@ public actor AdvancedNetworkManager {
                     if attempt < retryPolicy.maxRetries && cappedDelay > 0 {
                         #if canImport(OSLog)
                             asyncNetLogger.debug(
-                                "Retrying request for key: \(key, privacy: .public) after \(cappedDelay, privacy: .public) seconds")
+                                "Retrying request for key: \(key, privacy: .private) after \(cappedDelay, privacy: .public) seconds")
                         #endif
                         try await Task.sleep(nanoseconds: UInt64(cappedDelay * 1_000_000_000))
                     }
@@ -428,7 +437,7 @@ public actor AdvancedNetworkManager {
             }
             #if canImport(OSLog)
                 asyncNetLogger.error(
-                    "All retry attempts exhausted for key: \(key, privacy: .public)")
+                    "All retry attempts exhausted for key: \(key, privacy: .private)")
             #endif
             throw lastError
                 ?? NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
@@ -453,16 +462,48 @@ public actor AdvancedNetworkManager {
     private func generateRequestKey(from request: URLRequest) -> String {
         let urlString = request.url?.absoluteString ?? ""
         let method = request.httpMethod ?? "GET"
-        let bodyString = request.httpBody?.base64EncodedString() ?? ""
 
-        // Include relevant headers that affect the response
+        // Generate body hash instead of including raw body to avoid PII leakage
+        let bodyHash = generateBodyHash(from: request.httpBody)
+
+        // Filter out sensitive headers that could contain PII or credentials
+        let sensitiveHeaders: Set<String> = [
+            "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token",
+            "x-csrf-token", "x-xsrf-token", "proxy-authorization",
+        ]
+
+        // Include only non-sensitive headers, normalized to lowercase and sorted
         var headersString = ""
         if let headers = request.allHTTPHeaderFields {
-            let sortedHeaders = headers.sorted(by: { $0.key < $1.key })
-            headersString = sortedHeaders.map { "\($0.key):\($0.value)" }.joined(separator: ";")
+            let filteredHeaders = headers.filter { header in
+                !sensitiveHeaders.contains(header.key.lowercased())
+            }
+            let sortedHeaders = filteredHeaders.sorted(by: {
+                $0.key.lowercased() < $1.key.lowercased()
+            })
+            headersString = sortedHeaders.map { "\($0.key.lowercased()):\($0.value)" }.joined(
+                separator: ";")
         }
 
-        return "\(method)|\(urlString)|\(bodyString)|\(headersString)"
+        return "\(method)|\(urlString)|\(bodyHash)|\(headersString)"
+    }
+
+    /// Generates a secure hash of the request body for cache key purposes
+    private func generateBodyHash(from body: Data?) -> String {
+        guard let body = body, !body.isEmpty else {
+            return "empty"
+        }
+
+        #if canImport(CryptoKit)
+            let hash = SHA256.hash(data: body)
+            return "sha256:\(hash.compactMap { String(format: "%02x", $0) }.joined())"
+        #else
+            // Fallback to a simple hash when CryptoKit is not available
+            let bodySize = body.count
+            let firstBytes = body.prefix(min(16, bodySize))
+            let hashValue = firstBytes.reduce(0) { $0 &+ UInt32($1) }
+            return "fallback:\(String(format: "%08x", hashValue)):\(bodySize)"
+        #endif
     }
 
     /// Determines if a response should be cached based on HTTP method and Cache-Control headers
@@ -474,17 +515,31 @@ public actor AdvancedNetworkManager {
             return false
         }
 
-        // Check Cache-Control headers
-        if let cacheControl = response.allHeaderFields["Cache-Control"] as? String {
-            let directives = cacheControl.lowercased()
-
-            // Don't cache if no-store or private directives are present
-            if directives.contains("no-store") || directives.contains("private") {
+        // Don't cache if request contains Authorization header (case-insensitive)
+        if let requestHeaders = request.allHTTPHeaderFields {
+            let hasAuthorization = requestHeaders.keys.contains {
+                $0.lowercased() == "authorization"
+            }
+            if hasAuthorization {
                 return false
             }
+        }
 
-            // Don't cache if max-age=0
-            if directives.contains("max-age=0") {
+        // Check Cache-Control headers (case-insensitive)
+        let normalizedResponseHeaders = response.allHeaderFields.reduce(into: [String: Any]()) {
+            result, pair in
+            if let keyString = pair.key as? String {
+                result[keyString.lowercased()] = pair.value
+            }
+        }
+
+        if let cacheControl = normalizedResponseHeaders["cache-control"] as? String {
+            let directives = cacheControl.lowercased()
+
+            // Don't cache if no-store, no-cache, private directives are present, or max-age=0
+            if directives.contains("no-store") || directives.contains("no-cache")
+                || directives.contains("private") || directives.contains("max-age=0")
+            {
                 return false
             }
         }

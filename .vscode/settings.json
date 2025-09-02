@@ -3,5 +3,12 @@
         "editor.defaultFormatter": "swiftlang.swift-vscode",
         "editor.formatOnSave": true,
         "editor.formatOnSaveMode": "modifications"
+    },
+    "swift.sourcekit-lsp.serverArguments": [
+        "--experimental-feature",
+        "suppress-redundant-access-modifiers"
+    ],
+    "swift.sourcekit-lsp.diagnostic": {
+        "redundant_access_modifiers": "off"
     }
 }

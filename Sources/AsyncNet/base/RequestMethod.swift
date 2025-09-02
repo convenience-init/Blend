@@ -16,10 +16,8 @@ import Foundation
 
 // MARK: - Case-Insensitive Initialization
 extension RequestMethod {
-	/// Shared POSIX locale for case-insensitive string operations
-	/// Marked @usableFromInline to support @inlinable cross-module optimization
-	@usableFromInline
-	static let posixLocale = Locale(identifier: "en_US_POSIX")
+	/// Static locale for case-insensitive string operations
+	public static let posixLocale = Locale(identifier: "en_US_POSIX")
 
 	/// Creates a RequestMethod from a case-insensitive string representation
 	/// - Parameter raw: The HTTP method string (case-insensitive)

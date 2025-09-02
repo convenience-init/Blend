@@ -47,70 +47,96 @@ public class AsyncImageModel {
     public var hasError: Bool = false
     public var isUploading: Bool = false
     public var error: NetworkError?
-    private var loadTask: Task<Void, Never>? = nil
-
+    
     private let imageService: ImageService
+    
+    // Task holder that can be accessed from deinit
+    private class TaskHolder: @unchecked Sendable {
+        var task: Task<Void, Never>?
+    }
+    private let taskHolder = TaskHolder()
 
     public init(imageService: ImageService) {
         self.imageService = imageService
     }
 
+    deinit {
+        // Cancel any in-flight load task to prevent task leaks
+        taskHolder.task?.cancel()
+        taskHolder.task = nil
+    }
+
     public func loadImage(from url: String?) async {
         // Cancel any existing load task
-        loadTask?.cancel()
+        taskHolder.task?.cancel()
 
         // Create new task for this load operation
-        let task = Task<Void, Never> {
+        let task = Task<Void, Never> { [weak self, imageService = self.imageService, url] in
             do {
                 // Check for cancellation before starting
                 try Task.checkCancellation()
 
                 guard let url = url else {
-                    self.hasError = true
-                    self.error = NetworkError.invalidEndpoint(reason: "URL is required")
-                    self.isLoading = false
-                    self.loadedImage = nil
+                    await MainActor.run {
+                        guard let self = self else { return }
+                        self.hasError = true
+                        self.error = NetworkError.invalidEndpoint(reason: "URL is required")
+                        self.isLoading = false
+                        self.loadedImage = nil
+                    }
                     return
                 }
 
                 // Check for cancellation before network request
                 try Task.checkCancellation()
 
-                self.isLoading = true
-                self.hasError = false
-                self.error = nil
+                await MainActor.run {
+                    guard let self = self else { return }
+                    self.isLoading = true
+                    self.hasError = false
+                    self.error = nil
+                }
                 
                 let data = try await imageService.fetchImageData(from: url)
                 
                 // Check for cancellation before updating state
                 try Task.checkCancellation()
 
-                self.loadedImage = ImageService.platformImage(from: data)
-                self.hasError = false
-                self.error = nil
-                self.isLoading = false
+                await MainActor.run {
+                    guard let self = self else { return }
+                    self.loadedImage = ImageService.platformImage(from: data)
+                    self.hasError = false
+                    self.error = nil
+                    self.isLoading = false
+                }
             } catch is CancellationError {
-                // Task was cancelled, clean up state
-                self.isLoading = false
-                self.loadedImage = nil
-                self.hasError = false
-                self.error = nil
+                // Task was cancelled, clean up state if self still exists
+                await MainActor.run {
+                    guard let self = self else { return }
+                    self.isLoading = false
+                    self.loadedImage = nil
+                    self.hasError = false
+                    self.error = nil
+                }
             } catch {
                 // Handle other errors
                 let wrappedError = await NetworkError.wrapAsync(
                     error, config: AsyncNetConfig.shared)
-                self.hasError = true
-                self.error = wrappedError
-                self.isLoading = false
+                await MainActor.run {
+                    guard let self = self else { return }
+                    self.hasError = true
+                    self.error = wrappedError
+                    self.isLoading = false
+                }
             }
         }
 
         // Store the task and start it
-        loadTask = task
+        taskHolder.task = task
         await task.value
 
         // Clear the task when done
-        loadTask = nil
+        taskHolder.task = nil
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -247,7 +273,7 @@ public struct AsyncNetImageView: View {
                     if uploadURL != nil {
                         Button(action: {
                             Task {
-                                await performUpload()
+                                await performUpload(expectedUrl: nil)
                             }
                         }) {
                             Image(
@@ -302,7 +328,7 @@ public struct AsyncNetImageView: View {
                 && currentUrl == url
             {
                 hasAttemptedAutoUpload = true
-                await performUpload()
+                await performUpload(expectedUrl: currentUrl)
             }
         }
         .onChange(of: url) { _, _ in
@@ -312,7 +338,11 @@ public struct AsyncNetImageView: View {
     }
 
     /// Performs the image upload with proper error handling
-    private func performUpload() async {
+    private func performUpload(expectedUrl: String? = nil) async {
+        // If expectedUrl is provided, ensure it still matches
+        if let expectedUrl = expectedUrl, expectedUrl != url {
+            return
+        }
         guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else { return }
 
         await model.uploadImage(
@@ -329,7 +359,7 @@ public struct AsyncNetImageView: View {
     /// - Returns: True if upload was initiated, false if no image loaded or uploadURL not set
     public func uploadImage() async -> Bool {
         guard model.loadedImage != nil, uploadURL != nil else { return false }
-        await performUpload()
+        await performUpload(expectedUrl: nil)
         return true
     }
 }

@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "AsyncNet",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v18),
         .macOS(.v15)
@@ -19,6 +20,9 @@ let package = Package(
         .target(
             name: "AsyncNet",
             dependencies: [],
+            resources: [
+                .process("Resources")
+            ],
             swiftSettings: [
                 .define("MACOS15", .when(platforms: [.macOS]))
             ]

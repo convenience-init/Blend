@@ -1,6 +1,8 @@
 import Foundation
 #if canImport(OSLog)
 import OSLog
+#endif
+
 /// Public logger for AsyncNet library consumers to access internal logging.
 ///
 /// This logger can be used to:
@@ -17,6 +19,7 @@ import OSLog
 /// asyncNetLogger.info("Network request started")
 /// asyncNetLogger.error("Network request failed: \(error)")
 /// ```
+#if canImport(OSLog)
 public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
 #endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
@@ -54,6 +57,9 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 /// - **CRUD operations** with different response types
 /// - **Generic service composition** requirements
 /// - **Type-safe service hierarchies** with multiple response contracts
+/// - **Multi-response services** requiring both primary and secondary data types
+///
+/// For advanced use cases requiring multiple response types, see `AdvancedAsyncRequestable`.
 ///
 /// ## Design Philosophy: Associated Types for Protocol Composition
 ///
@@ -132,16 +138,6 @@ public protocol AsyncRequestable {
 	/// }
 	/// ```
 	///
-	/// **Advanced Composition:**
-	/// ```swift
-	/// protocol MultiResponseService: AsyncRequestable {
-	///     associatedtype PrimaryResponse = ResponseModel
-	///     associatedtype SecondaryResponse: Decodable
-	///
-	///     func getPrimary() async throws -> PrimaryResponse
-	///     func getSecondary() async throws -> SecondaryResponse
-	/// }
-	/// ```
 	associatedtype ResponseModel: Decodable
 
 	/// Sends an asynchronous network request to the specified endpoint and decodes the response.
@@ -259,7 +255,8 @@ public extension AsyncRequestable {
 		}
 	}
 	
-	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable {
+	public func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+	where ResponseModel: Decodable {
 		guard var request = try buildAsyncRequest(for: endPoint) else {
 			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
 		}

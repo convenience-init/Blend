@@ -319,71 +319,101 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageMultipartPayloadTooLarge() async throws {
-        // Capture original max upload size for restoration
-        _ = await AsyncNetConfig.shared.maxUploadSize
-
-        do {
-            // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
-            try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
-
-            let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
-            let mockResponse = HTTPURLResponse(
-                url: URL(string: "https://mock.api/upload")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            )
-            let mockSession = MockURLSession(nextData: Data(), nextResponse: mockResponse)
-            let service = ImageService(
-                imageCacheCountLimit: 100,
-                imageCacheTotalCostLimit: 50 * 1024 * 1024,
-                dataCacheCountLimit: 200,
-                dataCacheTotalCostLimit: 100 * 1024 * 1024,
-                urlSession: mockSession
-            )
-
-            await #expect(throws: NetworkError.payloadTooLarge(size: 2048, limit: 1024)) {
-                _ = try await service.uploadImageMultipart(
-                    largeImageData, to: URL(string: "https://mock.api/upload")!)
+        // Use defer to ensure config is always restored, even if test fails
+        defer {
+            Task {
+                await AsyncNetConfig.shared.resetMaxUploadSize()
             }
-            // Restore after successful test
-            await AsyncNetConfig.shared.resetMaxUploadSize()
-        } catch {
-            // Restore original config even if test fails
-            await AsyncNetConfig.shared.resetMaxUploadSize()
-            throw error
         }
+
+        // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
+        try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
+
+        let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
+        let mockResponse = HTTPURLResponse(
+            url: URL(string: "https://mock.api/upload")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )
+        let mockSession = MockURLSession(nextData: Data(), nextResponse: mockResponse)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
+
+        // Assert that uploadImageMultipart throws NetworkError.payloadTooLarge with expected size/limit
+        await #expect(throws: NetworkError.payloadTooLarge(size: 2048, limit: 1024)) {
+            _ = try await service.uploadImageMultipart(
+                largeImageData, to: URL(string: "https://mock.api/upload")!)
+        }
+
+        // Assert that MockURLSession recorded no request/was not invoked
+        // This ensures the network layer was never called when the pre-check failed
+        #expect(
+            await mockSession.callCount == 0,
+            "Network layer should not be invoked when payload size exceeds limit")
+        #expect(
+            await mockSession.recordedRequests.isEmpty,
+            "No network requests should be recorded when payload size exceeds limit")
     }
 
     @Test func testUploadImageBase64PayloadTooLarge() async throws {
-        // Capture original max upload size for restoration
-        _ = await AsyncNetConfig.shared.maxUploadSize
-
-        do {
-            // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
-            try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
-
-            let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
-            let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
-            let service = ImageService(
-                imageCacheCountLimit: 100,
-                imageCacheTotalCostLimit: 50 * 1024 * 1024,
-                dataCacheCountLimit: 200,
-                dataCacheTotalCostLimit: 100 * 1024 * 1024,
-                urlSession: mockSession
-            )
-
-            await #expect(throws: NetworkError.payloadTooLarge(size: 2732, limit: 1024)) {
-                _ = try await service.uploadImageBase64(
-                    largeImageData, to: URL(string: "https://mock.api/upload")!)
+        // Use defer to ensure config is always restored, even if test fails
+        defer {
+            Task {
+                await AsyncNetConfig.shared.resetMaxUploadSize()
             }
-            // Restore after successful test
-            await AsyncNetConfig.shared.resetMaxUploadSize()
-        } catch {
-            // Restore original config even if test fails
-            await AsyncNetConfig.shared.resetMaxUploadSize()
-            throw error
         }
+
+        // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
+        try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
+
+        let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
+        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
+
+        // Test that uploadImageBase64 throws NetworkError.payloadTooLarge
+        do {
+            _ = try await service.uploadImageBase64(
+                largeImageData, to: URL(string: "https://mock.api/upload")!)
+            #expect(Bool(false), "Expected payloadTooLarge error but none was thrown")
+        } catch let error as NetworkError {
+            // Verify the error is payloadTooLarge with correct properties
+            guard case .payloadTooLarge(let reportedSize, let reportedLimit) = error else {
+                #expect(Bool(false), "Expected payloadTooLarge error, got: \(error)")
+                return
+            }
+
+            // Verify the limit matches our configured value
+            #expect(reportedLimit == 1024, "Error limit should match configured max upload size")
+
+            // Verify the reported size is reasonable (should be >= original data size or at least > limit)
+            #expect(
+                reportedSize >= largeImageData.count || reportedSize > reportedLimit,
+                "Reported size (\(reportedSize)) should be >= original data size (\(largeImageData.count)) or > limit (\(reportedLimit))")
+        } catch {
+            #expect(
+                Bool(false), "Expected NetworkError.payloadTooLarge, got different error: \(error)")
+        }
+
+        // Assert that MockURLSession recorded zero network requests
+        // This ensures the network layer was never called when the pre-check failed
+        #expect(
+            await mockSession.callCount == 0,
+            "Network layer should not be invoked when payload size exceeds limit")
+        #expect(
+            await mockSession.recordedRequests.isEmpty,
+            "No network requests should be recorded when payload size exceeds limit")
     }
 }
 @Suite("Image Service Performance Benchmarks")

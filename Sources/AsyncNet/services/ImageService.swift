@@ -169,16 +169,32 @@ public actor ImageService {
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
     public func isImageCached(forKey key: String) async -> Bool {
         let cacheKey = key as NSString
-        // Atomically perform eviction and all cache lookups within actor context
-        evictExpiredCache()
-        let inLRU = lruDict[cacheKey] != nil
+        
+        // First check if the specific LRU node exists and is not expired
+        if let node = lruDict[cacheKey] {
+            let now = Date().timeIntervalSince1970
+            if now - node.insertionTimestamp >= cacheConfig.maxAge {
+                // Node exists but is expired - evict it completely
+                imageCache.removeObject(forKey: cacheKey)
+                dataCache.removeObject(forKey: cacheKey)
+                lruDict.removeValue(forKey: cacheKey)
+                removeLRUNode(node)
+                return false
+            }
+        }
+
+        // Check if image/data exists in caches
         let inImageCache = imageCache.object(forKey: cacheKey) != nil
         let inDataCache = dataCache.object(forKey: cacheKey) != nil
         let isCached = inImageCache || inDataCache
-        // If cached but not in LRU, reinsert to maintain LRU behavior
-        if isCached && !inLRU {
-            addOrUpdateLRUNode(for: cacheKey)
+        
+        // If cached but not in LRU, reinsert to maintain LRU behavior (only for non-expired items)
+        if isCached && lruDict[cacheKey] == nil {
+            // Capture the key value to avoid Sendable issues
+            let keyString = key
+            addOrUpdateLRUNode(for: keyString as NSString)
         }
+        
         return isCached
     }
     // cacheHits and cacheMisses are public actor variables for test access
@@ -218,6 +234,131 @@ public actor ImageService {
     // Efficient O(1) LRU cache tracking
     // NOTE: LRUNode is not Sendable due to mutable properties (prev, next, timestamp).
     // All access and mutation must occur within the ImageService actor for thread safety.
+
+    /// Min-heap for efficient expiration tracking
+    /// Stores expiration entries keyed by (insertionTimestamp + maxAge) for O(log n) expiration
+    private final class ExpirationHeap {
+        private var heap: [ExpirationEntry] = []
+        private var keyToIndex: [NSString: Int] = [:]  // Track position of each key in heap
+
+        struct ExpirationEntry {
+            let expirationTime: TimeInterval
+            let key: NSString
+            var isValid: Bool = true  // Mark as invalid when entry is removed
+
+            init(expirationTime: TimeInterval, key: NSString) {
+                self.expirationTime = expirationTime
+                self.key = key
+            }
+        }
+
+        /// Push a new expiration entry into the heap
+        func push(_ entry: ExpirationEntry) {
+            heap.append(entry)
+            keyToIndex[entry.key] = heap.count - 1
+            siftUp(heap.count - 1)
+        }
+
+        /// Pop the earliest expiring entry (if it's still valid)
+        func popExpired(currentTime: TimeInterval) -> ExpirationEntry? {
+            while let first = heap.first, first.expirationTime <= currentTime {
+                let entry = heap.removeFirst()
+                keyToIndex.removeValue(forKey: entry.key)
+
+                // Re-heapify after removal
+                if !heap.isEmpty {
+                    heap.insert(heap.removeLast(), at: 0)
+                    siftDown(0)
+                }
+
+                // Only return if entry is still valid (not manually removed)
+                if entry.isValid {
+                    return entry
+                }
+            }
+            return nil
+        }
+
+        /// Mark an entry as invalid (when manually removed)
+        func invalidate(key: NSString) {
+            if let index = keyToIndex[key] {
+                heap[index].isValid = false
+                keyToIndex.removeValue(forKey: key)
+            }
+        }
+
+        /// Check if heap has any potentially expired entries
+        func hasExpiredEntries(currentTime: TimeInterval) -> Bool {
+            return heap.first?.expirationTime ?? .infinity <= currentTime
+        }
+
+        /// Get count of valid entries
+        var count: Int {
+            return heap.filter { $0.isValid }.count
+        }
+
+        private func siftUp(_ index: Int) {
+            var childIndex = index
+            let child = heap[childIndex]
+
+            while childIndex > 0 {
+                let parentIndex = (childIndex - 1) / 2
+                let parent = heap[parentIndex]
+
+                if child.expirationTime >= parent.expirationTime {
+                    break
+                }
+
+                // Swap parent and child
+                heap[childIndex] = parent
+                heap[parentIndex] = child
+                keyToIndex[parent.key] = childIndex
+                keyToIndex[child.key] = parentIndex
+
+                childIndex = parentIndex
+            }
+        }
+
+        private func siftDown(_ index: Int) {
+            let count = heap.count
+            var parentIndex = index
+
+            while true {
+                let leftChildIndex = 2 * parentIndex + 1
+                let rightChildIndex = 2 * parentIndex + 2
+
+                var smallestIndex = parentIndex
+
+                if leftChildIndex < count
+                    && heap[leftChildIndex].expirationTime < heap[smallestIndex].expirationTime
+                {
+                    smallestIndex = leftChildIndex
+                }
+
+                if rightChildIndex < count
+                    && heap[rightChildIndex].expirationTime < heap[smallestIndex].expirationTime
+                {
+                    smallestIndex = rightChildIndex
+                }
+
+                if smallestIndex == parentIndex {
+                    break
+                }
+
+                // Swap parent and smallest child
+                let temp = heap[parentIndex]
+                heap[parentIndex] = heap[smallestIndex]
+                heap[smallestIndex] = temp
+                keyToIndex[temp.key] = smallestIndex
+                keyToIndex[heap[parentIndex].key] = parentIndex
+
+                parentIndex = smallestIndex
+            }
+        }
+    }
+
+    private var expirationHeap = ExpirationHeap()
+
     fileprivate final class LRUNode {
         let key: NSString
         var prev: LRUNode?
@@ -420,10 +561,11 @@ public actor ImageService {
             return try await existingTask.value
         }
 
-        // Create new task for this request, with retry/backoff
-        let fetchTask = Task<Data, Error> {
-            let cacheKey = urlString as NSString
-            let data = try await withRetry(config: effectiveRetryConfig) {
+        // Create new detached task for this request, with retry/backoff
+        let fetchTask = Task<Data, Error>.detached {
+            [weak self] () async throws -> Data in
+            guard let self else { throw CancellationError() }
+            let data = try await self.withRetry(config: effectiveRetryConfig) {
                 guard let url = URL(string: urlString),
                     let scheme = url.scheme, !scheme.isEmpty,
                     let host = url.host, !host.isEmpty
@@ -463,14 +605,18 @@ public actor ImageService {
                     throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
                 }
             }
-            // Cache raw data for future use, assign cost as data length
-            self.dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
-            addOrUpdateLRUNode(for: cacheKey)
             return data
         }
         inFlightImageTasks[urlString] = fetchTask
         defer { inFlightImageTasks.removeValue(forKey: urlString) }
-        return try await fetchTask.value
+
+        let data = try await fetchTask.value
+
+        // Cache the data back in the actor context
+        dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
+        addOrUpdateLRUNode(for: cacheKey)
+
+        return data
     }
 
     /// Converts image data to PlatformImage
@@ -686,11 +832,22 @@ public actor ImageService {
     /// - Returns: The cached image if available
     public func cachedImage(forKey key: String) -> PlatformImage? {
         let cacheKey = key as NSString
-        evictExpiredCache()
-        if let node = lruDict[cacheKey] {
+        // Check if image exists in cache and corresponding node exists and is not expired
+        if let cachedImage = imageCache.object(forKey: cacheKey),
+            let node = lruDict[cacheKey],
+            Date().timeIntervalSince1970 - node.insertionTimestamp < cacheConfig.maxAge
+        {
             moveLRUNodeToHead(node)
             cacheHits += 1
-            return imageCache.object(forKey: cacheKey)
+            return cachedImage
+        }
+        // If image doesn't exist, is expired, or node is missing, treat as cache miss
+        if let node = lruDict[cacheKey] {
+            // Node exists but is expired - evict it
+            imageCache.removeObject(forKey: cacheKey)
+            dataCache.removeObject(forKey: cacheKey)
+            lruDict.removeValue(forKey: cacheKey)
+            removeLRUNode(node)
         }
         cacheMisses += 1
         return nil
@@ -705,6 +862,8 @@ public actor ImageService {
         lruTail = nil
         cacheHits = 0
         cacheMisses = 0
+        // Reset expiration heap
+        expirationHeap = ExpirationHeap()
     }
 
     /// Stores an image in the cache for the given key
@@ -735,26 +894,24 @@ public actor ImageService {
         if let node = lruDict.removeValue(forKey: cacheKey) {
             removeLRUNode(node)
         }
+        // Invalidate heap entry to prevent it from being processed during expiration
+        expirationHeap.invalidate(key: cacheKey)
     }
 
-    /// Evict expired cache entries based on maxAge using lazy eviction
-    /// Only evicts from the LRU head until finding a non-expired item,
-    /// keeping eviction cost proportional to expired items rather than total cache size
+    /// Evict expired cache entries based on maxAge using efficient heap-based expiration
+    /// The expiration heap allows O(log n) insertions and O(log n) deletions while
+    /// efficiently finding and removing expired items regardless of their position in LRU
     private func evictExpiredCache() {
         let now = Date().timeIntervalSince1970
 
-        // Lazy eviction: only check and evict from LRU head until we find a non-expired item
-        while let head = lruHead {
-            if now - head.insertionTimestamp >= cacheConfig.maxAge {
-                // Head is expired, evict it
-                let key = head.key
-                imageCache.removeObject(forKey: key)
-                dataCache.removeObject(forKey: key)
-                lruDict.removeValue(forKey: key)
-                removeLRUNode(head)
-            } else {
-                // Head is not expired, no need to check further (LRU order guarantees this)
-                break
+        // Use heap-based expiration for efficient removal of expired entries
+        // This correctly handles cases where expired items are not at the LRU head
+        while let expiredEntry = expirationHeap.popExpired(currentTime: now) {
+            let key = expiredEntry.key
+            imageCache.removeObject(forKey: key)
+            dataCache.removeObject(forKey: key)
+            if let node = lruDict.removeValue(forKey: key) {
+                removeLRUNode(node)
             }
         }
     }
@@ -786,6 +943,8 @@ public actor ImageService {
             dataCache.removeObject(forKey: key)
             lruDict.removeValue(forKey: key)
             removeLRUNode(node)
+            // Invalidate heap entry for evicted node
+            expirationHeap.invalidate(key: key)
         }
     }
 
@@ -874,6 +1033,12 @@ extension ImageService {
             lruDict[key] = node
             insertLRUNodeAtHead(node)
 
+            // Push expiration entry to heap for efficient expiration tracking
+            let expirationTime = now + cacheConfig.maxAge
+            let expirationEntry = ExpirationHeap.ExpirationEntry(
+                expirationTime: expirationTime, key: key)
+            expirationHeap.push(expirationEntry)
+
             // Guard against invalid maxLRUCount values
             let maxCount = max(0, cacheConfig.maxLRUCount)
 
@@ -883,6 +1048,8 @@ extension ImageService {
                 dataCache.removeObject(forKey: tail.key)
                 lruDict.removeValue(forKey: tail.key)
                 removeLRUNode(tail)
+                // Invalidate heap entry for evicted node
+                expirationHeap.invalidate(key: tail.key)
             }
         }
     }

@@ -7,6 +7,7 @@
 
     extension NSImage {
         /// Returns the underlying CGImage representation
+        @MainActor
         public var cgImage: CGImage? {
             return cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
@@ -14,6 +15,7 @@
         /// Creates JPEG data representation with compression quality
         /// - Parameter compressionQuality: Quality factor (0.0 to 1.0)
         /// - Returns: JPEG data or nil if conversion fails
+        @MainActor
         public func jpegData(compressionQuality: CGFloat) -> Data? {
             // Validate compression quality: reject NaN/inf and clamp to 0.0-1.0 range
             guard compressionQuality.isFinite else { return nil }
@@ -33,6 +35,7 @@
 
         /// Creates PNG data representation
         /// - Returns: PNG data or nil if conversion fails
+        @MainActor
         public func pngData() -> Data? {
             // First attempt: Direct TIFF conversion with validation
             if let data = tiffRepresentationData() {
@@ -40,11 +43,25 @@
             }
 
             // Fallback: Rasterize the image into a fresh bitmap context
-            return rasterizedPNGData()
+            // Rasterization requires main-thread execution due to AppKit drawing APIs
+            if Thread.isMainThread {
+                return rasterizedPNGData()
+            } else {
+                // Dispatch to main thread synchronously to get the rasterized data
+                let semaphore = DispatchSemaphore(value: 0)
+                var result: Data?
+                Task { @MainActor in
+                    result = self.rasterizedPNGData()
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return result
+            }
         }
 
         /// Attempts to create a valid NSBitmapImageRep from the image's TIFF representation
         /// - Returns: Valid NSBitmapImageRep if TIFF conversion succeeds, nil otherwise
+        @MainActor
         private func tiffRepresentationData() -> NSBitmapImageRep? {
             guard let tiffData = tiffRepresentation,
                 !tiffData.isEmpty,
@@ -60,32 +77,75 @@
         /// Rasterizes the image into a bitmap context and returns JPEG data
         /// - Parameter compressionQuality: Quality factor (0.0 to 1.0)
         /// - Returns: JPEG data or nil if rasterization fails
+        @MainActor
         private func rasterizedJPEGData(compressionQuality: CGFloat) -> Data? {
-            guard let bitmapRep = rasterizedBitmap() else { return nil }
-
-            // Generate JPEG data from the rasterized bitmap
-            return bitmapRep.representation(
-                using: .jpeg,
-                properties: [.compressionFactor: compressionQuality]
-            )
+            // Rasterization requires main-thread execution due to AppKit drawing APIs
+            if Thread.isMainThread {
+                guard let bitmapRep = rasterizedBitmap() else { return nil }
+                return bitmapRep.representation(
+                    using: .jpeg,
+                    properties: [.compressionFactor: compressionQuality]
+                )
+            } else {
+                // Dispatch to main thread synchronously to get the rasterized data
+                let semaphore = DispatchSemaphore(value: 0)
+                var result: Data?
+                Task { @MainActor in
+                    result = self.rasterizedBitmap()?.representation(
+                        using: .jpeg,
+                        properties: [.compressionFactor: compressionQuality]
+                    )
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return result
+            }
         }
 
         /// Rasterizes the image into a bitmap context and returns PNG data
         /// - Returns: PNG data or nil if rasterization fails
+        @MainActor
         private func rasterizedPNGData() -> Data? {
-            guard let bitmapRep = rasterizedBitmap() else { return nil }
-
-            // Generate PNG data from the rasterized bitmap
-            return bitmapRep.representation(using: .png, properties: [:])
+            // Rasterization requires main-thread execution due to AppKit drawing APIs
+            if Thread.isMainThread {
+                guard let bitmapRep = rasterizedBitmap() else { return nil }
+                return bitmapRep.representation(using: .png, properties: [:])
+            } else {
+                // Dispatch to main thread synchronously to get the rasterized data
+                let semaphore = DispatchSemaphore(value: 0)
+                var result: Data?
+                Task { @MainActor in
+                    result = self.rasterizedBitmap()?.representation(using: .png, properties: [:])
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return result
+            }
         }
 
         /// Creates a rasterized bitmap representation of the image
         /// - Returns: NSBitmapImageRep containing the rasterized image, or nil if creation fails
+        @MainActor
         private func rasterizedBitmap() -> NSBitmapImageRep? {
-            assert(
-                Thread.isMainThread,
-                "rasterizedBitmap() uses AppKit drawing and must run on the main thread")
+            if !Thread.isMainThread {
+                // Dispatch to main thread synchronously to perform rasterization
+                let semaphore = DispatchSemaphore(value: 0)
+                var result: NSBitmapImageRep?
+                Task { @MainActor in
+                    result = self.rasterizedBitmapOnMainThread()
+                    semaphore.signal()
+                }
+                semaphore.wait()
+                return result
+            }
 
+            return rasterizedBitmapOnMainThread()
+        }
+
+        /// Creates a rasterized bitmap representation of the image (must be called on main thread)
+        /// - Returns: NSBitmapImageRep containing the rasterized image, or nil if creation fails
+        @MainActor
+        private func rasterizedBitmapOnMainThread() -> NSBitmapImageRep? {
             let targetSize = size
 
             // Ensure we have valid dimensions

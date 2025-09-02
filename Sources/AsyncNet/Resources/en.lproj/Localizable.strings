@@ -1,0 +1,95 @@
+/* Localized strings for AsyncNet */
+
+/* HTTP error messages */
+"HTTP error: Status code %d" = "HTTP error: Status code %d";
+
+/* Decoding error messages */
+"Decoding error: %@" = "Decoding error: %@";
+"Decoding failed: %@" = "Decoding failed: %@";
+
+/* Network error messages */
+"Network unavailable." = "Network unavailable.";
+"Request timed out after %.2f seconds." = "Request timed out after %.2f seconds.";
+"Invalid endpoint: %@" = "Invalid endpoint: %@";
+"Not authorized (status %d)." = "Not authorized (status %d).";
+"No network response." = "No network response.";
+"Unsupported MIME type: %@" = "Unsupported MIME type: %@";
+"Upload failed: %@" = "Upload failed: %@";
+"Failed to process image data." = "Failed to process image data.";
+"Cache error: %@" = "Cache error: %@";
+"GET requests cannot have a body." = "GET requests cannot have a body.";
+"Request was cancelled." = "Request was cancelled.";
+"Authentication failed." = "Authentication failed.";
+"Transport error: %@ - %@" = "Transport error: %@ - %@";
+"Out of script bounds: Call %d" = "Out of script bounds: Call %d";
+"Payload too large: %d bytes exceeds limit of %d bytes" = "Payload too large: %d bytes exceeds limit of %d bytes";
+"Invalid mock configuration: Call %d is missing %@" = "Invalid mock configuration: Call %d is missing %@";
+
+/* Transport error descriptions */
+"Not connected to internet" = "Not connected to internet";
+"Request timed out" = "Request timed out";
+"Cannot find host" = "Cannot find host";
+"Cannot connect to host" = "Cannot connect to host";
+"Network connection lost" = "Network connection lost";
+"DNS lookup failed" = "DNS lookup failed";
+"Request cancelled" = "Request cancelled";
+"Bad URL" = "Bad URL";
+"Unsupported URL" = "Unsupported URL";
+"User authentication required" = "User authentication required";
+"Secure connection failed" = "Secure connection failed";
+"Server certificate untrusted" = "Server certificate untrusted";
+"Server certificate has bad date" = "Server certificate has bad date";
+"Server certificate has unknown root" = "Server certificate has unknown root";
+"Server certificate not yet valid" = "Server certificate not yet valid";
+"Client certificate rejected" = "Client certificate rejected";
+"Client certificate required" = "Client certificate required";
+"Cannot load from network" = "Cannot load from network";
+"Cannot create file" = "Cannot create file";
+"Cannot open file" = "Cannot open file";
+"Cannot close file" = "Cannot close file";
+"Cannot write to file" = "Cannot write to file";
+"Cannot remove file" = "Cannot remove file";
+"Cannot move file" = "Cannot move file";
+"Download decoding failed" = "Download decoding failed";
+"Download decoding failed to complete" = "Download decoding failed to complete";
+"International roaming off" = "International roaming off";
+"Call is active" = "Call is active";
+"Data not allowed" = "Data not allowed";
+"Request body stream exhausted" = "Request body stream exhausted";
+"App Transport Security requires secure connection" = "App Transport Security requires secure connection";
+"File does not exist" = "File does not exist";
+"File is directory" = "File is directory";
+"No permissions to read file" = "No permissions to read file";
+"Data length exceeds maximum" = "Data length exceeds maximum";
+"Background session requires shared container" = "Background session requires shared container";
+"Background session in use by another process" = "Background session in use by another process";
+"Background session was disconnected" = "Background session was disconnected";
+"Transport error %d" = "Transport error %d";
+
+/* Recovery suggestions */
+"Please try again or contact support." = "Please try again or contact support.";
+"Check the request parameters and format." = "Check the request parameters and format.";
+"Check your credentials and try again." = "Check your credentials and try again.";
+"Check your permissions for this resource." = "Check your permissions for this resource.";
+"Verify the endpoint URL and resource exists." = "Verify the endpoint URL and resource exists.";
+"Wait before making another request or reduce request frequency." = "Wait before making another request or reduce request frequency.";
+"Try again later. The server encountered an error." = "Try again later. The server encountered an error.";
+"Check the request and try again." = "Check the request and try again.";
+"Ensure the response format matches the expected model." = "Ensure the response format matches the expected model.";
+"Check the response data format and ensure it matches the expected model structure." = "Check the response data format and ensure it matches the expected model structure.";
+"Check your internet connection." = "Check your internet connection.";
+"Try again with a better connection or increase timeout duration." = "Try again with a better connection or increase timeout duration.";
+"Verify the endpoint configuration." = "Verify the endpoint configuration.";
+"Check your authentication and permissions." = "Check your authentication and permissions.";
+"Check network connectivity and server status." = "Check network connectivity and server status.";
+"Ensure the server returns a supported content format." = "Ensure the server returns a supported content format.";
+"Check content format and network connection." = "Check content format and network connection.";
+"Ensure the content data is valid and supported." = "Ensure the content data is valid and supported.";
+"Check cache configuration and available memory." = "Check cache configuration and available memory.";
+"Remove the body from GET requests or use a different HTTP method." = "Remove the body from GET requests or use a different HTTP method.";
+"Check cancellation logic and consider retrying if appropriate." = "Check cancellation logic and consider retrying if appropriate.";
+"Verify your credentials and try again." = "Verify your credentials and try again.";
+"Check network configuration and try again." = "Check network configuration and try again.";
+"Check the mock script configuration and ensure sufficient responses are provided." = "Check the mock script configuration and ensure sufficient responses are provided.";
+"Reduce the payload size or use multipart upload for large files." = "Reduce the payload size or use multipart upload for large files.";
+"Check the mock script configuration and ensure all calls have both data and response configured." = "Check the mock script configuration and ensure all calls have both data and response configured.";

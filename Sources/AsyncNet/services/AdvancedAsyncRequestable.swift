@@ -46,7 +46,30 @@ import Foundation
 /// }
 /// ```
 ///
-/// ### 3. Generic Service Composition
+/// ### 3. Multi-Response Service Pattern
+/// ```swift
+/// protocol MultiResponseService: AdvancedAsyncRequestable {
+///     // Inherits ResponseModel and SecondaryResponseModel from AdvancedAsyncRequestable
+///
+///     func getPrimaryData() async throws -> ResponseModel
+///     func getSecondaryData() async throws -> SecondaryResponseModel
+/// }
+///
+/// class UserService: MultiResponseService {
+///     typealias ResponseModel = [UserSummary]
+///     typealias SecondaryResponseModel = UserDetails
+///
+///     func getPrimaryData() async throws -> [UserSummary] {
+///         return try await fetchList(from: UsersEndpoint())
+///     }
+///
+///     func getSecondaryData() async throws -> UserDetails {
+///         return try await fetchDetails(from: UserDetailsEndpoint())
+///     }
+/// }
+/// ```
+///
+/// ### 4. Generic Service Composition
 /// ```swift
 /// class GenericCrudService<T: AdvancedAsyncRequestable>: AsyncRequestable {
 ///     typealias ResponseModel = T.ResponseModel
@@ -61,7 +84,7 @@ import Foundation
 /// }
 /// ```
 ///
-/// ### 4. Type-Safe Service Hierarchies
+/// ### 5. Type-Safe Service Hierarchies
 /// ```swift
 /// protocol EcommerceService: AdvancedAsyncRequestable
 /// where ResponseModel: Sequence, ResponseModel.Element == ProductSummary {
@@ -146,6 +169,10 @@ public protocol AdvancedAsyncRequestable: AsyncRequestable {
 ///
 /// These methods provide type-safe operations that automatically use the correct
 /// associated types, reducing boilerplate and potential errors.
+///
+/// Note: Explicit 'public' modifiers are used for library clarity and maintainability,
+/// even though they are technically redundant in public extensions. This practice
+/// makes the API surface explicit and helps with future refactoring.
 public extension AdvancedAsyncRequestable {
 	/// Fetches a list of items using the primary ResponseModel type.
 	///
@@ -160,7 +187,8 @@ public extension AdvancedAsyncRequestable {
 	/// ```swift
 	/// let users: [UserSummary] = try await fetchList(from: UsersEndpoint())
 	/// ```
-	func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
+	@discardableResult
+	public func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 
@@ -177,7 +205,8 @@ public extension AdvancedAsyncRequestable {
 	/// ```swift
 	/// let userDetails: UserDetails = try await fetchDetails(from: UserDetailsEndpoint(id: "123"))
 	/// ```
-	func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
+	@discardableResult
+	public func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 }

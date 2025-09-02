@@ -1,0 +1,27 @@
+included:
+  - Sources
+  - Tests
+  - Package.swift
+
+disabled_rules:
+  - redundant_public_modifier
+
+opt_in_rules:
+  - explicit_acl
+  - explicit_top_level_acl
+
+excluded:
+  - .build/
+  - .swiftpm/
+
+# Additional configuration for library best practices
+redundant_type_marker:
+  severity: warning  # Allow explicit public modifiers for library clarity
+
+# Suppress redundant public modifier warnings in IDE
+custom_rules:
+  explicit_public_for_library:
+    name: "Explicit public modifier for library"
+    regex: "public func|public var|public let|public class|public struct|public enum"
+    message: "Explicit public modifier is recommended for library APIs"
+    severity: info
