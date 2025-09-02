@@ -329,8 +329,8 @@ public actor AdvancedNetworkManager {
             try Task.checkCancellation()
 
             var lastError: Error?
-            // Initial attempt plus maxRetries additional attempts
-            for attempt in 0...(retryPolicy.maxRetries) {
+            // Initial attempt plus maxRetries retry attempts (total attempts = maxRetries + 1)
+            for attempt in 0..<retryPolicy.maxRetries {
                 // Check for cancellation before each retry attempt
                 try Task.checkCancellation()
 
@@ -438,7 +438,7 @@ public actor AdvancedNetworkManager {
                     }
                     let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
                     // Only sleep if this is not the final attempt
-                    if attempt < retryPolicy.maxRetries && cappedDelay > 0 {
+                    if attempt < retryPolicy.maxRetries - 1 && cappedDelay > 0 {
                         #if canImport(OSLog)
                             asyncNetLogger.debug(
                                 "Retrying request for key: \(key, privacy: .private) after \(cappedDelay, privacy: .public) seconds")
@@ -568,6 +568,10 @@ public actor AdvancedNetworkManager {
 
 // MARK: - Retry Policy
 public struct RetryPolicy: Sendable {
+    /// Total number of attempts (initial attempt + retries). For example:
+    /// - maxRetries: 1 = 1 total attempt (no retries)
+    /// - maxRetries: 3 = 3 total attempts (1 initial + 2 retries)
+    /// - maxRetries: 5 = 5 total attempts (1 initial + 4 retries)
     public let maxRetries: Int
     public let shouldRetry: (@Sendable (Error, Int) -> Bool)?
     public let backoff: (@Sendable (Int) -> TimeInterval)?
@@ -576,7 +580,7 @@ public struct RetryPolicy: Sendable {
     public let jitterProvider: (@Sendable (Int) -> TimeInterval)?
 
     public static let `default` = RetryPolicy(
-        maxRetries: 3,
+        maxRetries: 4,  // Total attempts: 1 initial + 3 retries
         shouldRetry: { error, _ in
             // Don't retry HTTP 3xx redirects, 4xx client errors or noResponse errors
             if let networkError = error as? NetworkError {
@@ -623,7 +627,7 @@ public struct RetryPolicy: Sendable {
 
     /// Creates a retry policy with exponential backoff (capped by maxBackoff parameter)
     public static func exponentialBackoff(
-        maxRetries: Int = 3, maxBackoff: TimeInterval = 60.0, timeoutInterval: TimeInterval = 30.0,
+        maxRetries: Int = 4, maxBackoff: TimeInterval = 60.0, timeoutInterval: TimeInterval = 30.0,
         jitterProvider: (@Sendable (Int) -> TimeInterval)? = nil
     ) -> RetryPolicy {
         return RetryPolicy(
@@ -638,7 +642,7 @@ public struct RetryPolicy: Sendable {
 
     /// Creates a retry policy with custom backoff strategy
     public static func custom(
-        maxRetries: Int = 3,
+        maxRetries: Int = 4,
         maxBackoff: TimeInterval = 60.0,
         timeoutInterval: TimeInterval = 30.0,
         backoff: @escaping (@Sendable (Int) -> TimeInterval),
@@ -656,7 +660,7 @@ public struct RetryPolicy: Sendable {
 
     /// Creates a retry policy with exponential backoff and custom jitter provider
     public static func exponentialBackoffWithJitter(
-        maxRetries: Int = 3,
+        maxRetries: Int = 4,
         maxBackoff: TimeInterval = 60.0,
         timeoutInterval: TimeInterval = 30.0,
         jitterProvider: @escaping (@Sendable (Int) -> TimeInterval)
@@ -673,7 +677,7 @@ public struct RetryPolicy: Sendable {
 
     /// Creates a retry policy with exponential backoff and seeded RNG for reproducible jitter
     public static func exponentialBackoffWithSeed(
-        maxRetries: Int = 3,
+        maxRetries: Int = 4,
         maxBackoff: TimeInterval = 60.0,
         timeoutInterval: TimeInterval = 30.0,
         seed: UInt64

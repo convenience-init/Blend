@@ -11,6 +11,7 @@ on:
 # Set minimal read-only permissions for security
 permissions:
   contents: read
+  actions: write
 
 # Prevent duplicate workflow runs and cancel in-progress jobs
 concurrency:

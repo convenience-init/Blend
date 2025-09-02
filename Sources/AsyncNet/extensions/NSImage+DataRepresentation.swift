@@ -43,17 +43,8 @@
             }
 
             // Fallback: Rasterize the image into a fresh bitmap context
-            // Rasterization requires main-thread execution due to AppKit drawing APIs
-            if Thread.isMainThread {
-                return rasterizedPNGData()
-            } else {
-                // Dispatch to main thread synchronously to get the rasterized data
-                var result: Data?
-                DispatchQueue.main.sync {
-                    result = self.rasterizedPNGData()
-                }
-                return result
-            }
+            // MainActor ensures this runs on the main thread for AppKit compatibility
+            return rasterizedPNGData()
         }
 
         /// Attempts to create a valid NSBitmapImageRep from the image's TIFF representation
@@ -76,57 +67,28 @@
         /// - Returns: JPEG data or nil if rasterization fails
         @MainActor
         private func rasterizedJPEGData(compressionQuality: CGFloat) -> Data? {
-            // Rasterization requires main-thread execution due to AppKit drawing APIs
-            if Thread.isMainThread {
-                guard let bitmapRep = rasterizedBitmap() else { return nil }
-                return bitmapRep.representation(
-                    using: .jpeg,
-                    properties: [.compressionFactor: compressionQuality]
-                )
-            } else {
-                // Dispatch to main thread synchronously to get the rasterized data
-                var result: Data?
-                DispatchQueue.main.sync {
-                    result = self.rasterizedBitmap()?.representation(
-                        using: .jpeg,
-                        properties: [.compressionFactor: compressionQuality]
-                    )
-                }
-                return result
-            }
+            // MainActor ensures this runs on the main thread for AppKit compatibility
+            guard let bitmapRep = rasterizedBitmap() else { return nil }
+            return bitmapRep.representation(
+                using: .jpeg,
+                properties: [.compressionFactor: compressionQuality]
+            )
         }
 
         /// Rasterizes the image into a bitmap context and returns PNG data
         /// - Returns: PNG data or nil if rasterization fails
         @MainActor
         private func rasterizedPNGData() -> Data? {
-            // Rasterization requires main-thread execution due to AppKit drawing APIs
-            if Thread.isMainThread {
-                guard let bitmapRep = rasterizedBitmap() else { return nil }
-                return bitmapRep.representation(using: .png, properties: [:])
-            } else {
-                // Dispatch to main thread synchronously to get the rasterized data
-                var result: Data?
-                DispatchQueue.main.sync {
-                    result = self.rasterizedBitmap()?.representation(using: .png, properties: [:])
-                }
-                return result
-            }
+            // MainActor ensures this runs on the main thread for AppKit compatibility
+            guard let bitmapRep = rasterizedBitmap() else { return nil }
+            return bitmapRep.representation(using: .png, properties: [:])
         }
 
         /// Creates a rasterized bitmap representation of the image
         /// - Returns: NSBitmapImageRep containing the rasterized image, or nil if creation fails
         @MainActor
         private func rasterizedBitmap() -> NSBitmapImageRep? {
-            if !Thread.isMainThread {
-                // Dispatch to main thread synchronously to perform rasterization
-                var result: NSBitmapImageRep?
-                DispatchQueue.main.sync {
-                    result = self.rasterizedBitmapOnMainThread()
-                }
-                return result
-            }
-
+            // MainActor ensures this runs on the main thread for AppKit compatibility
             return rasterizedBitmapOnMainThread()
         }
 

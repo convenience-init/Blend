@@ -178,31 +178,35 @@ public actor ImageService {
     }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
     public func isImageCached(forKey key: String) async -> Bool {
-        let cacheKey = key as NSString
-        
-        // First check if the specific LRU node exists and is not expired
-        if let node = lruDict[cacheKey] {
+        // Atomically check and remove expired node to prevent race conditions
+        if let node = lruDict.removeValue(forKey: key) {
             let now = Date().timeIntervalSince1970
             if now - node.insertionTimestamp >= cacheConfig.maxAge {
-                // Node exists but is expired - evict it completely
+                // Node was expired - evict it completely from all caches
+                let cacheKey = key as NSString
                 imageCache.removeObject(forKey: cacheKey)
                 dataCache.removeObject(forKey: cacheKey)
-                lruDict.removeValue(forKey: cacheKey)
                 removeLRUNode(node)
+                // Invalidate heap entry to prevent it from being processed during expiration
+                expirationHeap.invalidate(key: key)
                 return false
+            } else {
+                // Node was not expired - put it back in the LRU dict
+                lruDict[key] = node
             }
         }
 
         // Check if image/data exists in caches
+        let cacheKey = key as NSString
         let inImageCache = imageCache.object(forKey: cacheKey) != nil
         let inDataCache = dataCache.object(forKey: cacheKey) != nil
         let isCached = inImageCache || inDataCache
         
         // If cached but not in LRU, reinsert to maintain LRU behavior (only for non-expired items)
-        if isCached && lruDict[cacheKey] == nil {
+        if isCached && lruDict[key] == nil {
             // Capture the key value to avoid Sendable issues
             let keyString = key
-            addOrUpdateLRUNode(for: keyString as NSString)
+            addOrUpdateLRUNode(for: keyString)
         }
         
         return isCached
@@ -401,24 +405,37 @@ public actor ImageService {
     /// All mutations must occur on the ImageService actor's executor.
     ///
     /// Thread Safety Rationale:
-    /// - LRUNode contains mutable properties (prev, next, timestamp) that are not protected by synchronization
+    /// - LRUNode contains mutable properties (prev, next) that are not protected by synchronization
     /// - All LRUNode operations are performed within the ImageService actor for thread safety
     /// - The class is private to prevent external access and misuse
     /// - Making LRUNode an actor would add unnecessary overhead since all usage is already actor-isolated
+    ///
+    /// Memory Management:
+    /// - Strong references for prev/next maintain list integrity
+    /// - Proper cleanup in removeLRUNode prevents retain cycles
+    /// - Nodes are only deallocated when removed from lruDict
     private final class LRUNode {
-        let key: NSString
-        var prev: LRUNode?
-        var next: LRUNode?
-        var timestamp: TimeInterval  // Access timestamp for LRU ordering
-        var insertionTimestamp: TimeInterval  // Insertion timestamp for expiration
+        let key: String  // Modern Swift String instead of NSString
+        var prev: LRUNode?  // Keep strong references for doubly-linked list integrity
+        var next: LRUNode?  // Keep strong references for doubly-linked list integrity
+        let timestamp: TimeInterval  // Immutable - set once on insertion, never updated
+        let insertionTimestamp: TimeInterval  // Already immutable
 
-        init(key: NSString, timestamp: TimeInterval, insertionTimestamp: TimeInterval) {
+        init(key: String, timestamp: TimeInterval, insertionTimestamp: TimeInterval) {
             self.key = key
             self.timestamp = timestamp
             self.insertionTimestamp = insertionTimestamp
         }
+
+        deinit {
+            // Ensure proper cleanup - if this deinit is called while node is still in list,
+            // it indicates a programming error that could lead to memory leaks
+            assert(
+                prev == nil && next == nil,
+                "LRUNode deallocated while still referenced in linked list")
+        }
     }
-    private var lruDict: [NSString: LRUNode] = [:]
+    private var lruDict: [String: LRUNode] = [:]
     private var lruHead: LRUNode?
     private var lruTail: LRUNode?
     // Cache metrics
@@ -596,7 +613,7 @@ public actor ImageService {
         // Check cache for image data, evict expired
         evictExpiredCache()
         if let cachedData = dataCache.object(forKey: cacheKey) as Data?,
-            let node = lruDict[cacheKey],
+            let node = lruDict[urlString],
             Date().timeIntervalSince1970 - node.insertionTimestamp < cacheConfig.maxAge
         {
             moveLRUNodeToHead(node)
@@ -673,7 +690,7 @@ public actor ImageService {
 
         // Cache the data back in the actor context
         dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
-        addOrUpdateLRUNode(for: cacheKey)
+        addOrUpdateLRUNode(for: urlString)
 
         return data
     }
@@ -904,7 +921,7 @@ public actor ImageService {
         let now = Date().timeIntervalSince1970
 
         // Atomically check expiration and handle cache state
-        if let node = lruDict[cacheKey] {
+        if let node = lruDict[key] {
             // Check expiration first to avoid race conditions
             if now - node.insertionTimestamp < cacheConfig.maxAge {
                 // Not expired - safe to return cached data
@@ -917,10 +934,10 @@ public actor ImageService {
                 // Expired - atomically remove from all caches
                 imageCache.removeObject(forKey: cacheKey)
                 dataCache.removeObject(forKey: cacheKey)
-                lruDict.removeValue(forKey: cacheKey)
+                lruDict.removeValue(forKey: key)
                 removeLRUNode(node)
                 // Invalidate heap entry to prevent it from being processed during expiration
-                expirationHeap.invalidate(key: cacheKey as String)
+                expirationHeap.invalidate(key: key)
             }
         }
 
@@ -933,6 +950,16 @@ public actor ImageService {
     public func clearCache() {
         imageCache.removeAllObjects()
         dataCache.removeAllObjects()
+
+        // Properly clean up all LRU nodes to prevent any potential retain cycles
+        var node = lruHead
+        while let current = node {
+            let next = current.next
+            current.prev = nil
+            current.next = nil
+            node = next
+        }
+
         lruDict.removeAll()
         lruHead = nil
         lruTail = nil
@@ -940,6 +967,11 @@ public actor ImageService {
         cacheMisses = 0
         // Reset expiration heap
         expirationHeap = ExpirationHeap()
+
+        // Validate cleanup in debug builds
+        #if DEBUG
+            assert(validateLRUListIntegrity(), "LRU list integrity check failed after clearCache")
+        #endif
     }
 
     /// Stores an image in the cache for the given key
@@ -953,7 +985,7 @@ public actor ImageService {
         if let data = data {
             dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
         }
-        addOrUpdateLRUNode(for: cacheKey)
+        addOrUpdateLRUNode(for: key)
     }
 
     /// Removes a specific image from both the image cache and data cache
@@ -967,11 +999,11 @@ public actor ImageService {
         let cacheKey = key as NSString
         imageCache.removeObject(forKey: cacheKey)
         dataCache.removeObject(forKey: cacheKey)
-        if let node = lruDict.removeValue(forKey: cacheKey) {
+        if let node = lruDict.removeValue(forKey: key) {
             removeLRUNode(node)
         }
         // Invalidate heap entry to prevent it from being processed during expiration
-        expirationHeap.invalidate(key: cacheKey as String)
+        expirationHeap.invalidate(key: key)
         // Trigger periodic compaction to prevent memory retention
         expirationHeap.pruneInvalidEntries()
     }
@@ -986,9 +1018,10 @@ public actor ImageService {
         // This correctly handles cases where expired items are not at the LRU head
         while let expiredEntry = expirationHeap.popExpired(currentTime: now) {
             let key = expiredEntry.key
-            imageCache.removeObject(forKey: key as NSString)
-            dataCache.removeObject(forKey: key as NSString)
-            if let node = lruDict.removeValue(forKey: key as NSString) {
+            let cacheKey = key as NSString
+            imageCache.removeObject(forKey: cacheKey)
+            dataCache.removeObject(forKey: cacheKey)
+            if let node = lruDict.removeValue(forKey: key) {
                 removeLRUNode(node)
             }
         }
@@ -1003,7 +1036,7 @@ public actor ImageService {
         var node = lruHead
         var count = 0
         var nodesToEvict: [LRUNode] = []
-        var retainedKeys: [NSString] = []
+        var retainedKeys: [String] = []
         // Traverse from head, keep first maxLRUCount nodes, collect nodes to evict
         while let current = node {
             count += 1
@@ -1017,12 +1050,13 @@ public actor ImageService {
         // Remove evicted nodes after traversal
         for node in nodesToEvict {
             let key = node.key
-            imageCache.removeObject(forKey: key)
-            dataCache.removeObject(forKey: key)
+            let cacheKey = key as NSString
+            imageCache.removeObject(forKey: cacheKey)
+            dataCache.removeObject(forKey: cacheKey)
             lruDict.removeValue(forKey: key)
             removeLRUNode(node)
             // Invalidate heap entry for evicted node
-            expirationHeap.invalidate(key: node.key as String)
+            expirationHeap.invalidate(key: key)
         }
     }
 
@@ -1101,7 +1135,7 @@ extension ImageService {
     // NOTE: All LRUNode operations must be performed within the ImageService actor
     // for thread safety, as LRUNode is not Sendable due to mutable properties.
     // This design choice prioritizes performance over redundant actor isolation.
-    private func addOrUpdateLRUNode(for key: NSString) {
+    private func addOrUpdateLRUNode(for key: String) {
         let now = Date().timeIntervalSince1970
         if let node = lruDict[key] {
             // Only move to head on access, do NOT update timestamp
@@ -1123,12 +1157,13 @@ extension ImageService {
 
             // Evict nodes until we're within the configured limit
             while lruDict.count > maxCount, let tail = lruTail {
-                imageCache.removeObject(forKey: tail.key)
-                dataCache.removeObject(forKey: tail.key)
+                let cacheKey = tail.key as NSString
+                imageCache.removeObject(forKey: cacheKey)
+                dataCache.removeObject(forKey: cacheKey)
                 lruDict.removeValue(forKey: tail.key)
                 removeLRUNode(tail)
                 // Invalidate heap entry for evicted node
-                expirationHeap.invalidate(key: tail.key as String)
+                expirationHeap.invalidate(key: tail.key)
             }
         }
     }
@@ -1146,6 +1181,8 @@ extension ImageService {
         }
     }
     private func removeLRUNode(_ node: LRUNode) {
+        // Properly clean up all references to prevent retain cycles
+        // This ensures nodes can be deallocated when removed from lruDict
         if node.prev != nil {
             node.prev?.next = node.next
         } else {
@@ -1158,6 +1195,60 @@ extension ImageService {
         }
         node.prev = nil
         node.next = nil
+    }
+
+    /// Validates the integrity of the LRU linked list
+    /// - Returns: True if the list is valid, false otherwise
+    /// - Note: This method is for debugging and should not be called in production
+    private func validateLRUListIntegrity() -> Bool {
+        var node = lruHead
+        var count = 0
+        var visitedNodes = Set<ObjectIdentifier>()
+
+        // Traverse forward and check for cycles
+        while let current = node {
+            let id = ObjectIdentifier(current)
+            if visitedNodes.contains(id) {
+                // Cycle detected
+                return false
+            }
+            visitedNodes.insert(id)
+
+            // Check bidirectional links
+            if let prev = current.prev {
+                if prev.next !== current {
+                    return false  // Broken backward link
+                }
+            } else if current !== lruHead {
+                return false  // Non-head node should have prev
+            }
+
+            if let next = current.next {
+                if next.prev !== current {
+                    return false  // Broken forward link
+                }
+            } else if current !== lruTail {
+                return false  // Non-tail node should have next
+            }
+
+            node = current.next
+            count += 1
+
+            // Safety check to prevent infinite loops
+            if count > lruDict.count + 1 {
+                return false  // List is longer than expected
+            }
+        }
+
+        // Check that head and tail are consistent
+        if lruHead == nil && lruTail != nil { return false }
+        if lruHead != nil && lruTail == nil { return false }
+        if lruHead != nil && lruTail != nil {
+            if lruHead?.prev != nil { return false }  // Head should not have prev
+            if lruTail?.next != nil { return false }  // Tail should not have next
+        }
+
+        return visitedNodes.count == lruDict.count
     }
 }
 

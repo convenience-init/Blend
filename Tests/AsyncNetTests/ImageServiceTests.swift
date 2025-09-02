@@ -24,6 +24,11 @@ import Testing
 @Suite("Image Service Tests")
 struct ImageServiceTests {
 
+    /// Helper function to reset AsyncNetConfig after tests that modify it
+    private func resetAsyncNetConfig() async {
+        await AsyncNetConfig.shared.resetMaxUploadSize()
+    }
+
     @Test func testFetchImageDataSuccess() async throws {
         // Prepare mock image data and response
         let imageData = Data([0xFF, 0xD8, 0xFF])  // JPEG header
@@ -319,13 +324,6 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageMultipartPayloadTooLarge() async throws {
-        // Use defer to ensure config is always restored, even if test fails
-        defer {
-            Task {
-                await AsyncNetConfig.shared.resetMaxUploadSize()
-            }
-        }
-
         // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
         try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
@@ -359,16 +357,12 @@ struct ImageServiceTests {
         #expect(
             await mockSession.recordedRequests.isEmpty,
             "No network requests should be recorded when payload size exceeds limit")
+
+        // Reset config after test
+        await resetAsyncNetConfig()
     }
 
     @Test func testUploadImageBase64PayloadTooLarge() async throws {
-        // Use defer to ensure config is always restored, even if test fails
-        defer {
-            Task {
-                await AsyncNetConfig.shared.resetMaxUploadSize()
-            }
-        }
-
         // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
         try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
@@ -414,6 +408,9 @@ struct ImageServiceTests {
         #expect(
             await mockSession.recordedRequests.isEmpty,
             "No network requests should be recorded when payload size exceeds limit")
+
+        // Reset config after test
+        await resetAsyncNetConfig()
     }
 }
 @Suite("Image Service Performance Benchmarks")

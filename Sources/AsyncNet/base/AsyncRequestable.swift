@@ -320,6 +320,10 @@ public extension AsyncRequestable {
 		
 		// Only set httpBody for non-GET methods (GET validation already done above)
 		if let body = endPoint.body {
+			// Double-check GET validation for consistency (should never trigger due to early validation)
+			if endPoint.method == .get {
+				throw NetworkError.invalidEndpoint(reason: "GET requests must not have a body")
+			}
 			asyncRequest.httpBody = body
 		}
 		return asyncRequest
@@ -343,9 +347,9 @@ public extension AsyncRequestable {
 	///     - Useful for frequently accessed data that doesn't change often
 	///     - If not provided, uses the request URL as the cache key
 	///   - retryPolicy: The retry strategy to use when requests fail. Built-in options:
-	///     - `.default`: 3 retries with exponential backoff (recommended for most cases)
+	///     - `.default`: 4 total attempts with exponential backoff (recommended for most cases)
 	///     - Custom policies can specify max retries, retry conditions, and backoff timing
-	///     - Set to `RetryPolicy(maxRetries: 0)` to disable retries entirely
+	///     - Set to `RetryPolicy(maxRetries: 1)` to disable retries entirely
 	///
 	/// - Returns: The decoded response model of type `ResponseModel`, automatically decoded from JSON.
 	///
@@ -368,7 +372,7 @@ public extension AsyncRequestable {
 	///     to: UsersEndpoint(),
 	///     networkManager: manager,
 	///     cacheKey: "user-profile-\(userId)",
-	///     retryPolicy: RetryPolicy(maxRetries: 5, backoff: { attempt in pow(1.5, Double(attempt)) })
+	///     retryPolicy: RetryPolicy(maxRetries: 6, backoff: { attempt in pow(1.5, Double(attempt)) })
 	/// )
 	/// ```
 	///
@@ -393,6 +397,66 @@ public extension AsyncRequestable {
 		} catch {
 			throw NetworkError.decodingError(underlying: error, data: data)
 		}
+	}
+}
+
+/// Shared helper for building URLRequest from Endpoint to eliminate code duplication
+public extension AdvancedAsyncRequestable {
+	/// Builds a URLRequest from the given endpoint with proper validation and configuration.
+	///
+	/// This method centralizes the common request building logic used across different service implementations,
+	/// ensuring consistency and reducing code duplication.
+	///
+	/// - Parameter endPoint: The endpoint to build the request for.
+	/// - Returns: A configured URLRequest.
+	/// - Throws: `NetworkError.invalidEndpoint` if the endpoint configuration is invalid.
+	func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
+		// Validate GET requests don't have a body
+		if endPoint.method == .get && endPoint.body != nil {
+			throw NetworkError.invalidEndpoint(
+				reason:
+					"GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
+			)
+		}
+
+		// Build URL from Endpoint properties
+		var components = URLComponents()
+		components.scheme = endPoint.scheme.rawValue
+		components.host = endPoint.host
+		components.path = endPoint.normalizedPath
+		components.queryItems = endPoint.queryItems
+
+		if let port = endPoint.port {
+			components.port = port
+		}
+		if let fragment = endPoint.fragment {
+			components.fragment = fragment
+		}
+
+		guard let url = components.url else {
+			throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
+		}
+
+		var request = URLRequest(url: url)
+		request.httpMethod = endPoint.method.rawValue
+
+		if let resolvedHeaders = endPoint.resolvedHeaders {
+			for (key, value) in resolvedHeaders {
+				request.setValue(value, forHTTPHeaderField: key)
+			}
+		}
+
+		// Only set httpBody for non-GET methods
+		if let body = endPoint.body, endPoint.method != .get {
+			request.httpBody = body
+		}
+
+		// Set timeout from endpoint
+		if let timeout = endPoint.effectiveTimeout {
+			request.timeoutInterval = timeout
+		}
+
+		return request
 	}
 }
 

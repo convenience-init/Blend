@@ -90,6 +90,15 @@ import Testing
             await model.loadImage(from: Self.defaultTestURL.absoluteString)
             #expect(model.error == nil, "Error should be nil after successful load")
             #expect(model.loadedImage != nil)
+            // Verify the loaded image is actually displayable by checking its properties
+            if let loadedImage = model.loadedImage {
+                #expect(
+                    loadedImage.cgImage != nil,
+                    "Loaded image should have valid underlying CGImage data")
+                #expect(
+                    loadedImage.size.width > 0 && loadedImage.size.height > 0,
+                    "Loaded image should have valid dimensions")
+            }
             #expect(model.hasError == false)
             #expect(model.isLoading == false)
         }
@@ -498,6 +507,15 @@ import Testing
             await model.loadImage(from: Self.defaultTestURL.absoluteString)
             #expect(model.error == nil, "Error should be nil after successful retry")
             #expect(model.loadedImage != nil, "Should have loaded image after successful retry")
+            // Verify the loaded image is actually displayable by checking its properties
+            if let loadedImage = model.loadedImage {
+                #expect(
+                    loadedImage.cgImage != nil,
+                    "Loaded image should have valid underlying CGImage data after retry")
+                #expect(
+                    loadedImage.size.width > 0 && loadedImage.size.height > 0,
+                    "Loaded image should have valid dimensions after retry")
+            }
             #expect(model.hasError == false, "hasError should be false after successful retry")
             #expect(model.isLoading == false, "isLoading should be false after successful retry")
         }

@@ -305,7 +305,29 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             if codingPath.isEmpty {
                 return "root"
             }
-            let pathComponents = codingPath.map { $0.stringValue }.filter { !$0.isEmpty }
+            
+            // Build path components, handling both string keys and array indices
+            var pathComponents: [String] = []
+
+            for key in codingPath {
+                if !key.stringValue.isEmpty {
+                    // Regular string key (e.g., "items", "name")
+                    pathComponents.append(key.stringValue)
+                } else if let intValue = key.intValue {
+                    // Array index - format as "[index]" and attach to previous component
+                    let indexComponent = "[\(intValue)]"
+                    if let lastIndex = pathComponents.indices.last {
+                        // Attach to the previous component (e.g., "items[0]")
+                        pathComponents[lastIndex] += indexComponent
+                    } else {
+                        // If this is the first component, just use the index (edge case)
+                        pathComponents.append(indexComponent)
+                    }
+                }
+                // Skip keys that have neither stringValue nor intValue
+            }
+
+            // Join components with "." and handle empty result
             let joinedPath = pathComponents.joined(separator: ".")
             return joinedPath.isEmpty ? "root" : joinedPath
         }
@@ -724,34 +746,8 @@ extension NetworkError {
         }
         // If error is URLError, map to networkUnavailable or requestTimeout
         if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet:
-                return .networkUnavailable
-            case .timedOut:
-                return .requestTimeout(duration: NetworkError.defaultTimeoutDuration)
-            case .cannotFindHost:
-                return .invalidEndpoint(reason: "Host not found")
-            case .cannotConnectToHost:
-                return .networkUnavailable
-            case .networkConnectionLost:
-                return .networkUnavailable
-            case .dnsLookupFailed:
-                return .invalidEndpoint(reason: "DNS lookup failed")
-            case .cancelled:
-                return .requestCancelled
-            case .badURL:
-                return .invalidEndpoint(reason: "Bad URL")
-            case .unsupportedURL:
-                return .invalidEndpoint(reason: "Unsupported URL")
-            case .userAuthenticationRequired:
-                return .authenticationFailed
-            case .secureConnectionFailed:
-                return .transportError(code: urlError.code, underlying: urlError)
-            case .serverCertificateUntrusted:
-                return .transportError(code: urlError.code, underlying: urlError)
-            default:
-                return .transportError(code: urlError.code, underlying: urlError)
-            }
+            return NetworkError.map(
+                urlError: urlError, timeout: NetworkError.defaultTimeoutDuration)
         }
         // Handle DecodingError specifically with detailed context
         if let decodingError = error as? DecodingError {
@@ -777,34 +773,7 @@ extension NetworkError {
 
         switch error {
         case let urlError as URLError:
-            switch urlError.code {
-            case .timedOut:
-                return .requestTimeout(duration: await config.timeoutDuration)
-            case .notConnectedToInternet:
-                return .networkUnavailable
-            case .networkConnectionLost:
-                return .networkUnavailable
-            case .cannotConnectToHost:
-                return .networkUnavailable
-            case .cannotFindHost:
-                return .invalidEndpoint(reason: "Host not found")
-            case .dnsLookupFailed:
-                return .invalidEndpoint(reason: "DNS lookup failed")
-            case .secureConnectionFailed:
-                return .transportError(code: urlError.code, underlying: urlError)
-            case .cancelled:
-                return .requestCancelled
-            case .badURL:
-                return .invalidEndpoint(reason: "Bad URL")
-            case .unsupportedURL:
-                return .invalidEndpoint(reason: "Unsupported URL")
-            case .userAuthenticationRequired:
-                return .authenticationFailed
-            case .serverCertificateUntrusted:
-                return .transportError(code: urlError.code, underlying: urlError)
-            default:
-                return .transportError(code: urlError.code, underlying: urlError)
-            }
+            return NetworkError.map(urlError: urlError, timeout: await config.timeoutDuration)
         case let decodingError as DecodingError:
             let reason = NetworkError.decodingErrorReason(decodingError)
             return .decodingFailed(reason: reason, underlying: decodingError, data: nil)
@@ -820,6 +789,46 @@ extension NetworkError {
     /// This constant is kept for backward compatibility with the deprecated synchronous wrap function.
     /// New code should use AsyncNetConfig.shared.timeoutDuration for configurable timeouts.
     public static let defaultTimeoutDuration: TimeInterval = 60.0
+
+    /// Maps a URLError to the appropriate NetworkError with the specified timeout duration.
+    ///
+    /// This helper function centralizes the URLError-to-NetworkError mapping logic
+    /// to ensure consistent behavior between synchronous and asynchronous error wrapping.
+    ///
+    /// - Parameters:
+    ///   - urlError: The URLError to map
+    ///   - timeout: The timeout duration to use for timeout errors
+    /// - Returns: The appropriate NetworkError for the given URLError
+    private static func map(urlError: URLError, timeout: TimeInterval) -> NetworkError {
+        switch urlError.code {
+        case .notConnectedToInternet:
+            return .networkUnavailable
+        case .timedOut:
+            return .requestTimeout(duration: timeout)
+        case .cannotFindHost:
+            return .invalidEndpoint(reason: "Host not found")
+        case .cannotConnectToHost:
+            return .networkUnavailable
+        case .networkConnectionLost:
+            return .networkUnavailable
+        case .dnsLookupFailed:
+            return .invalidEndpoint(reason: "DNS lookup failed")
+        case .cancelled:
+            return .requestCancelled
+        case .badURL:
+            return .invalidEndpoint(reason: "Bad URL")
+        case .unsupportedURL:
+            return .invalidEndpoint(reason: "Unsupported URL")
+        case .userAuthenticationRequired:
+            return .authenticationFailed
+        case .secureConnectionFailed:
+            return .transportError(code: urlError.code, underlying: urlError)
+        case .serverCertificateUntrusted:
+            return .transportError(code: urlError.code, underlying: urlError)
+        default:
+            return .transportError(code: urlError.code, underlying: urlError)
+        }
+    }
 }
 
 // MARK: - Equatable Conformance

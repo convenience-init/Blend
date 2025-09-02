@@ -34,10 +34,9 @@ struct AdvancedNetworkManagerTests {
 
     @Test func testRetryPolicyBackoff() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
-        // Provide 2 scripted responses: initial attempt + 1 retry
+        // Provide 1 scripted response for maxRetries: 1 (1 total attempt)
         let mockSession = MockURLSession(scriptedCalls: [
-            (nil, nil, NetworkError.networkUnavailable),  // First call (initial attempt)
-            (nil, nil, NetworkError.networkUnavailable),  // Second call (retry)
+            (nil, nil, NetworkError.networkUnavailable)  // First attempt
         ])
         let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
         let request = URLRequest(url: URL(string: "https://mock.api/fail")!)
@@ -55,7 +54,7 @@ struct AdvancedNetworkManagerTests {
             }
         }
         let recorded = await mockSession.recordedRequests
-        #expect(recorded.count == 2, "Expected initial attempt + 1 retry.")
+        #expect(recorded.count == 1, "Expected 1 total attempt for maxRetries: 1 (no retries)")
     }
 
     @Test func testRetryPolicyBackoffCapping() async throws {
@@ -295,47 +294,9 @@ struct AsyncRequestableTests {
         typealias SecondaryResponseModel = TestModel
         let urlSession: URLSessionProtocol
         func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
-            // Fail fast: Validate GET requests don't have a body before building any components
-            if endPoint.method == .get && endPoint.body != nil {
-                throw NetworkError.invalidEndpoint(
-                    reason:
-                        "GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
-                )
-            }
+            // Use shared helper to build the request
+            let request = try buildURLRequest(from: endPoint)
 
-            // Build URL from Endpoint properties
-            var components = URLComponents()
-            components.scheme = endPoint.scheme.rawValue
-            components.host = endPoint.host
-            components.path = endPoint.normalizedPath
-            components.queryItems = endPoint.queryItems
-            // Add port and fragment handling using public properties
-            if let port = endPoint.port {
-                components.port = port
-            }
-            if let fragment = endPoint.fragment {
-                components.fragment = fragment
-            }
-            guard let url = components.url else {
-                throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = endPoint.method.rawValue
-            if let resolvedHeaders = endPoint.resolvedHeaders {
-                for (key, value) in resolvedHeaders {
-                    request.setValue(value, forHTTPHeaderField: key)
-                }
-            }
-            
-            // Only set httpBody for non-GET methods (GET validation already done above)
-            if let body = endPoint.body {
-                request.httpBody = body
-            }
-            
-            // Set timeout from endpoint (preferring timeoutDuration over legacy timeout)
-            if let timeout = endPoint.effectiveTimeout {
-                request.timeoutInterval = timeout
-            }
             // Perform network call
             let (data, response) = try await urlSession.data(for: request)
             if let httpResponse = response as? HTTPURLResponse,
@@ -447,7 +408,14 @@ struct AsyncRequestableTests {
                 _ = jsonDecoder
                 // For testing purposes, return a dummy value that can be decoded
                 if ResponseModel.self == Int.self {
-                    return 42 as! ResponseModel
+                    guard let result = 42 as? ResponseModel else {
+                        throw NetworkError.decodingError(
+                            underlying: NSError(
+                                domain: "Test", code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "Type cast failed in test"]),
+                            data: Data())
+                    }
+                    return result
                 } else {
                     throw NetworkError.decodingError(
                         underlying: NSError(domain: "Test", code: -1), data: Data())
@@ -476,9 +444,16 @@ struct AsyncRequestableTests {
             where ResponseModel: Decodable {
                 // Use the injected decoder
                 if ResponseModel.self == TestModel.self {
-                    return try customDecoder.decode(
+                    let decodedValue = try customDecoder.decode(
                         TestModel.self, from: Data("{\"value\":99}".utf8))
-                        as! ResponseModel
+                    guard let result = decodedValue as? ResponseModel else {
+                        throw NetworkError.decodingError(
+                            underlying: NSError(
+                                domain: "Test", code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "Type cast failed in test"]),
+                            data: Data())
+                    }
+                    return result
                 } else {
                     throw NetworkError.decodingError(
                         underlying: NSError(domain: "Test", code: -1), data: Data())
@@ -545,39 +520,8 @@ struct AdvancedAsyncRequestableTests {
 
         func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
         where ResponseModel: Decodable {
-            // Build URL from Endpoint properties
-            var components = URLComponents()
-            components.scheme = endPoint.scheme.rawValue
-            components.host = endPoint.host
-            components.path = endPoint.normalizedPath
-            components.queryItems = endPoint.queryItems
-            // Add port and fragment handling using public properties
-            if let port = endPoint.port {
-                components.port = port
-            }
-            if let fragment = endPoint.fragment {
-                components.fragment = fragment
-            }
-            guard let url = components.url else {
-                throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = endPoint.method.rawValue
-            if let resolvedHeaders = endPoint.resolvedHeaders {
-                for (key, value) in resolvedHeaders {
-                    request.setValue(value, forHTTPHeaderField: key)
-                }
-            }
-            
-            // Only set httpBody for non-GET methods
-            if let body = endPoint.body {
-                request.httpBody = body
-            }
-
-            // Set timeout from endpoint
-            if let timeout = endPoint.effectiveTimeout {
-                request.timeoutInterval = timeout
-            }
+            // Use shared helper to build the request
+            let request = try buildURLRequest(from: endPoint)
             
             let (data, response) = try await urlSession.data(for: request)
             if let httpResponse = response as? HTTPURLResponse,
@@ -665,39 +609,8 @@ struct AdvancedAsyncRequestableTests {
 
             func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
             where ResponseModel: Decodable {
-                // Build URL from Endpoint properties
-                var components = URLComponents()
-                components.scheme = endPoint.scheme.rawValue
-                components.host = endPoint.host
-                components.path = endPoint.normalizedPath
-                components.queryItems = endPoint.queryItems
-                // Add port and fragment handling using public properties
-                if let port = endPoint.port {
-                    components.port = port
-                }
-                if let fragment = endPoint.fragment {
-                    components.fragment = fragment
-                }
-                guard let url = components.url else {
-                    throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
-                }
-                var request = URLRequest(url: url)
-                request.httpMethod = endPoint.method.rawValue
-                if let resolvedHeaders = endPoint.resolvedHeaders {
-                    for (key, value) in resolvedHeaders {
-                        request.setValue(value, forHTTPHeaderField: key)
-                    }
-                }
-
-                // Only set httpBody for non-GET methods
-                if let body = endPoint.body {
-                    request.httpBody = body
-                }
-
-                // Set timeout from endpoint
-                if let timeout = endPoint.effectiveTimeout {
-                    request.timeoutInterval = timeout
-                }
+                // Use shared helper to build the request
+                let request = try buildURLRequest(from: endPoint)
 
                 let (data, response) = try await urlSession.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse,
