@@ -112,9 +112,173 @@ struct UsersEndpoint: Endpoint {
 
 // Create a service that implements AsyncRequestable
 class UserService: AsyncRequestable {
+    typealias ResponseModel = [User] // Documents the primary response type
+    
     func getUsers() async throws -> [User] {
         return try await sendRequest(to: UsersEndpoint())
     }
+}
+```
+
+### Advanced Networking with Multiple Response Types
+
+For services requiring master-detail patterns, CRUD operations, or complex type hierarchies, use `AdvancedAsyncRequestable`:
+
+#### Master-Detail Pattern Example
+
+```swift
+import AsyncNet
+
+// Define endpoints for list and detail views
+struct UsersEndpoint: Endpoint {
+    var scheme: URLScheme = .https
+    var host: String = "api.example.com"
+    var path: String = "/users"
+    var method: RequestMethod = .get
+}
+
+struct UserDetailsEndpoint: Endpoint {
+    let userId: String
+    
+    var scheme: URLScheme = .https
+    var host: String = "api.example.com"
+    var path: String { "/users/\(userId)" }
+    var method: RequestMethod = .get
+}
+
+// Service with both list and detail response types
+class UserService: AdvancedAsyncRequestable {
+    typealias ResponseModel = [UserSummary]        // For user lists
+    typealias SecondaryResponseModel = UserDetails // For user details
+    
+    // Convenience methods automatically use correct types
+    func getUsers() async throws -> [UserSummary] {
+        return try await fetchList(from: UsersEndpoint())
+    }
+    
+    func getUserDetails(id: String) async throws -> UserDetails {
+        return try await fetchDetails(from: UserDetailsEndpoint(userId: id))
+    }
+    
+    // Can also use generic sendRequest for custom response types
+    func createUser(_ input: UserInput) async throws -> UserDetails {
+        return try await sendRequest(to: CreateUserEndpoint(input: input))
+    }
+}
+```
+
+#### CRUD Operations with Different Response Types
+
+```swift
+import AsyncNet
+
+class ProductService: AdvancedAsyncRequestable {
+    typealias ResponseModel = [ProductSummary]     // List operations
+    typealias SecondaryResponseModel = ProductDetails // Detail operations
+    
+    // List operation - returns summary array
+    func getProducts() async throws -> [ProductSummary] {
+        return try await fetchList(from: ProductsEndpoint())
+    }
+    
+    // Read operation - returns full details
+    func getProduct(id: String) async throws -> ProductDetails {
+        return try await fetchDetails(from: ProductDetailsEndpoint(id: id))
+    }
+    
+    // Create operation - returns created item details
+    func createProduct(_ input: ProductInput) async throws -> ProductDetails {
+        return try await sendRequest(to: CreateProductEndpoint(input: input))
+    }
+    
+    // Update operation - returns updated item details
+    func updateProduct(id: String, _ input: ProductInput) async throws -> ProductDetails {
+        return try await sendRequest(to: UpdateProductEndpoint(id: id, input: input))
+    }
+    
+    // Delete operation - returns summary (could be just status)
+    func deleteProduct(id: String) async throws -> ProductSummary {
+        return try await sendRequest(to: DeleteProductEndpoint(id: id))
+    }
+}
+```
+
+#### Generic Service Composition
+
+```swift
+import AsyncNet
+
+// Generic CRUD service that works with any AdvancedAsyncRequestable
+class GenericCrudService<T: AdvancedAsyncRequestable> {
+    let service: T
+    
+    init(service: T) {
+        self.service = service
+    }
+    
+    // Generic list operation
+    func listItems() async throws -> T.ResponseModel {
+        // Implementation would use service's fetchList method
+        fatalError("Implement based on your endpoint pattern")
+    }
+    
+    // Generic detail operation
+    func getItemDetails(id: String) async throws -> T.SecondaryResponseModel {
+        // Implementation would use service's fetchDetails method
+        fatalError("Implement based on your endpoint pattern")
+    }
+}
+
+// Usage with type-safe composition
+let userCrudService = GenericCrudService(service: UserService())
+let productCrudService = GenericCrudService(service: ProductService())
+
+// Both services work with the same generic interface
+// but maintain their specific response types
+```
+
+#### Type-Safe Service Hierarchies
+
+```swift
+import AsyncNet
+
+// Base protocol for all API services
+protocol ApiService: AdvancedAsyncRequestable {
+    // Common requirements for all API services
+    var baseURL: String { get }
+    var apiKey: String { get }
+}
+
+// Specialized service protocols
+protocol UserManagementService: ApiService
+where ResponseModel: Sequence, ResponseModel.Element == UserSummary {
+    // User services must use UserSummary for lists
+}
+
+protocol ProductManagementService: ApiService
+where ResponseModel: Sequence, ResponseModel.Element == ProductSummary {
+    // Product services must use ProductSummary for lists
+}
+
+// Concrete implementations
+class ConcreteUserService: UserManagementService {
+    typealias ResponseModel = [UserSummary]
+    typealias SecondaryResponseModel = UserDetails
+    
+    let baseURL = "https://api.example.com"
+    let apiKey = "your-api-key"
+    
+    // Implementation...
+}
+
+class ConcreteProductService: ProductManagementService {
+    typealias ResponseModel = [ProductSummary]
+    typealias SecondaryResponseModel = ProductDetails
+    
+    let baseURL = "https://api.example.com"
+    let apiKey = "your-api-key"
+    
+    // Implementation...
 }
 ```
 

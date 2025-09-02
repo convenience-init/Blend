@@ -26,6 +26,63 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 /// - Important: All implementations must use Swift 6 concurrency and actor isolation for thread safety.
 /// - Note: Use dependency injection for testability and strict concurrency compliance.
 ///
+/// ## Choosing the Right Protocol
+///
+/// AsyncNet provides two protocols for different service complexity levels:
+///
+/// ### AsyncRequestable (Basic)
+/// **Use when:** Your service only needs a single response type
+/// ```swift
+/// class SimpleService: AsyncRequestable {
+///     typealias ResponseModel = User
+///     // Single response type for all operations
+/// }
+/// ```
+///
+/// ### AdvancedAsyncRequestable (Enhanced)
+/// **Use when:** Your service needs multiple response types for complex patterns
+/// ```swift
+/// class ComplexService: AdvancedAsyncRequestable {
+///     typealias ResponseModel = [UserSummary]     // For lists
+///     typealias SecondaryResponseModel = UserDetails // For details
+///     // Multiple response types with convenience methods
+/// }
+/// ```
+///
+/// ## When to Choose AdvancedAsyncRequestable
+/// - **Master-detail patterns** (list view + detail view)
+/// - **CRUD operations** with different response types
+/// - **Generic service composition** requirements
+/// - **Type-safe service hierarchies** with multiple response contracts
+///
+/// ## Design Philosophy: Associated Types for Protocol Composition
+///
+/// This protocol uses associated types as a workaround for Swift's protocol inheritance limitations.
+/// The `ResponseModel` associated type enables powerful protocol composition patterns:
+///
+/// ### Use Case: Service-Specific Response Types
+/// ```swift
+/// protocol UserServiceProtocol {
+///     associatedtype UserResponse: Decodable
+///     associatedtype ProfileResponse: Decodable
+///
+///     func getUsers() async throws -> UserResponse
+///     func getProfile(userId: String) async throws -> ProfileResponse
+/// }
+///
+/// protocol UserService: UserServiceProtocol, AsyncRequestable
+/// where UserResponse == APIResponse<[User]>, ProfileResponse == APIResponse<UserProfile> {
+///     // Service methods automatically constrained to specific response types
+/// }
+/// ```
+///
+/// ### Benefits of This Pattern
+/// - **Type Safety**: Services clearly define their response type contracts
+/// - **Protocol Composition**: Build complex service hierarchies without direct inheritance
+/// - **Breaking Change Avoidance**: Evolve service interfaces without changing implementations
+/// - **Testability**: Easy to mock services with specific type constraints
+/// - **Documentation**: Self-documenting APIs through associated type names
+///
 /// ### Usage Example
 /// ```swift
 /// struct UsersEndpoint: Endpoint {
@@ -36,6 +93,8 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 /// }
 ///
 /// class UserService: AsyncRequestable {
+///     typealias ResponseModel = [User] // Documents the primary response type
+///
 ///     func getUsers() async throws -> [User] {
 ///         try await sendRequest(to: UsersEndpoint())
 ///     }
@@ -44,6 +103,46 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 
 
 public protocol AsyncRequestable {
+
+	/// Associated type for documenting the primary response model type used by this service.
+	///
+	/// This associated type serves as documentation and enables protocol composition patterns.
+	/// It allows services to clearly define their response type contracts while maintaining
+	/// compatibility with the generic `sendRequest` methods.
+	///
+	/// ## Usage Patterns
+	///
+	/// **Simple Documentation:**
+	/// ```swift
+	/// struct UserService: AsyncRequestable {
+	///     typealias ResponseModel = User // Documents primary response type
+	/// }
+	/// ```
+	///
+	/// **Protocol Composition:**
+	/// ```swift
+	/// protocol ServiceProtocol {
+	///     associatedtype Response: Decodable
+	///     func fetchData() async throws -> Response
+	/// }
+	///
+	/// struct MyService: ServiceProtocol, AsyncRequestable {
+	///     typealias Response = ResponseModel // Links to AsyncRequestable
+	///     typealias ResponseModel = APIResponse<Data>
+	/// }
+	/// ```
+	///
+	/// **Advanced Composition:**
+	/// ```swift
+	/// protocol MultiResponseService: AsyncRequestable {
+	///     associatedtype PrimaryResponse = ResponseModel
+	///     associatedtype SecondaryResponse: Decodable
+	///
+	///     func getPrimary() async throws -> PrimaryResponse
+	///     func getSecondary() async throws -> SecondaryResponse
+	/// }
+	/// ```
+	associatedtype ResponseModel: Decodable
 
 	/// Sends an asynchronous network request to the specified endpoint and decodes the response.
 	///
@@ -56,7 +155,6 @@ public protocol AsyncRequestable {
 	/// ```swift
 	/// let users: [User] = try await sendRequest(to: UsersEndpoint())
 	/// ```
-	associatedtype CustomResponseModel
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable
 	
 	/// A configurable JSONDecoder for consistent decoding across the AsyncNet module.

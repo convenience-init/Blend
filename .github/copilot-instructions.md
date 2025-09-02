@@ -41,7 +41,9 @@ This codebase is a Swift networking library with comprehensive image handling, b
 
 AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and these core service boundaries:
 
-- **Network Layer**: `AsyncRequestable` protocol + `Endpoint` definitions in `/base/` and `/endpoints/`
+- **Network Layer**: `AsyncRequestable` and `AdvancedAsyncRequestable` protocols + `Endpoint` definitions in `/base/` and `/endpoints/`
+  - **Basic Networking**: `AsyncRequestable` for simple services with single response types
+  - **Advanced Networking**: `AdvancedAsyncRequestable` for complex services requiring master-detail patterns, CRUD operations, and multiple response types
   - **Image Operations**: `ImageService` is actor-based and provided via dependency injection in `/services/`, with comprehensive upload/download, caching, and SwiftUI integration
 - **SwiftUI Integration**: Complete view modifier suite in `/extensions/SwiftUIExtensions.swift` with async state management
 - **Error Handling**: Centralized `NetworkError` enum with Sendable conformance and upload-specific cases
@@ -55,7 +57,52 @@ AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and
 
 **Concurrency Model**: `ImageService` is actor-based for proper isolation and thread safety. All image operations happen through actor-isolated methods with custom URLSession for background networking.
 
-**Service Pattern**: `ImageService` uses dependency injection and actor isolation, while networking uses protocol composition through `AsyncRequestable` with Sendable constraints. Services are designed for testability and proper isolation.
+**Service Pattern**: `ImageService` uses dependency injection and actor isolation, while networking uses protocol composition through `AsyncRequestable`/`AdvancedAsyncRequestable` with Sendable constraints. Services are designed for testability and proper isolation.
+
+**Protocol Hierarchy**:
+```
+AsyncRequestable (Basic - Single Response Type)
+  ↳ AdvancedAsyncRequestable (Enhanced - Dual Response Types)
+```
+
+### Protocol Usage Guidelines
+
+**Choose `AsyncRequestable` when:**
+- Your service only needs one response type
+- Simple CRUD operations with consistent response formats
+- Basic networking requirements
+
+**Choose `AdvancedAsyncRequestable` when:**
+- Master-detail patterns (list view + detail view)
+- CRUD operations with different response types for different operations
+- Generic service composition requirements
+- Type-safe service hierarchies with multiple response contracts
+
+### AdvancedAsyncRequestable Features
+
+**Associated Types:**
+- `ResponseModel`: Primary response type (typically for list/collection operations)
+- `SecondaryResponseModel`: Secondary response type (typically for detail/single-item operations)
+
+**Convenience Methods:**
+- `fetchList(from:)`: Type-safe list operations using `ResponseModel`
+- `fetchDetails(from:)`: Type-safe detail operations using `SecondaryResponseModel`
+
+**Example Usage:**
+```swift
+class UserService: AdvancedAsyncRequestable {
+    typealias ResponseModel = [UserSummary]        // For user lists
+    typealias SecondaryResponseModel = UserDetails // For user details
+    
+    func getUsers() async throws -> [UserSummary] {
+        return try await fetchList(from: UsersEndpoint())
+    }
+    
+    func getUserDetails(id: String) async throws -> UserDetails {
+        return try await fetchDetails(from: UserDetailsEndpoint(userId: id))
+    }
+}
+```
 
 ## Critical Development Patterns
 

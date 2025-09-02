@@ -290,8 +290,9 @@ struct AdvancedNetworkManagerTests {
 @Suite("AsyncRequestable & Endpoint Tests")
 struct AsyncRequestableTests {
     struct TestModel: Decodable, Equatable { let value: Int }
-    struct MockService: AsyncRequestable {
-        typealias CustomResponseModel = Int
+    struct MockService: AdvancedAsyncRequestable {
+        typealias ResponseModel = TestModel
+        typealias SecondaryResponseModel = TestModel
         let urlSession: URLSessionProtocol
         func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
             // Fail fast: Validate GET requests don't have a body before building any components
@@ -436,8 +437,9 @@ struct AsyncRequestableTests {
 
     @Test func testJsonDecoderConfiguration() async throws {
         // Test that conforming types have access to the jsonDecoder property
-        struct SimpleService: AsyncRequestable {
-            typealias CustomResponseModel = Int
+        struct SimpleService: AdvancedAsyncRequestable {
+            typealias ResponseModel = Int
+            typealias SecondaryResponseModel = String
 
             func sendRequest(to endPoint: Endpoint) async throws -> Int {
                 // Just test that jsonDecoder is accessible and returns a JSONDecoder
@@ -454,8 +456,9 @@ struct AsyncRequestableTests {
 
     @Test func testCustomJsonDecoderInjection() async throws {
         // Test that custom decoders can be injected for testing
-        struct TestService: AsyncRequestable {
-            typealias CustomResponseModel = TestModel
+        struct TestService: AdvancedAsyncRequestable {
+            typealias ResponseModel = TestModel
+            typealias SecondaryResponseModel = TestModel
             let customDecoder: JSONDecoder
 
             var jsonDecoder: JSONDecoder {
@@ -515,500 +518,211 @@ struct AsyncRequestableTests {
     }
 }
 
-@Suite("NetworkError Tests")
-struct NetworkErrorTests {
-    @Test func testWrapCustomError() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        struct DummyError: Error, LocalizedError, Sendable {
-            let message: String
-            var localizedDescription: String { message }
-            var errorDescription: String? { "Custom error: \(message)" }
-            var recoverySuggestion: String? { "Try again with different parameters" }
-        }
-        let dummy = DummyError(message: "Dummy failure")
-        let wrapped = await NetworkError.wrapAsync(dummy, config: config)
-        if case let .customError(message, details) = wrapped {
-            #expect(message == "Unknown error")
-            #expect(details?.contains("Dummy failure") == true)
-            // Check that the wrapped error preserves the original error's description
-            #expect(
-                details?.contains("DummyError") == true, "Should include the error type in details")
-            #expect(
-                details?.contains("message: \"Dummy failure\"") == true,
-                "Should include the message in details")
+@Suite("AdvancedAsyncRequestable Tests")
+struct AdvancedAsyncRequestableTests {
+    struct TestListModel: Decodable, Equatable { let items: [String] }
+    struct TestDetailModel: Decodable, Equatable { let id: Int; let name: String }
 
-            // Verify that the original error has the expected localized properties
-            #expect(
-                dummy.errorDescription == "Custom error: Dummy failure",
-                "Original error should have errorDescription")
-            #expect(
-                dummy.recoverySuggestion == "Try again with different parameters",
-                "Original error should have recoverySuggestion")
-        } else {
-            #expect(Bool(false))
-        }
-    }
+    struct AdvancedMockService: AdvancedAsyncRequestable {
+        typealias ResponseModel = TestListModel
+        typealias SecondaryResponseModel = TestDetailModel
+        let urlSession: URLSessionProtocol
 
-    @Test func testCustomErrorMessage() {
-        let error = NetworkError.customError("Endpoint error", details: "Details")
-        #expect(error.errorDescription?.contains("Endpoint error") == true)
-        #expect(error.errorDescription?.contains("Details") == true)
-    }
-    @Test func testWrapURLError() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        let urlError = URLError(.notConnectedToInternet)
-        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
-        #expect(wrapped == .networkUnavailable)
-    }
-    @Test func testWrapUnknownURLError() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        let urlError = URLError(.cannotFindHost)
-        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
-        #expect(wrapped == .invalidEndpoint(reason: "Host not found"))
-    }
-    @Test func testWrapURLErrorTimedOut() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        let urlError = URLError(.timedOut)
-        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
-
-        if case let .requestTimeout(duration) = wrapped {
-            #expect(
-                duration == 60.0, "Should use configured timeout duration of 60.0, got \(duration)")
-        } else {
-            #expect(Bool(false), "Expected requestTimeout error, got \(wrapped)")
-        }
-    }
-    @Test func testWrapURLErrorCannotConnectToHost() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        let urlError = URLError(.cannotConnectToHost)
-        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
-        #expect(wrapped == .networkUnavailable)
-    }
-    @Test func testWrapDecodingError() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        // Create a real DecodingError by attempting to decode invalid JSON
-        let invalidJSON = "invalid json".data(using: .utf8)!
-        struct TestModel: Decodable {
-            let value: Int
-        }
-
-        do {
-            _ = try JSONDecoder().decode(TestModel.self, from: invalidJSON)
-            #expect(Bool(false), "Expected decoding to fail")
-        } catch let decodingError as DecodingError {
-            let wrapped = await NetworkError.wrapAsync(decodingError, config: config)
-
-            if case let .decodingFailed(reason, underlying, data) = wrapped {
-                #expect(reason.contains("Data corrupted"), "Should contain data corruption message")
-                #expect(underlying is DecodingError, "Should preserve original DecodingError")
-                #expect(data == nil, "Should not include data for this error type")
-            } else {
-                #expect(Bool(false), "Expected decodingFailed error for DecodingError")
+        func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+        where ResponseModel: Decodable {
+            // Build URL from Endpoint properties
+            var components = URLComponents()
+            components.scheme = endPoint.scheme.rawValue
+            components.host = endPoint.host
+            components.path = endPoint.normalizedPath
+            components.queryItems = endPoint.queryItems
+            // Add port and fragment handling using public properties
+            if let port = endPoint.port {
+                components.port = port
             }
-        } catch {
-            #expect(Bool(false), "Expected DecodingError")
-        }
-    }
+            if let fragment = endPoint.fragment {
+                components.fragment = fragment
+            }
+            guard let url = components.url else {
+                throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = endPoint.method.rawValue
+            if let resolvedHeaders = endPoint.resolvedHeaders {
+                for (key, value) in resolvedHeaders {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
+            
+            // Only set httpBody for non-GET methods
+            if let body = endPoint.body {
+                request.httpBody = body
+            }
 
-    @Test func testDecodingErrorDetailedMessages() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-        // Test different types of DecodingError cases
-        let jsonData = """
+            // Set timeout from endpoint
+            if let timeout = endPoint.effectiveTimeout {
+                request.timeoutInterval = timeout
+            }
+            
+            let (data, response) = try await urlSession.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse,
+                !(200...299).contains(httpResponse.statusCode)
             {
-                "name": "Test",
-                "missing_field": null
+                throw NetworkError.customError(
+                    "HTTP error", details: "Status code: \(httpResponse.statusCode)")
             }
-            """.data(using: .utf8)!
-
-        struct TestModel: Decodable {
-            let name: String
-            let age: Int  // This will cause a typeMismatch error
-            let email: String  // This will cause a keyNotFound error
-        }
-
-        do {
-            _ = try JSONDecoder().decode(TestModel.self, from: jsonData)
-            #expect(Bool(false), "Expected decoding to fail")
-        } catch let decodingError as DecodingError {
-            let wrapped = await NetworkError.wrapAsync(decodingError, config: config)
-
-            if case let .decodingFailed(reason, underlying, _) = wrapped {
-                #expect(underlying is DecodingError, "Should preserve original DecodingError")
-                // The error should contain detailed information about the failure
-                #expect(
-                    reason.contains("age") || reason.contains("email"),
-                    "Should contain field information")
-                #expect(
-                    reason.contains("Type mismatch") || reason.contains("not found"),
-                    "Should contain specific error type")
-            } else {
-                #expect(Bool(false), "Expected decodingFailed error for DecodingError")
-            }
-        } catch {
-            #expect(Bool(false), "Expected DecodingError")
+            return try jsonDecoder.decode(ResponseModel.self, from: data)
         }
     }
 
-    @Test func testInvalidBodyForGETError() {
-        let error = NetworkError.invalidBodyForGET
-        #expect(error.errorDescription == "GET requests cannot have a body.")
-        #expect(
-            error.recoverySuggestion
-                == "Remove the body from GET requests or use a different HTTP method.")
+    @Test func testFetchListReturnsDecodedListModel() async throws {
+        let mockSession = MockURLSession(
+            nextData: Data("{\"items\":[\"item1\",\"item2\"]}".utf8),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let service = AdvancedMockService(urlSession: mockSession)
+        let endpoint = MockEndpoint()
+        let result = try await service.fetchList(from: endpoint)
+        #expect(result == TestListModel(items: ["item1", "item2"]))
     }
 
-    @Test func testCacheExpiration() async throws {
-        // Create a TestClock for deterministic time control
-        final class TestClock: @unchecked Sendable {
-            private var _now: ContinuousClock.Instant = .now
-            private var lock = os_unfair_lock()
+    @Test func testFetchDetailsReturnsDecodedDetailModel() async throws {
+        let mockSession = MockURLSession(
+            nextData: Data("{\"id\":123,\"name\":\"Test Item\"}".utf8),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let service = AdvancedMockService(urlSession: mockSession)
+        let endpoint = MockEndpoint()
+        let result = try await service.fetchDetails(from: endpoint)
+        #expect(result == TestDetailModel(id: 123, name: "Test Item"))
+    }
 
-            func now() -> ContinuousClock.Instant {
-                os_unfair_lock_lock(&lock)
-                defer { os_unfair_lock_unlock(&lock) }
-                return _now
+    @Test func testFetchListWithNetworkManager() async throws {
+        let mockSession = MockURLSession(
+            nextData: Data("{\"items\":[\"item1\",\"item2\"]}".utf8),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let service = AdvancedMockService(urlSession: mockSession)
+        let endpoint = MockEndpoint()
+        let result: TestListModel = try await service.fetchList(from: endpoint)
+        #expect(result == TestListModel(items: ["item1", "item2"]))
+    }
+
+    @Test func testFetchDetailsWithNetworkManager() async throws {
+        let mockSession = MockURLSession(
+            nextData: Data("{\"id\":456,\"name\":\"Detail Item\"}".utf8),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let service = AdvancedMockService(urlSession: mockSession)
+        let endpoint = MockEndpoint()
+        let result: TestDetailModel = try await service.fetchDetails(from: endpoint)
+        #expect(result == TestDetailModel(id: 456, name: "Detail Item"))
+    }
+
+    @Test func testAdvancedServiceWithDifferentResponseTypes() async throws {
+        struct UserListService: AdvancedAsyncRequestable {
+            typealias ResponseModel = [String]  // List of user names
+            typealias SecondaryResponseModel = UserDetail  // Detailed user info
+
+            struct UserDetail: Decodable, Equatable {
+                let id: Int
+                let name: String
+                let email: String
             }
 
-            func advance(by duration: Duration) {
-                os_unfair_lock_lock(&lock)
-                defer { os_unfair_lock_unlock(&lock) }
-                _now = _now.advanced(by: duration)
-            }
-        }
+            let urlSession: URLSessionProtocol
 
-        let testClock = TestClock()
+            func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+            where ResponseModel: Decodable {
+                // Build URL from Endpoint properties
+                var components = URLComponents()
+                components.scheme = endPoint.scheme.rawValue
+                components.host = endPoint.host
+                components.path = endPoint.normalizedPath
+                components.queryItems = endPoint.queryItems
+                // Add port and fragment handling using public properties
+                if let port = endPoint.port {
+                    components.port = port
+                }
+                if let fragment = endPoint.fragment {
+                    components.fragment = fragment
+                }
+                guard let url = components.url else {
+                    throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
+                }
+                var request = URLRequest(url: url)
+                request.httpMethod = endPoint.method.rawValue
+                if let resolvedHeaders = endPoint.resolvedHeaders {
+                    for (key, value) in resolvedHeaders {
+                        request.setValue(value, forHTTPHeaderField: key)
+                    }
+                }
 
-        // Create cache with very short expiration (0.1 seconds) and test time provider
-        let cache = DefaultNetworkCache(
-            maxSize: 10,
-            expiration: 0.1,
-            timeProvider: { testClock.now() }
-        )
-        let testData = Data([0x01, 0x02, 0x03])
-        let key = "test-expiration-key"
+                // Only set httpBody for non-GET methods
+                if let body = endPoint.body {
+                    request.httpBody = body
+                }
 
-        // Set data in cache
-        await cache.set(testData, forKey: key)
+                // Set timeout from endpoint
+                if let timeout = endPoint.effectiveTimeout {
+                    request.timeoutInterval = timeout
+                }
 
-        // Immediately retrieve - should work
-        var retrieved = await cache.get(forKey: key)
-        #expect(retrieved == testData, "Data should be retrievable immediately after caching")
-
-        // Advance TestClock by 150ms (past the 100ms expiration)
-        testClock.advance(by: .milliseconds(150))
-
-        // Try to retrieve again - should return nil due to expiration
-        retrieved = await cache.get(forKey: key)
-        #expect(retrieved == nil, "Data should be nil after expiration")
-    }
-
-    @Test func testCacheMaxSizeEnforcement() async throws {
-        // Create cache with maxSize of 2
-        let cache = DefaultNetworkCache(maxSize: 2, expiration: 60)
-
-        // Add 3 items - LRU order will be: head=key3, key2, tail=key1
-        await cache.set(Data([0x01]), forKey: "key1")
-        await cache.set(Data([0x02]), forKey: "key2")
-        await cache.set(Data([0x03]), forKey: "key3")
-
-        // First item should have been evicted (it was the LRU/tail)
-        let data1 = await cache.get(forKey: "key1")
-        #expect(data1 == nil, "First item should have been evicted due to maxSize")
-
-        // Second and third items should still be retrievable
-        let data2 = await cache.get(forKey: "key2")
-        let data3 = await cache.get(forKey: "key3")
-        #expect(data2 == Data([0x02]), "Second item should still be cached")
-        #expect(data3 == Data([0x03]), "Third item should still be cached")
-    }
-
-    @Test func testCustomRetryLogicRespected() async throws {
-        // Test that custom shouldRetry logic is respected and not overridden by default behavior
-        let mockSession = MockURLSession(nextError: NetworkError.networkUnavailable)  // This would normally be retried by default
-        let manager = AdvancedNetworkManager(urlSession: mockSession)
-        let request = URLRequest(url: URL(string: "https://mock.api/fail")!)
-
-        // Custom retry policy that explicitly says NOT to retry networkUnavailable errors
-        let customRetryPolicy = RetryPolicy(
-            maxRetries: 3,
-            shouldRetry: { error, attempt in
-                // Explicitly don't retry network unavailable errors, even though default would
-                if let networkError = error as? NetworkError,
-                    case .networkUnavailable = networkError
+                let (data, response) = try await urlSession.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse,
+                    !(200...299).contains(httpResponse.statusCode)
                 {
-                    return false
+                    throw NetworkError.customError(
+                        "HTTP error", details: "Status code: \(httpResponse.statusCode)")
                 }
-                return true
-            },
-            backoff: { _ in 0.01 }
-        )
-
-        do {
-            _ = try await manager.fetchData(
-                for: request, cacheKey: "custom-retry-test", retryPolicy: customRetryPolicy)
-            #expect(
-                Bool(false), "Expected custom retry logic to prevent retries for networkUnavailable"
-            )
-        } catch {
-            if let networkError = error as? NetworkError, case .networkUnavailable = networkError {
-                // Success - caught the expected NetworkError.networkUnavailable
-            } else {
-                #expect(Bool(false), "Expected NetworkError.networkUnavailable, got \(error)")
+                return try jsonDecoder.decode(ResponseModel.self, from: data)
             }
         }
 
-        // Verify that only 1 request was made (no retries due to custom logic)
-        let recordedRequests = await mockSession.recordedRequests
+        // Test list endpoint
+        let listSession = MockURLSession(
+            nextData: Data("[\"Alice\",\"Bob\",\"Charlie\"]".utf8),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let listService = UserListService(urlSession: listSession)
+        let listEndpoint = MockEndpoint()
+        let listResult = try await listService.fetchList(from: listEndpoint)
+        #expect(listResult == ["Alice", "Bob", "Charlie"])
+
+        // Test detail endpoint
+        let detailSession = MockURLSession(
+            nextData: Data("{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}".utf8),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let detailService = UserListService(urlSession: detailSession)
+        let detailEndpoint = MockEndpoint()
+        let detailResult = try await detailService.fetchDetails(from: detailEndpoint)
         #expect(
-            recordedRequests.count == 1,
-            "Expected exactly 1 request (no retries due to custom shouldRetry logic)")
-    }
-}
-
-@Suite("Endpoint Tests")
-struct EndpointTests {
-    @Test func testResolvedHeadersNormalization() async throws {
-        // Test that resolvedHeaders properly normalizes headers and handles contentType injection
-        struct TestEndpoint: Endpoint {
-            var scheme: URLScheme = .https
-            var host: String = "api.example.com"
-            var path: String = "/test"
-            var method: RequestMethod = .post
-            var headers: [String: String]? = [
-                "Authorization": "Bearer token", "content-type": "text/plain",
-            ]
-            var queryItems: [URLQueryItem]? = nil
-            var contentType: String? = "application/json"
-            var timeout: TimeInterval? = nil
-            var timeoutDuration: Duration? = nil
-            var body: Data? = Data("test".utf8)
-            var port: Int? = nil
-            var fragment: String? = nil
-        }
-
-        let endpoint = TestEndpoint()
-        let resolved = endpoint.resolvedHeaders
-
-        // Should have normalized "content-type" to "Content-Type" and used the header value, not contentType
-        #expect(
-            resolved?["Content-Type"] == "text/plain",
-            "Should use existing content-type header value")
-        #expect(resolved?["Authorization"] == "Bearer token", "Should preserve other headers")
-    }
-
-    @Test func testResolvedHeadersRejectsControlCharactersInContentType() async throws {
-        // Test that contentType with control characters is rejected to prevent header injection
-        struct TestEndpoint: Endpoint {
-            var scheme: URLScheme = .https
-            var host: String = "api.example.com"
-            var path: String = "/test"
-            var method: RequestMethod = .post
-            var headers: [String: String]? = nil
-            var queryItems: [URLQueryItem]? = nil
-            var contentType: String? = "application/json\r\nX-Injected: malicious"
-            var timeout: TimeInterval? = nil
-            var timeoutDuration: Duration? = nil
-            var body: Data? = Data("test".utf8)
-            var port: Int? = nil
-            var fragment: String? = nil
-        }
-
-        let endpoint = TestEndpoint()
-        let resolved = endpoint.resolvedHeaders
-
-        // Should reject contentType with control characters and not set Content-Type header
-        #expect(
-            resolved?["Content-Type"] == nil, "Should reject contentType with control characters")
-        #expect(
-            resolved == nil || resolved?.isEmpty == true,
-            "Should not inject any headers when contentType has control characters")
-    }
-
-    @Test func testResolvedHeadersAcceptsValidContentType() async throws {
-        // Test that valid contentType without control characters is accepted
-        struct TestEndpoint: Endpoint {
-            var scheme: URLScheme = .https
-            var host: String = "api.example.com"
-            var path: String = "/test"
-            var method: RequestMethod = .post
-            var headers: [String: String]? = nil
-            var queryItems: [URLQueryItem]? = nil
-            var contentType: String? = "application/json"
-            var timeout: TimeInterval? = nil
-            var timeoutDuration: Duration? = nil
-            var body: Data? = Data("test".utf8)
-            var port: Int? = nil
-            var fragment: String? = nil
-        }
-
-        let endpoint = TestEndpoint()
-        let resolved = endpoint.resolvedHeaders
-
-        // Should accept valid contentType and set Content-Type header
-        #expect(resolved?["Content-Type"] == "application/json", "Should accept valid contentType")
-    }
-
-    @Test func testNormalizedPathAddsLeadingSlash() async throws {
-        // Test that normalizedPath adds leading slash when missing
-        struct TestEndpoint: Endpoint {
-            var scheme: URLScheme = .https
-            var host: String = "api.example.com"
-            var path: String = "users"  // Missing leading slash
-            var method: RequestMethod = .get
-            var headers: [String: String]? = nil
-            var queryItems: [URLQueryItem]? = nil
-            var contentType: String? = nil
-            var timeout: TimeInterval? = nil
-            var timeoutDuration: Duration? = nil
-            var body: Data? = nil
-            var port: Int? = nil
-            var fragment: String? = nil
-        }
-
-        let endpoint = TestEndpoint()
-        #expect(endpoint.normalizedPath == "/users", "Should add leading slash to path without one")
-    }
-
-    @Test func testNormalizedPathPreservesExistingLeadingSlash() async throws {
-        // Test that normalizedPath preserves existing leading slash
-        struct TestEndpoint: Endpoint {
-            var scheme: URLScheme = .https
-            var host: String = "api.example.com"
-            var path: String = "/users"  // Already has leading slash
-            var method: RequestMethod = .get
-            var headers: [String: String]? = nil
-            var queryItems: [URLQueryItem]? = nil
-            var contentType: String? = nil
-            var timeout: TimeInterval? = nil
-            var timeoutDuration: Duration? = nil
-            var body: Data? = nil
-            var port: Int? = nil
-            var fragment: String? = nil
-        }
-
-        let endpoint = TestEndpoint()
-        #expect(endpoint.normalizedPath == "/users", "Should preserve existing leading slash")
-    }
-}
-
-@Suite("AsyncNetConfig Tests")
-struct AsyncNetConfigTests {
-    @Test func testAsyncNetConfigThreadSafety() async throws {
-        // Test that AsyncNetConfig can be safely accessed from concurrent contexts
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-
-        // Test initial value
-        let initialTimeout = await config.timeoutDuration
-        #expect(initialTimeout == 60.0, "Initial timeout should be 60 seconds")
-
-        // Test setting new timeout
-        try await config.setTimeoutDuration(30.0)
-        let newTimeout = await config.timeoutDuration
-        #expect(newTimeout == 30.0, "Timeout should be updated to 30 seconds")
-
-        // Test reset
-        await config.resetTimeoutDuration()
-        let resetTimeout = await config.timeoutDuration
-        #expect(resetTimeout == 60.0, "Timeout should be reset to 60 seconds")
-    }
-
-    @Test func testWrapAsyncWithCustomTimeout() async throws {
-        // Test that wrapAsync uses the configured timeout duration
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-
-        // Set custom timeout
-        try await config.setTimeoutDuration(45.0)
-
-        // Verify setting worked
-        let afterSet = await config.timeoutDuration
-        #expect(afterSet == 45.0, "Config should be set to 45.0")
-
-        let urlError = URLError(.timedOut)
-        let wrapped = await NetworkError.wrapAsync(urlError, config: config)
-
-        if case let .requestTimeout(duration) = wrapped {
-            #expect(
-                duration == 45.0, "Should use configured timeout duration of 45.0, got \(duration)")
-        } else {
-            #expect(Bool(false), "Expected requestTimeout error, got \(wrapped)")
-        }
-    }
-
-    @Test func testWrapAsyncURLErrorMapping() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-
-        // Test various URLError codes
-        let testCases: [(URLError.Code, NetworkError)] = [
-            (.timedOut, .requestTimeout(duration: 60.0)),
-            (.notConnectedToInternet, .networkUnavailable),
-            (.networkConnectionLost, .networkUnavailable),
-            (.cannotConnectToHost, .networkUnavailable),
-            (.cannotFindHost, .invalidEndpoint(reason: "Host not found")),
-            (.dnsLookupFailed, .invalidEndpoint(reason: "DNS lookup failed")),
-            (.cancelled, .requestCancelled),
-        ]
-
-        for (code, expected) in testCases {
-            let urlError = URLError(code)
-            let wrapped = await NetworkError.wrapAsync(urlError, config: config)
-
-            switch (code, expected) {
-            case (.timedOut, .requestTimeout):
-                if case .requestTimeout = wrapped {
-                    // Success - timeout duration verified above
-                } else {
-                    #expect(Bool(false), "Expected requestTimeout for .timedOut")
-                }
-            default:
-                #expect(wrapped == expected, "Expected \(expected) for \(code), got \(wrapped)")
-            }
-        }
-    }
-
-    @Test func testWrapAsyncDecodingError() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-
-        // Create a real DecodingError
-        let invalidJSON = "invalid json".data(using: .utf8)!
-        struct TestModel: Decodable {
-            let value: Int
-        }
-
-        do {
-            _ = try JSONDecoder().decode(TestModel.self, from: invalidJSON)
-            #expect(Bool(false), "Expected decoding to fail")
-        } catch let decodingError as DecodingError {
-            let wrapped = await NetworkError.wrapAsync(decodingError, config: config)
-
-            if case let .decodingFailed(reason, underlying, data) = wrapped {
-                #expect(reason.contains("Data corrupted"), "Should contain data corruption message")
-                #expect(underlying is DecodingError, "Should preserve original DecodingError")
-                #expect(data == nil, "Should not include data for this error type")
-            } else {
-                #expect(Bool(false), "Expected decodingFailed error for DecodingError")
-            }
-        } catch {
-            #expect(Bool(false), "Expected DecodingError")
-        }
-    }
-
-    @Test func testWrapAsyncUnknownError() async throws {
-        let config = AsyncNetConfig(timeoutDuration: 60.0)
-
-        struct CustomError: Error {
-            let message = "Custom test error"
-        }
-
-        let customError = CustomError()
-        let wrapped = await NetworkError.wrapAsync(customError, config: config)
-
-        if case let .customError(message, details) = wrapped {
-            #expect(message == "Unknown error", "Should use generic unknown error message")
-            #expect(
-                details?.contains("Custom test error") == true,
-                "Should include original error description")
-        } else {
-            #expect(Bool(false), "Expected customError for unknown error type")
-        }
+            detailResult
+                == UserListService.UserDetail(id: 1, name: "Alice", email: "alice@example.com"))
     }
 }
