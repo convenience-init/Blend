@@ -1,8 +1,8 @@
 #if canImport(UIKit)
     import UIKit
     public typealias PlatformImage = UIImage
-#elseif canImport(Cocoa)
-    import Cocoa
+#elseif canImport(AppKit)
+    import AppKit
     public typealias PlatformImage = NSImage
 #endif
 #if canImport(SwiftUI)
@@ -135,8 +135,18 @@ public actor ImageService {
         switch httpResponse.statusCode {
         case 200...299:
             return data
+        case 400:
+            throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
         case 401:
             throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+        case 403:
+            throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+        case 404:
+            throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+        case 429:
+            throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+        case 500...599:
+            throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
         default:
             throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
@@ -393,9 +403,9 @@ public actor ImageService {
     /// Thread Safety Rationale:
     /// - LRUNode contains mutable properties (prev, next, timestamp) that are not protected by synchronization
     /// - All LRUNode operations are performed within the ImageService actor for thread safety
-    /// - The class is fileprivate to prevent external access and misuse
+    /// - The class is private to prevent external access and misuse
     /// - Making LRUNode an actor would add unnecessary overhead since all usage is already actor-isolated
-    fileprivate final class LRUNode {
+    private final class LRUNode {
         let key: NSString
         var prev: LRUNode?
         var next: LRUNode?
@@ -448,6 +458,9 @@ public actor ImageService {
         var attempt = 0
         var lastError: Error?
         while attempt < config.maxAttempts {
+            // Check for cancellation before starting each operation
+            try Task.checkCancellation()
+
             do {
                 return try await operation()
             } catch {
@@ -635,8 +648,18 @@ public actor ImageService {
                     }
                     return data
 
+                case 400:
+                    throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
                 case 401:
                     throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+                case 403:
+                    throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+                case 404:
+                    throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+                case 429:
+                    throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+                case 500...599:
+                    throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
                 default:
                     throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
                 }
@@ -673,7 +696,7 @@ public actor ImageService {
     ) -> Data? {
         #if canImport(UIKit)
             return image.jpegData(compressionQuality: compressionQuality)
-        #elseif canImport(Cocoa)
+        #elseif canImport(AppKit)
             guard let tiffData = image.tiffRepresentation,
                 let bitmap = NSBitmapImageRep(data: tiffData)
             else { return nil }
@@ -695,7 +718,7 @@ public actor ImageService {
             guard let platformImage = PlatformImage(data: data) else { return nil }
             #if canImport(UIKit)
                 return SwiftUI.Image(uiImage: platformImage)
-            #elseif canImport(Cocoa)
+            #elseif canImport(AppKit)
                 return SwiftUI.Image(nsImage: platformImage)
             #endif
         }
@@ -854,8 +877,18 @@ public actor ImageService {
         switch httpResponse.statusCode {
         case 200...299:
             return data
+        case 400:
+            throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
         case 401:
             throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+        case 403:
+            throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+        case 404:
+            throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+        case 429:
+            throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+        case 500...599:
+            throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
         default:
             throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
@@ -868,23 +901,30 @@ public actor ImageService {
     /// - Returns: The cached image if available
     public func cachedImage(forKey key: String) -> PlatformImage? {
         let cacheKey = key as NSString
-        // Check if image exists in cache and corresponding node exists and is not expired
-        if let cachedImage = imageCache.object(forKey: cacheKey),
-            let node = lruDict[cacheKey],
-            Date().timeIntervalSince1970 - node.insertionTimestamp < cacheConfig.maxAge
-        {
-            moveLRUNodeToHead(node)
-            cacheHits += 1
-            return cachedImage
-        }
-        // If image doesn't exist, is expired, or node is missing, treat as cache miss
+        let now = Date().timeIntervalSince1970
+
+        // Atomically check expiration and handle cache state
         if let node = lruDict[cacheKey] {
-            // Node exists but is expired - evict it
-            imageCache.removeObject(forKey: cacheKey)
-            dataCache.removeObject(forKey: cacheKey)
-            lruDict.removeValue(forKey: cacheKey)
-            removeLRUNode(node)
+            // Check expiration first to avoid race conditions
+            if now - node.insertionTimestamp < cacheConfig.maxAge {
+                // Not expired - safe to return cached data
+                if let cachedImage = imageCache.object(forKey: cacheKey) {
+                    moveLRUNodeToHead(node)
+                    cacheHits += 1
+                    return cachedImage
+                }
+            } else {
+                // Expired - atomically remove from all caches
+                imageCache.removeObject(forKey: cacheKey)
+                dataCache.removeObject(forKey: cacheKey)
+                lruDict.removeValue(forKey: cacheKey)
+                removeLRUNode(node)
+                // Invalidate heap entry to prevent it from being processed during expiration
+                expirationHeap.invalidate(key: cacheKey as String)
+            }
         }
+
+        // Cache miss - increment counter and return nil
         cacheMisses += 1
         return nil
     }
@@ -1236,7 +1276,7 @@ private struct UploadPayload: Encodable {
         public init(platformImage: PlatformImage) {
             #if canImport(UIKit)
                 self.init(uiImage: platformImage)
-            #elseif canImport(Cocoa)
+            #elseif canImport(AppKit)
                 self.init(nsImage: platformImage)
             #endif
         }

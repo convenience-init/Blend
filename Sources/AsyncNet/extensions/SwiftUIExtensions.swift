@@ -51,8 +51,29 @@ public class AsyncImageModel {
     private let imageService: ImageService
     
     // Task holder that can be accessed from deinit
-    private class TaskHolder: @unchecked Sendable {
-        var task: Task<Void, Never>?
+    private actor TaskHolder {
+        private var task: Task<Void, Never>?
+
+        func setTask(_ newTask: Task<Void, Never>?) {
+            task = newTask
+        }
+
+        func getTask() -> Task<Void, Never>? {
+            return task
+        }
+
+        func cancelTask() {
+            task?.cancel()
+        }
+
+        func clearTask() {
+            task = nil
+        }
+
+        func cancelAndClear() {
+            task?.cancel()
+            task = nil
+        }
     }
     private let taskHolder = TaskHolder()
 
@@ -62,13 +83,15 @@ public class AsyncImageModel {
 
     deinit {
         // Cancel any in-flight load task to prevent task leaks
-        taskHolder.task?.cancel()
-        taskHolder.task = nil
+        let holder = taskHolder
+        Task {
+            await holder.cancelAndClear()
+        }
     }
 
     public func loadImage(from url: String?) async {
         // Cancel any existing load task
-        taskHolder.task?.cancel()
+        await taskHolder.cancelTask()
 
         // Create new task for this load operation
         let task = Task<Void, Never> { [weak self, imageService = self.imageService, url] in
@@ -132,11 +155,11 @@ public class AsyncImageModel {
         }
 
         // Store the task and start it
-        taskHolder.task = task
+        await taskHolder.setTask(task)
         await task.value
 
         // Clear the task when done
-        taskHolder.task = nil
+        await taskHolder.clearTask()
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.

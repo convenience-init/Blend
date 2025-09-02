@@ -143,8 +143,8 @@ struct PlatformAbstractionTests {
             // Render a 1x1 pixel image using UIGraphicsImageRenderer
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
             let image = renderer.image { ctx in
-                UIColor.green.setFill()
-                ctx.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+                ctx.cgContext.setFillColor(UIColor.green.cgColor)
+                ctx.cgContext.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
             }
             let data = ImageService.platformImageToData(image)
             #expect(data != nil)
@@ -191,14 +191,15 @@ struct PlatformAbstractionTests {
 
                 // Try to force TIFF corruption by modifying the bitmap data directly
                 if let bitmapData = rep.bitmapData {
-                    let dataPtr = UnsafeMutablePointer<UInt8>(bitmapData)
                     // Safely corrupt some bytes in the bitmap data
                     let totalBytes = rep.bytesPerRow * rep.pixelsHigh
-                    guard totalBytes > 0 else { return }
-                    let bytesToCorrupt = min(10, totalBytes)
-                    let buffer = UnsafeMutableBufferPointer(start: dataPtr, count: totalBytes)
-                    for i in 0..<bytesToCorrupt {
-                        buffer[i] = UInt8.random(in: 0...255)
+                    if totalBytes > 0 {
+                        let bytesToCorrupt = min(10, totalBytes)
+                        let buffer = UnsafeMutableBufferPointer(
+                            start: bitmapData, count: totalBytes)
+                        for i in 0..<bytesToCorrupt {
+                            buffer[i] = UInt8.random(in: 0...255)
+                        }
                     }
                 }
             }

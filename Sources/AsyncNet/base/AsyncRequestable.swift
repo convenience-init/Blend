@@ -274,11 +274,17 @@ public extension AsyncRequestable {
 				throw NetworkError.decodingError(underlying: error, data: data)
 			}
 		case 400:
-			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+			throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
 		case 401:
 			throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+		case 403:
+			throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+		case 404:
+			throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+		case 429:
+			throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
 		case 500 ... 599:
-			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+			throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
 		default:
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		}

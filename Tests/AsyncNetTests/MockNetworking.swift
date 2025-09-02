@@ -69,15 +69,13 @@ actor MockURLSession: URLSessionProtocol {
         artificialDelay: UInt64 = 0
     ) {
         self.artificialDelay = artificialDelay
+        precondition(maxCalls > 0, "maxCalls must be a positive nonzero integer, got \(maxCalls)")
         precondition(
             nextData != nil || nextResponse != nil || nextError != nil,
             "MockURLSession.init requires at least one of nextData, nextResponse, or nextError"
         )
-        // Create array manually to preserve types
-        scriptedScripts = []
-        for _ in 0..<maxCalls {
-            scriptedScripts.append((nextData, nextResponse, nextError))
-        }
+        // Create array using Array(repeating:count:) to preserve types and simplify
+        scriptedScripts = Array(repeating: (nextData, nextResponse, nextError), count: maxCalls)
     }
 
     /// Load a new script sequence for the mock session
@@ -117,18 +115,21 @@ actor MockURLSession: URLSessionProtocol {
         _callCount += 1
         _recordedRequests.append(request)
 
+        // Capture immutable state before suspension to prevent race conditions
+        let delay = artificialDelay
+        let script: (data: Data?, response: URLResponse?, error: Error?)
+        if currentCallIndex < scriptedScripts.count {
+            script = scriptedScripts[currentCallIndex]
+        } else {
+            script = (nil, nil, NetworkError.outOfScriptBounds(call: currentCallIndex))
+        }
+
         // Add artificial delay to simulate network latency
-        if artificialDelay > 0 {
-            try await Task.sleep(nanoseconds: artificialDelay)
+        if delay > 0 {
+            try await Task.sleep(nanoseconds: delay)
         }
 
-        guard currentCallIndex < scriptedScripts.count else {
-            throw NetworkError.outOfScriptBounds(call: currentCallIndex)
-        }
-
-        let script = scriptedScripts[currentCallIndex]
-
-        // Check for scripted error first
+        // Use captured script instead of reading from actor state after suspension
         if let error = script.error {
             throw error
         }

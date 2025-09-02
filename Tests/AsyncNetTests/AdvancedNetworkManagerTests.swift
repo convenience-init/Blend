@@ -48,7 +48,7 @@ struct AdvancedNetworkManagerTests {
                 for: request, cacheKey: "fail-key", retryPolicy: retryPolicy)
             Issue.record("Expected fetchData to throw an error")
         } catch {
-            if case .networkUnavailable = error as? NetworkError {
+            if let networkError = error as? NetworkError, case .networkUnavailable = networkError {
                 // Success - caught the expected NetworkError.networkUnavailable
             } else {
                 #expect(Bool(false), "Expected NetworkError.networkUnavailable, got \(error)")
@@ -211,14 +211,14 @@ struct AdvancedNetworkManagerTests {
         do {
             _ = try await errorManager.fetchData(
                 for: errorRequest, cacheKey: "error-404-key")
-            #expect(Bool(false), "Expected NetworkError.httpError for 404 status code")
+            #expect(Bool(false), "Expected NetworkError.notFound for 404 status code")
         } catch let error as NetworkError {
             // Verify it's the expected HTTP error
-            if case let .httpError(statusCode, data) = error {
+            if case let .notFound(data, statusCode) = error {
                 #expect(statusCode == 404, "Expected 404 status code in error")
                 #expect(data == errorData, "Expected error data to match response data")
             } else {
-                #expect(Bool(false), "Expected NetworkError.httpError for 404 response")
+                #expect(Bool(false), "Expected NetworkError.notFound for 404 response")
             }
         } catch {
             #expect(Bool(false), "Expected NetworkError for 404 response, got \(type(of: error))")

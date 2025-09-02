@@ -356,10 +356,10 @@ import Testing
             }
 
             // Assert the continuation result is the expected error type
-            if case let .httpError(statusCode, _) = result {
+            if case let .serverError(statusCode, _) = result {
                 #expect(statusCode == 500, "Should receive HTTP 500 error")
             } else {
-                Issue.record("Expected HTTP error but got: \(result)")
+                Issue.record("Expected server error but got: \(result)")
             }
 
             // Assert that model.isUploading is false

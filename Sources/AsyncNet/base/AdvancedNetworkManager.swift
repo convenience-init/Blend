@@ -249,13 +249,14 @@ public actor DefaultNetworkCache: NetworkCache {
     private func performLightweightCleanup() async {
         let now = timeProvider()
         var nodesToRemove: [Node] = []
-        let cleanupLimit = min(10, cache.count / 4)  // Check up to 25% or 10 entries
+        let initialCount = cache.count  // Capture stable count before cleanup
+        let cleanupLimit = min(10, initialCount / 4)  // Check up to 25% or 10 entries
         var checked = 0
         var visitedNodes = Set<ObjectIdentifier>()
 
         // Start from tail and work backwards, checking for expired entries
         var current = tail
-        while let node = current, checked < cleanupLimit, checked < cache.count {
+        while let node = current, checked < cleanupLimit, checked < initialCount {
             // Cycle detection: break if we've seen this node before
             let nodeId = ObjectIdentifier(node)
             if visitedNodes.contains(nodeId) {
@@ -370,13 +371,22 @@ public actor AdvancedNetworkManager {
                             #endif
                             return data
                         case 400:
-                            throw NetworkError.httpError(
-                                statusCode: httpResponse.statusCode, data: data)
+                            throw NetworkError.badRequest(
+                                data: data, statusCode: httpResponse.statusCode)
                         case 401:
                             throw NetworkError.unauthorized(
                                 data: data, statusCode: httpResponse.statusCode)
+                        case 403:
+                            throw NetworkError.forbidden(
+                                data: data, statusCode: httpResponse.statusCode)
+                        case 404:
+                            throw NetworkError.notFound(
+                                data: data, statusCode: httpResponse.statusCode)
+                        case 429:
+                            throw NetworkError.rateLimited(
+                                data: data, statusCode: httpResponse.statusCode)
                         case 500...599:
-                            throw NetworkError.httpError(
+                            throw NetworkError.serverError(
                                 statusCode: httpResponse.statusCode, data: data)
                         default:
                             throw NetworkError.httpError(
@@ -404,7 +414,13 @@ public actor AdvancedNetworkManager {
                         shouldRetryAttempt = customShouldRetry(error, attempt)
                     } else {
                         // Default behavior: always retry (maxRetries controls total attempts)
-                        _ = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+                        let wrappedError = await NetworkError.wrapAsync(
+                            error, config: AsyncNetConfig.shared)
+                        #if canImport(OSLog)
+                            asyncNetLogger.debug(
+                                "Default retry behavior triggered for wrapped error: \(wrappedError.localizedDescription, privacy: .public)"
+                            )
+                        #endif
                         shouldRetryAttempt = true
                     }
 
@@ -470,6 +486,8 @@ public actor AdvancedNetworkManager {
         let sensitiveHeaders: Set<String> = [
             "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token",
             "x-csrf-token", "x-xsrf-token", "proxy-authorization",
+            "x-session-id", "x-user-id", "x-access-token", "x-refresh-token",
+            "authentication", "www-authenticate", "x-forwarded-for", "x-real-ip"
         ]
 
         // Include only non-sensitive headers, normalized to lowercase and sorted
@@ -691,19 +709,19 @@ public struct RetryPolicy: Sendable {
 /// ```
 // MARK: - Seeded Random Number Generator
 /// A seeded random number generator for reproducible jitter in tests
-public final class SeededRandomNumberGenerator: RandomNumberGenerator {
+public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecked Sendable {
     private var state: UInt64
-    private let queue = DispatchQueue(label: "com.asyncnet.seededrng")
+    private let lock = OSAllocatedUnfairLock()
 
     public init(seed: UInt64) {
         self.state = seed
     }
 
     public func next() -> UInt64 {
-        queue.sync {
-            // Simple linear congruential generator for reproducibility
-            state = (2_862_933_555_777_941_757 &* state) &+ 3_037_000_493
-            return state
-        }
+        lock.lock()
+        defer { lock.unlock() }
+        // Simple linear congruential generator for reproducibility
+        state = (2_862_933_555_777_941_757 &* state) &+ 3_037_000_493
+        return state
     }
 }

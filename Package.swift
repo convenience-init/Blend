@@ -24,8 +24,8 @@ let package = Package(
                 .process("Resources")
             ],
             swiftSettings: [
-                // Suppress redundant modifier warnings from SourceKit LSP
-                .unsafeFlags(["-suppress-warnings"])
+                // Suppress redundant modifier warnings from SourceKit LSP (Debug only)
+                .unsafeFlags(["-suppress-warnings"], .when(configuration: .debug))
             ]
         ),
         .testTarget(

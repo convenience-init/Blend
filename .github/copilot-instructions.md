@@ -13,14 +13,27 @@ This codebase is a Swift networking library with comprehensive image handling, b
 
 **Swift 6 Enforcement Requirements:**
 
-- **Package.swift**: Add `// swift-tools-version: 6.0` at the top of the file to enforce Swift 6 toolchain
+- **Package.swift**: Add `// swift-tools-version: 6.0` at the top of the file to enforce Swift 6 toolchain, and include a platforms entry locking iOS to v18 and macOS to v15:
+  ```swift
+  // swift-tools-version: 6.0
+  import PackageDescription
+
+  let package = Package(
+      name: "YourPackage",
+      platforms: [
+          .iOS(.v18),
+          .macOS(.v15)
+      ],
+      // ... rest of package configuration
+  )
+  ```
 - **Build Settings**: Enable strict concurrency checking in Xcode project settings:
   - Set "Strict Concurrency Checking" to "Complete"
   - Enable "Sendable Checking" for all targets
 - **Xcode Flags**: Use these additional compiler flags for maximum concurrency safety:
-  - `-Xfrontend -strict-concurrency=complete` (matches Xcode “Strict Concurrency: Complete”)
+  - `-Xfrontend -strict-concurrency=complete` (matches Xcode "Strict Concurrency: Complete")
   - `-Xfrontend -warn-concurrency` (additional concurrency warnings)
-  - `-Xfrontend -enable-actor-data-race-checks` (optional; prefer Debug-only due to overhead)
+  - `-Xfrontend -enable-actor-data-race-checks` (Debug-only; enables runtime actor data race detection with performance overhead)
 **CI/CD Requirements:**
 - Use Xcode 16+ in GitHub Actions or other CI systems
 - Ensure SwiftPM resolves to Swift 6 toolchain

@@ -25,6 +25,16 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     // MARK: - Specific Error Cases
     /// HTTP error with status code and optional response data (Sendable)
     case httpError(statusCode: Int, data: Data?)
+    /// Bad request error (400) with optional response data and status code
+    case badRequest(data: Data?, statusCode: Int)
+    /// Forbidden error (403) with optional response data and status code
+    case forbidden(data: Data?, statusCode: Int)
+    /// Not found error (404) with optional response data and status code
+    case notFound(data: Data?, statusCode: Int)
+    /// Rate limited error (429) with optional response data and status code
+    case rateLimited(data: Data?, statusCode: Int)
+    /// Server error (5xx) with status code and optional response data
+    case serverError(statusCode: Int, data: Data?)
     /// Decoding error with underlying error and optional data (Sendable)
     case decodingError(underlying: any Error & Sendable, data: Data?)
     /// Dedicated decoding failure with detailed context and underlying DecodingError
@@ -326,6 +336,32 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         switch self {
         case .httpError(let statusCode, _):
             return NetworkError.statusMessage("HTTP error: Status code %d", statusCode)
+        case .badRequest(_, let statusCode):
+            return String(
+                format: NSLocalizedString(
+                    "Bad request (status %d).", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Bad request (status %d).",
+                    comment: "Error message for HTTP 400 Bad Request errors"), statusCode)
+        case .forbidden(_, let statusCode):
+            return String(
+                format: NSLocalizedString(
+                    "Forbidden (status %d).", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Forbidden (status %d).",
+                    comment: "Error message for HTTP 403 Forbidden errors"), statusCode)
+        case .notFound(_, let statusCode):
+            return String(
+                format: NSLocalizedString(
+                    "Not found (status %d).", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Not found (status %d).",
+                    comment: "Error message for HTTP 404 Not Found errors"), statusCode)
+        case .rateLimited(_, let statusCode):
+            return String(
+                format: NSLocalizedString(
+                    "Rate limited (status %d).", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Rate limited (status %d).",
+                    comment: "Error message for HTTP 429 Rate Limited errors"), statusCode)
+        case .serverError(let statusCode, _):
+            return NetworkError.statusMessage("Server error: Status code %d", statusCode)
         case .decodingError(let underlying, _):
             return String(
                 format: NSLocalizedString(
@@ -513,6 +549,36 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
                     value: "Check the request and try again.",
                     comment: "Recovery suggestion for general HTTP errors")
             }
+        case .badRequest:
+            return NSLocalizedString(
+                "Check the request parameters and format.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Check the request parameters and format.",
+                comment: "Recovery suggestion for bad request errors")
+        case .forbidden:
+            return NSLocalizedString(
+                "Check your permissions for this resource.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Check your permissions for this resource.",
+                comment: "Recovery suggestion for forbidden access errors")
+        case .notFound:
+            return NSLocalizedString(
+                "Verify the endpoint URL and resource exists.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Verify the endpoint URL and resource exists.",
+                comment: "Recovery suggestion for not found errors")
+        case .rateLimited:
+            return NSLocalizedString(
+                "Wait before making another request or reduce request frequency.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Wait before making another request or reduce request frequency.",
+                comment: "Recovery suggestion for rate limited errors")
+        case .serverError:
+            return NSLocalizedString(
+                "Try again later. The server encountered an error.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Try again later. The server encountered an error.",
+                comment: "Recovery suggestion for server errors")
         case .decodingError:
             return NSLocalizedString(
                 "Ensure the response format matches the expected model.", tableName: nil,
@@ -766,6 +832,23 @@ extension NetworkError {
         ):
             return lhsMessage == rhsMessage && lhsDetails == rhsDetails
         case (.httpError(let lhsStatus, let lhsData), .httpError(let rhsStatus, let rhsData)):
+            return lhsStatus == rhsStatus && lhsData == rhsData
+        case (
+            .badRequest(let lhsData, let lhsStatusCode), .badRequest(let rhsData, let rhsStatusCode)
+        ):
+            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
+        case (
+            .forbidden(let lhsData, let lhsStatusCode), .forbidden(let rhsData, let rhsStatusCode)
+        ):
+            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
+        case (.notFound(let lhsData, let lhsStatusCode), .notFound(let rhsData, let rhsStatusCode)):
+            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
+        case (
+            .rateLimited(let lhsData, let lhsStatusCode),
+            .rateLimited(let rhsData, let rhsStatusCode)
+        ):
+            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
+        case (.serverError(let lhsStatus, let lhsData), .serverError(let rhsStatus, let rhsData)):
             return lhsStatus == rhsStatus && lhsData == rhsData
         case (.decodingError(let lhsError, let lhsData), .decodingError(let rhsError, let rhsData)):
             // Compare error types and NSError properties since Error is not Equatable
