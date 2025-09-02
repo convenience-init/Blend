@@ -158,7 +158,7 @@ struct CreateUserEndpoint: Endpoint {
 - **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
 - **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
 - **Resource Timeout** (`URLSessionConfiguration.timeoutIntervalForResource`): Controls the total time for the entire resource transfer (including redirects, authentication, and data transfer). This is crucial for long uploads/downloads where `timeoutIntervalForRequest` may timeout before the transfer completes.
-- **Zero Timeout Behavior**: A timeout value of `0` means "no timeout" - the request/resource will wait indefinitely. Use with caution.
+- **Zero Timeout Behavior**: A timeout value of `0` does NOT mean "no timeout" or infinite timeout. Instead, it causes `URLRequest`/`URLSession` to fall back to system default timeouts (typically 60 seconds for requests, 7 days for resources per Apple documentation). Avoid using `0` to express "infinite" timeout - use a clearly defined sentinel value (e.g., `Duration.seconds(86400)` for 24 hours) or explicit large timeout instead.
 - **Duration Conversion**: Use this portable helper to convert Swift `Duration` to `TimeInterval`:
   ```swift
   /// Portable Duration to TimeInterval conversion
@@ -178,7 +178,7 @@ struct CreateUserEndpoint: Endpoint {
   }
   // Leave unset when nil so session's timeoutIntervalForRequest (default: 60s) applies
   ```
-- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback. Setting it to `0` disables timeouts entirely.
+- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback. Setting it to `0` causes fallback to system defaults, not infinite timeout.
 - **Session Configuration Example**: Configure both per-request and resource timeouts:
   ```swift
   let configuration = URLSessionConfiguration.default
@@ -186,4 +186,4 @@ struct CreateUserEndpoint: Endpoint {
   configuration.timeoutIntervalForResource = 300.0 // 5min total resource timeout (for large uploads)
   let session = URLSession(configuration: configuration)
   ```
-- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults. For large file uploads/downloads, ensure `timeoutIntervalForResource` is sufficiently long.
+- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults. For large file uploads/downloads, ensure `timeoutIntervalForResource` is sufficiently long. Avoid using `0` for "infinite" timeouts - use explicit large values instead.

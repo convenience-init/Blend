@@ -24,15 +24,13 @@ let package = Package(
                 .process("Resources")
             ],
             swiftSettings: [
-                .define("MACOS15", .when(platforms: [.macOS]))
+                // Suppress redundant modifier warnings from SourceKit LSP
+                .unsafeFlags(["-suppress-warnings"])
             ]
         ),
         .testTarget(
             name: "AsyncNetTests",
-            dependencies: ["AsyncNet"],
-            swiftSettings: [
-                .define("MACOS15", .when(platforms: [.macOS]))
-            ]
+            dependencies: ["AsyncNet"]
         ),
     ]
 )

@@ -344,8 +344,8 @@ struct AsyncRequestableTests {
                 throw NetworkError.customError(
                     "HTTP error", details: "Status code: \(httpResponse.statusCode)")
             }
-            // Decode Data into TestModel
-            return try jsonDecoder.decode(TestModel.self, from: data)
+            // Decode Data into ResponseModel
+            return try jsonDecoder.decode(ResponseModel.self, from: data)
         }
     }
 
@@ -441,16 +441,23 @@ struct AsyncRequestableTests {
             typealias ResponseModel = Int
             typealias SecondaryResponseModel = String
 
-            func sendRequest(to endPoint: Endpoint) async throws -> Int {
+            func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+            where ResponseModel: Decodable {
                 // Just test that jsonDecoder is accessible and returns a JSONDecoder
                 _ = jsonDecoder
-                return 42
+                // For testing purposes, return a dummy value that can be decoded
+                if ResponseModel.self == Int.self {
+                    return 42 as! ResponseModel
+                } else {
+                    throw NetworkError.decodingError(
+                        underlying: NSError(domain: "Test", code: -1), data: Data())
+                }
             }
         }
 
         let service = SimpleService()
         let endpoint = MockEndpoint()
-        let result = try await service.sendRequest(to: endpoint)
+        let result: Int = try await service.sendRequest(to: endpoint)
         #expect(result == 42)
     }
 
@@ -465,9 +472,17 @@ struct AsyncRequestableTests {
                 customDecoder
             }
 
-            func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
+            func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+            where ResponseModel: Decodable {
                 // Use the injected decoder
-                return try customDecoder.decode(TestModel.self, from: Data("{\"value\":99}".utf8))
+                if ResponseModel.self == TestModel.self {
+                    return try customDecoder.decode(
+                        TestModel.self, from: Data("{\"value\":99}".utf8))
+                        as! ResponseModel
+                } else {
+                    throw NetworkError.decodingError(
+                        underlying: NSError(domain: "Test", code: -1), data: Data())
+                }
             }
         }
 

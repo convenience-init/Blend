@@ -115,9 +115,8 @@ import Foundation
 ///
 /// ## Type Constraints
 ///
-/// The `ResponseModel` is constrained to be a `Sequence` (like `Array`), while `SecondaryResponseModel`
-/// can be any `Decodable` type. This reflects the common pattern where lists contain summary objects
-/// and details contain complete objects.
+/// Convention: `ResponseModel` is often a collection type (e.g., `[Summary]`), but this protocol
+/// does not require it. `SecondaryResponseModel` can be any `Decodable` type.
 ///
 /// ## Convenience Methods
 ///

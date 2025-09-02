@@ -22,7 +22,7 @@
 "Authentication failed." = "Authentication failed.";
 "Transport error: %@ - %@" = "Transport error: %@ - %@";
 "Out of script bounds: Call %d" = "Out of script bounds: Call %d";
-"Payload too large: %d bytes exceeds limit of %d bytes" = "Payload too large: %d bytes exceeds limit of %d bytes";
+"Payload too large: %d bytes exceeds limit of %d bytes" = "The payload size of %1$llu bytes exceeds the limit of %2$llu bytes.";
 "Invalid mock configuration: Call %d is missing %@" = "Invalid mock configuration: Call %d is missing %@";
 
 /* Transport error descriptions */

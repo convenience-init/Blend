@@ -48,13 +48,10 @@
                 return rasterizedPNGData()
             } else {
                 // Dispatch to main thread synchronously to get the rasterized data
-                let semaphore = DispatchSemaphore(value: 0)
                 var result: Data?
-                Task { @MainActor in
+                DispatchQueue.main.sync {
                     result = self.rasterizedPNGData()
-                    semaphore.signal()
                 }
-                semaphore.wait()
                 return result
             }
         }
@@ -88,16 +85,13 @@
                 )
             } else {
                 // Dispatch to main thread synchronously to get the rasterized data
-                let semaphore = DispatchSemaphore(value: 0)
                 var result: Data?
-                Task { @MainActor in
+                DispatchQueue.main.sync {
                     result = self.rasterizedBitmap()?.representation(
                         using: .jpeg,
                         properties: [.compressionFactor: compressionQuality]
                     )
-                    semaphore.signal()
                 }
-                semaphore.wait()
                 return result
             }
         }
@@ -112,13 +106,10 @@
                 return bitmapRep.representation(using: .png, properties: [:])
             } else {
                 // Dispatch to main thread synchronously to get the rasterized data
-                let semaphore = DispatchSemaphore(value: 0)
                 var result: Data?
-                Task { @MainActor in
+                DispatchQueue.main.sync {
                     result = self.rasterizedBitmap()?.representation(using: .png, properties: [:])
-                    semaphore.signal()
                 }
-                semaphore.wait()
                 return result
             }
         }
@@ -129,13 +120,10 @@
         private func rasterizedBitmap() -> NSBitmapImageRep? {
             if !Thread.isMainThread {
                 // Dispatch to main thread synchronously to perform rasterization
-                let semaphore = DispatchSemaphore(value: 0)
                 var result: NSBitmapImageRep?
-                Task { @MainActor in
+                DispatchQueue.main.sync {
                     result = self.rasterizedBitmapOnMainThread()
-                    semaphore.signal()
                 }
-                semaphore.wait()
                 return result
             }
 

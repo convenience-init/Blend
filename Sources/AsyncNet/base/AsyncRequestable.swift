@@ -396,4 +396,3 @@ public protocol URLSessionProtocol: Sendable {
 }
 
 extension URLSession: URLSessionProtocol {}
-

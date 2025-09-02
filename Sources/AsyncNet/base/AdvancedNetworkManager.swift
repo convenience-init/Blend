@@ -691,19 +691,19 @@ public struct RetryPolicy: Sendable {
 /// ```
 // MARK: - Seeded Random Number Generator
 /// A seeded random number generator for reproducible jitter in tests
-public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecked Sendable {
+public final class SeededRandomNumberGenerator: RandomNumberGenerator {
     private var state: UInt64
-    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "com.asyncnet.seededrng")
 
     public init(seed: UInt64) {
         self.state = seed
     }
 
     public func next() -> UInt64 {
-        lock.lock()
-        defer { lock.unlock() }
-        // Simple linear congruential generator for reproducibility
-        state = (2_862_933_555_777_941_757 &* state) &+ 3_037_000_493
-        return state
+        queue.sync {
+            // Simple linear congruential generator for reproducibility
+            state = (2_862_933_555_777_941_757 &* state) &+ 3_037_000_493
+            return state
+        }
     }
 }

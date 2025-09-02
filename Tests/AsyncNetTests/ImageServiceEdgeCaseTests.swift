@@ -7,16 +7,22 @@ import Testing
 struct ImageServiceEdgeCaseTests {
     @Test func testCacheEvictionMaxLRUCount() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF])
-        let response = HTTPURLResponse(
-            url: URL(string: "https://mock.api/test")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "image/jpeg"]
-        )!
+        // Generate URLs for the test requests
+        let requestUrls =
+            (0..<5).map { "https://mock.api/test\($0)" } + ["https://mock.api/testEvict"]
+        // Create responses with URLs matching each request
+        let scriptedResponses = requestUrls.map { urlString in
+            HTTPURLResponse(
+                url: URL(string: urlString)!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "image/jpeg"]
+            )!
+        }
         // Provide enough scripted responses for all the calls this test makes (6 calls total)
         let mockSession = MockURLSession(
             scriptedData: Array(repeating: imageData, count: 6),
-            scriptedResponses: Array(repeating: response, count: 6),
+            scriptedResponses: scriptedResponses,
             scriptedErrors: Array(repeating: nil as Error?, count: 6)
         )
         let service = ImageService(
@@ -109,16 +115,21 @@ struct ImageServiceEdgeCaseTests {
 
     @Test func testEvictionAfterCacheConfigUpdate() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF])
-        let response = HTTPURLResponse(
-            url: URL(string: "https://mock.api/test")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "image/jpeg"]
-        )!
+        // Generate URLs for the test requests
+        let requestUrls = (0..<6).map { "https://mock.api/test\($0)" }
+        // Create responses with URLs matching each request
+        let scriptedResponses = requestUrls.map { urlString in
+            HTTPURLResponse(
+                url: URL(string: urlString)!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "image/jpeg"]
+            )!
+        }
         // Provide enough scripted responses for all the calls this test makes (6 calls total: 6 inserts)
         let mockSession = MockURLSession(
             scriptedData: Array(repeating: imageData, count: 6),
-            scriptedResponses: Array(repeating: response, count: 6),
+            scriptedResponses: scriptedResponses,
             scriptedErrors: Array(repeating: nil as Error?, count: 6)
         )
         // Start with a higher limit, then reduce it to trigger eviction after a config update.

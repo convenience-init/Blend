@@ -239,14 +239,14 @@ public actor ImageService {
     /// Stores expiration entries keyed by (insertionTimestamp + maxAge) for O(log n) expiration
     private final class ExpirationHeap {
         private var heap: [ExpirationEntry] = []
-        private var keyToIndex: [NSString: Int] = [:]  // Track position of each key in heap
+        private var keyToIndex: [String: Int] = [:]  // Track position of each key in heap
 
         struct ExpirationEntry {
             let expirationTime: TimeInterval
-            let key: NSString
+            let key: String  // Changed from NSString to String to prevent memory retention
             var isValid: Bool = true  // Mark as invalid when entry is removed
 
-            init(expirationTime: TimeInterval, key: NSString) {
+            init(expirationTime: TimeInterval, key: String) {
                 self.expirationTime = expirationTime
                 self.key = key
             }
@@ -280,10 +280,38 @@ public actor ImageService {
         }
 
         /// Mark an entry as invalid (when manually removed)
-        func invalidate(key: NSString) {
+        func invalidate(key: String) {
             if let index = keyToIndex[key] {
                 heap[index].isValid = false
                 keyToIndex.removeValue(forKey: key)
+            }
+            // Trigger compaction if invalid entries exceed 25% of total entries
+            let invalidCount = heap.count - keyToIndex.count
+            if heap.count > 0 && Double(invalidCount) / Double(heap.count) > 0.25 {
+                pruneInvalidEntries()
+            }
+        }
+
+        /// Prune invalid entries and rebuild heap for efficient memory usage
+        /// This method removes all invalid entries and rebuilds the heap structure
+        /// to prevent memory retention of invalidated entries
+        func pruneInvalidEntries() {
+            // Filter out invalid entries and rebuild heap
+            let validEntries = heap.filter { $0.isValid }
+
+            // Clear current heap and keyToIndex
+            heap.removeAll()
+            keyToIndex.removeAll()
+
+            // Rebuild heap with only valid entries
+            for entry in validEntries {
+                heap.append(entry)
+                keyToIndex[entry.key] = heap.count - 1
+            }
+
+            // Re-heapify the entire structure
+            for i in stride(from: heap.count / 2 - 1, through: 0, by: -1) {
+                siftDown(i)
             }
         }
 
@@ -359,6 +387,14 @@ public actor ImageService {
 
     private var expirationHeap = ExpirationHeap()
 
+    /// IMPORTANT: This class is NOT thread-safe and must only be accessed within ImageService actor isolation.
+    /// All mutations must occur on the ImageService actor's executor.
+    ///
+    /// Thread Safety Rationale:
+    /// - LRUNode contains mutable properties (prev, next, timestamp) that are not protected by synchronization
+    /// - All LRUNode operations are performed within the ImageService actor for thread safety
+    /// - The class is fileprivate to prevent external access and misuse
+    /// - Making LRUNode an actor would add unnecessary overhead since all usage is already actor-isolated
     fileprivate final class LRUNode {
         let key: NSString
         var prev: LRUNode?
@@ -546,13 +582,13 @@ public actor ImageService {
         let cacheKey = urlString as NSString
         // Check cache for image data, evict expired
         evictExpiredCache()
-        if let cachedData = dataCache.object(forKey: cacheKey),
+        if let cachedData = dataCache.object(forKey: cacheKey) as Data?,
             let node = lruDict[cacheKey],
             Date().timeIntervalSince1970 - node.insertionTimestamp < cacheConfig.maxAge
         {
             moveLRUNodeToHead(node)
             cacheHits += 1
-            return cachedData as Data
+            return cachedData
         }
         cacheMisses += 1
 
@@ -642,7 +678,7 @@ public actor ImageService {
                 let bitmap = NSBitmapImageRep(data: tiffData)
             else { return nil }
             let properties: [NSBitmapImageRep.PropertyKey: Any] = [
-                .compressionFactor: NSNumber(value: Double(compressionQuality))
+                .compressionFactor: compressionQuality
             ]
             return bitmap.representation(using: .jpeg, properties: properties)
         #else
@@ -895,7 +931,9 @@ public actor ImageService {
             removeLRUNode(node)
         }
         // Invalidate heap entry to prevent it from being processed during expiration
-        expirationHeap.invalidate(key: cacheKey)
+        expirationHeap.invalidate(key: cacheKey as String)
+        // Trigger periodic compaction to prevent memory retention
+        expirationHeap.pruneInvalidEntries()
     }
 
     /// Evict expired cache entries based on maxAge using efficient heap-based expiration
@@ -908,9 +946,9 @@ public actor ImageService {
         // This correctly handles cases where expired items are not at the LRU head
         while let expiredEntry = expirationHeap.popExpired(currentTime: now) {
             let key = expiredEntry.key
-            imageCache.removeObject(forKey: key)
-            dataCache.removeObject(forKey: key)
-            if let node = lruDict.removeValue(forKey: key) {
+            imageCache.removeObject(forKey: key as NSString)
+            dataCache.removeObject(forKey: key as NSString)
+            if let node = lruDict.removeValue(forKey: key as NSString) {
                 removeLRUNode(node)
             }
         }
@@ -944,7 +982,7 @@ public actor ImageService {
             lruDict.removeValue(forKey: key)
             removeLRUNode(node)
             // Invalidate heap entry for evicted node
-            expirationHeap.invalidate(key: key)
+            expirationHeap.invalidate(key: node.key as String)
         }
     }
 
@@ -1022,6 +1060,7 @@ public actor ImageService {
 extension ImageService {
     // NOTE: All LRUNode operations must be performed within the ImageService actor
     // for thread safety, as LRUNode is not Sendable due to mutable properties.
+    // This design choice prioritizes performance over redundant actor isolation.
     private func addOrUpdateLRUNode(for key: NSString) {
         let now = Date().timeIntervalSince1970
         if let node = lruDict[key] {
@@ -1036,7 +1075,7 @@ extension ImageService {
             // Push expiration entry to heap for efficient expiration tracking
             let expirationTime = now + cacheConfig.maxAge
             let expirationEntry = ExpirationHeap.ExpirationEntry(
-                expirationTime: expirationTime, key: key)
+                expirationTime: expirationTime, key: key as String)
             expirationHeap.push(expirationEntry)
 
             // Guard against invalid maxLRUCount values
@@ -1049,7 +1088,7 @@ extension ImageService {
                 lruDict.removeValue(forKey: tail.key)
                 removeLRUNode(tail)
                 // Invalidate heap entry for evicted node
-                expirationHeap.invalidate(key: tail.key)
+                expirationHeap.invalidate(key: tail.key as String)
             }
         }
     }
