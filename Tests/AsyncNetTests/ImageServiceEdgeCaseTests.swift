@@ -6,7 +6,7 @@ import Testing
 @Suite("Image Service Edge Case Tests")
 struct ImageServiceEdgeCaseTests {
     @Test func testCacheEvictionMaxLRUCount() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         // Generate URLs for the test requests
         let requestUrls =
             (0..<5).map { "https://mock.api/test\($0)" } + ["https://mock.api/testEvict"]
@@ -56,7 +56,7 @@ struct ImageServiceEdgeCaseTests {
     }
 
     @Test func testCacheEvictionMaxAge() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -92,7 +92,7 @@ struct ImageServiceEdgeCaseTests {
     }
 
     @Test func testCacheMetricsHitsMisses() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -114,7 +114,7 @@ struct ImageServiceEdgeCaseTests {
     }
 
     @Test func testEvictionAfterCacheConfigUpdate() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         // Generate URLs for the test requests
         let requestUrls = (0..<6).map { "https://mock.api/test\($0)" }
         // Create responses with URLs matching each request

@@ -8,6 +8,9 @@
 #if canImport(SwiftUI)
     import SwiftUI
 #endif
+#if canImport(UniformTypeIdentifiers)
+    import UniformTypeIdentifiers
+#endif
 
 /// Shared URLSession instance with optimized caching configuration
 /// Created outside actor isolation to avoid expensive actor-hop overhead
@@ -178,10 +181,25 @@ public actor ImageService {
     }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
     public func isImageCached(forKey key: String) async -> Bool {
-        // Check expiration without removing node to prevent race conditions
+        // Atomically check LRU state and expiration to prevent race conditions
         if let node = lruDict[key] {
             let now = Date().timeIntervalSince1970
-            if now - node.insertionTimestamp >= cacheConfig.maxAge {
+            // If not expired, check caches immediately while we know LRU state is valid
+            if now - node.insertionTimestamp < cacheConfig.maxAge {
+                let cacheKey = key
+                let inImageCache = await imageCache.object(forKey: cacheKey) != nil
+                let inDataCache = await dataCache.object(forKey: cacheKey) != nil
+                let isCached = inImageCache || inDataCache
+
+                // If cached but not in LRU, reinsert to maintain LRU behavior
+                if isCached && lruDict[key] == nil {
+                    // Capture the key value to avoid Sendable issues
+                    let keyString = key
+                    await addOrUpdateLRUNode(for: keyString)
+                }
+
+                return isCached
+            } else {
                 // Node was expired - evict it completely from all caches
                 let cacheKey = key
                 await imageCache.removeObject(forKey: cacheKey)
@@ -194,20 +212,8 @@ public actor ImageService {
             }
         }
 
-        // Check if image/data exists in caches
-        let cacheKey = key
-        let inImageCache = await imageCache.object(forKey: cacheKey) != nil
-        let inDataCache = await dataCache.object(forKey: cacheKey) != nil
-        let isCached = inImageCache || inDataCache
-        
-        // If cached but not in LRU, reinsert to maintain LRU behavior (only for non-expired items)
-        if isCached && lruDict[key] == nil {
-            // Capture the key value to avoid Sendable issues
-            let keyString = key
-            await addOrUpdateLRUNode(for: keyString)
-        }
-        
-        return isCached
+        // Not in LRU at all - definitely not cached
+        return false
     }
     // cacheHits and cacheMisses are public actor variables for test access
     // MARK: - Request/Response Interceptor Support
@@ -617,8 +623,8 @@ public actor ImageService {
             return try await existingTask.value
         }
 
-        // Create new detached task for this request, with retry/backoff
-        let fetchTask = Task<Data, Error>.detached {
+        // Create new task for this request, with retry/backoff
+        let fetchTask = Task<Data, Error> {
             [weak self] () async throws -> Data in
             guard let self else { throw CancellationError() }
 
@@ -1087,66 +1093,169 @@ public actor ImageService {
     private func detectMimeType(from data: Data) -> String? {
         guard !data.isEmpty else { return nil }
 
-        let bytes = [UInt8](data.prefix(min(16, data.count)))
+        // Read at least 32 bytes to handle complex signatures
+        let bytes = [UInt8](data.prefix(min(32, data.count)))
+        let dataCount = data.count
 
-        // JPEG: FF D8 FF (needs at least 3 bytes)
-        if data.count >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        // Helper function to safely check byte sequences
+        func checkBytes(at indices: [Int], expected: [UInt8]) -> Bool {
+            guard indices.count == expected.count else { return false }
+            for (i, expectedByte) in expected.enumerated() {
+                let byteIndex = indices[i]
+                guard byteIndex < bytes.count && bytes[byteIndex] == expectedByte else {
+                    return false
+                }
+            }
+            return true
+        }
+
+        // JPEG: FF D8 FF (SOI marker)
+        if dataCount >= 3 && checkBytes(at: [0, 1, 2], expected: [0xFF, 0xD8, 0xFF]) {
             return "image/jpeg"
         }
 
-        // PNG: 89 50 4E 47 0D 0A 1A 0A (needs at least 8 bytes)
-        if data.count >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E
-            && bytes[3] == 0x47 && bytes[4] == 0x0D && bytes[5] == 0x0A && bytes[6] == 0x1A
-            && bytes[7] == 0x0A
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if dataCount >= 8
+            && checkBytes(
+                at: [0, 1, 2, 3, 4, 5, 6, 7],
+                expected: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         {
             return "image/png"
         }
 
-        // GIF: 47 49 46 38 (needs at least 4 bytes)
-        if data.count >= 4 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46
-            && bytes[3] == 0x38
+        // GIF87a: 47 49 46 38 37 61
+        if dataCount >= 6
+            && checkBytes(
+                at: [0, 1, 2, 3, 4, 5],
+                expected: [0x47, 0x49, 0x46, 0x38, 0x37, 0x61])
         {
             return "image/gif"
         }
 
-        // WebP: 52 49 46 46 ... 57 45 42 50 (needs at least 12 bytes)
-        if data.count >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46
-            && bytes[3] == 0x46
+        // GIF89a: 47 49 46 38 39 61
+        if dataCount >= 6
+            && checkBytes(
+                at: [0, 1, 2, 3, 4, 5],
+                expected: [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
         {
-            if bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50 {
+            return "image/gif"
+        }
+
+        // WebP: RIFF header + WEBP at offset 8
+        if dataCount >= 12 && checkBytes(at: [0, 1, 2, 3], expected: [0x52, 0x49, 0x46, 0x46]) {
+            if checkBytes(at: [8, 9, 10, 11], expected: [0x57, 0x45, 0x42, 0x50]) {
                 return "image/webp"
             }
         }
 
-        // HEIC/HEIF: often starts with 'ftyp' box (needs at least 12 bytes)
-        if data.count >= 12 {
-            // Check for 'ftyp' box: bytes 4-7 should be [0x66, 0x74, 0x79, 0x70]
-            if bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70 {
-                // Check brand (bytes 8-11)
-                if data.count >= 16 {
-                    let brandBytes = (bytes[8], bytes[9], bytes[10], bytes[11])
-                    switch brandBytes {
-                    case (0x68, 0x65, 0x69, 0x63):  // "heic"
-                        return "image/heic"
-                    case (0x68, 0x65, 0x69, 0x78):  // "heix"
-                        return "image/heic"
-                    case (0x68, 0x65, 0x76, 0x63):  // "hevc"
-                        return "image/heic"
-                    case (0x68, 0x65, 0x76, 0x78):  // "hevx"
-                        return "image/heic"
-                    case (0x6d, 0x69, 0x66, 0x31):  // "mif1"
-                        return "image/heic"
-                    case (0x6d, 0x73, 0x66, 0x31):  // "msf1"
-                        return "image/heic"
-                    default:
-                        break
+        // BMP: 42 4D (BM)
+        if dataCount >= 2 && checkBytes(at: [0, 1], expected: [0x42, 0x4D]) {
+            return "image/bmp"
+        }
+
+        // TIFF Little Endian: 49 49 2A 00
+        if dataCount >= 4 && checkBytes(at: [0, 1, 2, 3], expected: [0x49, 0x49, 0x2A, 0x00]) {
+            return "image/tiff"
+        }
+
+        // TIFF Big Endian: 4D 4D 00 2A
+        if dataCount >= 4 && checkBytes(at: [0, 1, 2, 3], expected: [0x4D, 0x4D, 0x00, 0x2A]) {
+            return "image/tiff"
+        }
+
+        // HEIC/HEIF/AVIF: ISO Base Media File Format with 'ftyp' box
+        if dataCount >= 12 && checkBytes(at: [4, 5, 6, 7], expected: [0x66, 0x74, 0x79, 0x70]) {
+            // Check major brand (bytes 8-11)
+            if dataCount >= 16 {
+                let brandBytes = (bytes[8], bytes[9], bytes[10], bytes[11])
+                switch brandBytes {
+                case (0x68, 0x65, 0x69, 0x63):  // "heic"
+                    return "image/heic"
+                case (0x68, 0x65, 0x69, 0x78):  // "heix"
+                    return "image/heic"
+                case (0x68, 0x65, 0x76, 0x63):  // "hevc"
+                    return "image/heic"
+                case (0x68, 0x65, 0x76, 0x78):  // "hevx"
+                    return "image/heic"
+                case (0x6d, 0x69, 0x66, 0x31):  // "mif1"
+                    return "image/heic"
+                case (0x6d, 0x73, 0x66, 0x31):  // "msf1"
+                    return "image/heic"
+                case (0x61, 0x76, 0x69, 0x66):  // "avif"
+                    return "image/avif"
+                case (0x61, 0x76, 0x69, 0x73):  // "avis"
+                    return "image/avif"
+                default:
+                    // Check compatible brands if available (bytes 12-15, 16-19, etc.)
+                    if dataCount >= 20 {
+                        let compatibleBrand1 = (bytes[12], bytes[13], bytes[14], bytes[15])
+                        let compatibleBrand2 = (bytes[16], bytes[17], bytes[18], bytes[19])
+
+                        // Check for HEIC/AVIF in compatible brands
+                        if compatibleBrand1 == (0x68, 0x65, 0x69, 0x63)
+                            || compatibleBrand1 == (0x61, 0x76, 0x69, 0x66)
+                            || compatibleBrand2 == (0x68, 0x65, 0x69, 0x63)
+                            || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66)
+                        {
+                            return brandBytes == (0x61, 0x76, 0x69, 0x66)
+                                || brandBytes == (0x61, 0x76, 0x69, 0x73)
+                                ? "image/avif" : "image/heic"
+                        }
                     }
+                    break
                 }
             }
         }
 
+        // Try platform-specific MIME detection as fallback
+        #if canImport(UniformTypeIdentifiers)
+            return detectMimeTypeUsingPlatformAPI(from: data)
+        #else
+            return nil
+        #endif
+    }
+
+    #if canImport(UniformTypeIdentifiers)
+
+        /// Fallback MIME detection using platform APIs
+        private func detectMimeTypeUsingPlatformAPI(from data: Data) -> String? {
+            // Create a temporary file URL for type detection
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("tmp")
+
+            do {
+                try data.write(to: tempURL)
+                defer {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+
+                // Use UTType for MIME type detection based on file extension
+                // This is a simple fallback that works for well-known extensions
+                if let type = UTType(filenameExtension: tempURL.pathExtension) {
+                    if type.conforms(to: UTType.jpeg) {
+                        return "image/jpeg"
+                    } else if type.conforms(to: UTType.png) {
+                        return "image/png"
+                    } else if type.conforms(to: UTType.gif) {
+                        return "image/gif"
+                    } else if type.conforms(to: UTType.webP) {
+                        return "image/webp"
+                    } else if type.conforms(to: UTType.bmp) {
+                        return "image/bmp"
+                    } else if type.conforms(to: UTType.tiff) {
+                        return "image/tiff"
+                    } else if type.conforms(to: UTType.heic) {
+                        return "image/heic"
+                }
+            }
+            } catch {
+                // Ignore errors and return nil
+        }
+
         return nil
     }
+    #endif
 }
 
 /// Wrapper for non-Sendable image types to make them usable in Swift 6 concurrency
@@ -1426,6 +1535,7 @@ private struct UploadPayload: Encodable {
 public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
     private var storage: [Key: CacheEntry] = [:]
     private var _totalCost: Int = 0
+    private var insertionOrder: [Key] = []  // Track insertion order for FIFO eviction
     public let countLimit: Int?
     public let totalCostLimit: Int?
 
@@ -1459,26 +1569,42 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
         storage[key]?.value
     }
 
-    /// Store an object in the cache
+    /// Store an object in the cache with limit enforcement
     public func setObject(_ value: Value, forKey key: Key, cost: Int = 1) {
         let entry = CacheEntry(value: value, cost: cost)
 
         // Remove existing entry if present to update cost
         if let existingEntry = storage[key] {
             _totalCost -= existingEntry.cost
+            // Remove from insertion order (will be re-added at end)
+            insertionOrder.removeAll { $0 == key }
         }
 
+        // Enforce count limit by removing oldest items if necessary
+        if let countLimit = countLimit {
+            while storage.count >= countLimit && !storage.isEmpty {
+                evictOldestEntry()
+            }
+        }
+
+        // Enforce cost limit by removing oldest items if necessary
+        if let totalCostLimit = totalCostLimit {
+            while _totalCost + cost > totalCostLimit && !storage.isEmpty {
+                evictOldestEntry()
+            }
+        }
+
+        // Add the new entry
         storage[key] = entry
         _totalCost += cost
-
-        // NOTE: Limit enforcement is handled by the LRU system in ImageService
-        // Do not enforce limits here to avoid conflicts with LRU eviction logic
+        insertionOrder.append(key)
     }
 
     /// Remove an object from the cache
     public func removeObject(forKey key: Key) {
         if let entry = storage.removeValue(forKey: key) {
             _totalCost -= entry.cost
+            insertionOrder.removeAll { $0 == key }
         }
     }
 
@@ -1486,5 +1612,17 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
     public func removeAllObjects() {
         storage.removeAll()
         _totalCost = 0
+        insertionOrder.removeAll()
+    }
+
+    /// Evict the oldest entry (FIFO eviction)
+    private func evictOldestEntry() {
+        guard let oldestKey = insertionOrder.first,
+            let entry = storage.removeValue(forKey: oldestKey)
+        else {
+            return
+        }
+        _totalCost -= entry.cost
+        insertionOrder.removeFirst()
     }
 }

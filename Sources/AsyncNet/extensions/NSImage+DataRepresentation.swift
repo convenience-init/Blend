@@ -12,6 +12,10 @@
             return cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
 
+        // Constants for dimension and pixel count limits to prevent excessive memory usage
+        private static let MAX_DIMENSION = 16384  // 16K pixels max per dimension (reasonable for most use cases)
+        private static let MAX_TOTAL_PIXELS = 100 * 1024 * 1024  // 100M pixels max total (approx 400MB at 32bpp)
+
         /// Creates JPEG data representation with compression quality
         /// - Parameter compressionQuality: Quality factor (0.0 to 1.0)
         /// - Returns: JPEG data or nil if conversion fails
@@ -59,6 +63,25 @@
             else {
                 return nil
             }
+
+            // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
+            // Check individual dimensions
+            guard bitmapRep.pixelsWide <= Self.MAX_DIMENSION,
+                bitmapRep.pixelsHigh <= Self.MAX_DIMENSION
+            else {
+                return nil
+            }
+
+            // Check total pixel count to prevent excessive memory usage
+            // Use multiplication that checks for overflow
+            guard bitmapRep.pixelsWide <= Int.max / bitmapRep.pixelsHigh else {
+                return nil  // Would overflow
+            }
+            let totalPixels = bitmapRep.pixelsWide * bitmapRep.pixelsHigh
+            guard totalPixels <= Self.MAX_TOTAL_PIXELS else {
+                return nil
+            }
+
             return bitmapRep
         }
 
@@ -128,11 +151,8 @@
             }
 
             // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
-            let MAX_DIMENSION = 16384  // 16K pixels max per dimension (reasonable for most use cases)
-            let MAX_PIXELS = 100 * 1024 * 1024  // 100M pixels max total (approx 400MB at 32bpp)
-
             // Check individual dimensions
-            guard pixelsWide <= MAX_DIMENSION, pixelsHigh <= MAX_DIMENSION else {
+            guard pixelsWide <= Self.MAX_DIMENSION, pixelsHigh <= Self.MAX_DIMENSION else {
                 return nil
             }
 
@@ -142,7 +162,7 @@
                 return nil  // Would overflow
             }
             let totalPixels = pixelsWide * pixelsHigh
-            guard totalPixels <= MAX_PIXELS else {
+            guard totalPixels <= Self.MAX_TOTAL_PIXELS else {
                 return nil
             }
 
@@ -183,9 +203,8 @@
             // Draw the image into the bitmap context using the ceiled dimensions
             let destSize = NSSize(width: pixelsWide, height: pixelsHigh)
             let destRect = NSRect(origin: .zero, size: destSize)
-            // Source rect expressed in pixel space to avoid downscaling
-            let srcRect = NSRect(origin: .zero, size: destSize)
-            draw(in: destRect, from: srcRect, operation: .copy, fraction: 1.0)
+            // Use NSZeroRect to draw the entire source image content
+            draw(in: destRect, from: NSZeroRect, operation: .copy, fraction: 1.0)
 
             return bitmapRep
         }

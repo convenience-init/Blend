@@ -244,17 +244,6 @@ public extension AsyncRequestable {
 		Self.defaultJSONDecoder
 	}
 	
-	/// Applies the endpoint's effective timeout to the given URLRequest.
-	/// 
-	/// - Parameters:
-	///   - endPoint: The endpoint containing the timeout configuration
-	///   - request: The URLRequest to modify (inout parameter)
-	private func applyTimeout(from endPoint: Endpoint, to request: inout URLRequest) {
-		if let timeout = endPoint.effectiveTimeout {
-			request.timeoutInterval = timeout
-		}
-	}
-	
 	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
 	where ResponseModel: Decodable {
 		let request = try buildURLRequest(from: endPoint)
@@ -336,9 +325,12 @@ public extension AsyncRequestable {
 			request.httpBody = body
 		}
 
-		// Set timeout from endpoint
-		if let timeout = endPoint.effectiveTimeout {
-			request.timeoutInterval = timeout
+		// Resolve timeout: timeoutDuration takes precedence over legacy timeout
+		if let timeoutDuration = endPoint.timeoutDuration {
+			// Convert Duration to TimeInterval (seconds)
+			request.timeoutInterval = Double(timeoutDuration.components.seconds)
+		} else if let legacyTimeout = endPoint.timeout {
+			request.timeoutInterval = legacyTimeout
 		}
 
 		return request

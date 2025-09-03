@@ -107,7 +107,7 @@ struct UsersEndpoint: Endpoint {
     var headers: [String: String]? = ["Content-Type": "application/json"]
     var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
-    var timeout: TimeInterval? = 30
+    var timeoutDuration: Duration? = .seconds(30)
 }
 
 // Create a service that implements AsyncRequestable

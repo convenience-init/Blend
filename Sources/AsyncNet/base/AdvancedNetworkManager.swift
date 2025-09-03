@@ -38,7 +38,7 @@ public protocol NetworkCache: Sendable {
 /// All accesses to the internal time state are synchronized to prevent data races.
 public final class TestClock: @unchecked Sendable {
     private var _now: ContinuousClock.Instant
-    private var lock = os_unfair_lock_s()
+    private let lock = OSAllocatedUnfairLock()
 
     public init() {
         _now = ContinuousClock().now
@@ -46,15 +46,15 @@ public final class TestClock: @unchecked Sendable {
 
     /// Returns the current time value in a thread-safe manner
     public func now() -> ContinuousClock.Instant {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
+        lock.lock()
+        defer { lock.unlock() }
         return _now
     }
 
     /// Advances the clock by the specified duration in a thread-safe manner
     public func advance(by duration: Duration) {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
+        lock.lock()
+        defer { lock.unlock() }
         _now = _now.advanced(by: duration)
     }
 }
@@ -250,7 +250,7 @@ public actor DefaultNetworkCache: NetworkCache {
         let now = timeProvider()
         var nodesToRemove: [Node] = []
         let initialCount = cache.count  // Capture stable count before cleanup
-        let cleanupLimit = min(10, initialCount / 4)  // Check up to 25% or 10 entries
+        let cleanupLimit = max(1, min(10, initialCount / 4))  // Check up to 25% or 10 entries, minimum 1
         var checked = 0
         var visitedNodes = Set<ObjectIdentifier>()
 
@@ -329,7 +329,7 @@ public actor AdvancedNetworkManager {
             try Task.checkCancellation()
 
             var lastError: Error?
-            // Initial attempt plus maxAttempts retry attempts (total attempts = maxAttempts)
+            // Perform up to maxAttempts total attempts (including the initial attempt)
             for attempt in 0..<retryPolicy.maxAttempts {
                 // Check for cancellation before each retry attempt
                 try Task.checkCancellation()
@@ -431,9 +431,8 @@ public actor AdvancedNetworkManager {
 
                     // Apply backoff with jitter for both custom and default retry paths
                     var delay = retryPolicy.backoff?(attempt) ?? 0.0
-                    // Only apply additional jitter if no custom backoff was provided
-                    // (to avoid double-jitter when backoff already includes jitter)
-                    if retryPolicy.backoff == nil, let jitterProvider = retryPolicy.jitterProvider {
+                    // Apply jitter if provider is specified (user is responsible for avoiding double jitter)
+                    if let jitterProvider = retryPolicy.jitterProvider {
                         delay += jitterProvider(attempt)
                     }
                     let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
@@ -466,9 +465,14 @@ public actor AdvancedNetworkManager {
         do {
             return try await newTask.value
         } catch {
-            // If this task was cancelled, cancel the stored task too
+            // If this task was cancelled, cancel the stored task and clean up
             if error is CancellationError {
-                newTask.cancel()
+                // Cancel the stored task in inFlightTasks to ensure proper cancellation
+                if let storedTask = inFlightTasks[key] {
+                    storedTask.cancel()
+                }
+                // Remove the cancelled task from inFlightTasks immediately
+                inFlightTasks.removeValue(forKey: key)
             }
             throw error
         }
@@ -487,7 +491,16 @@ public actor AdvancedNetworkManager {
             "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token",
             "x-csrf-token", "x-xsrf-token", "proxy-authorization",
             "x-session-id", "x-user-id", "x-access-token", "x-refresh-token",
-            "authentication", "www-authenticate", "x-forwarded-for", "x-real-ip"
+            "authentication", "www-authenticate", "x-forwarded-for", "x-real-ip",
+            "x-authorization", "api-key", "bearer",
+            // Additional common auth headers
+            "x-bearer-token", "x-api-token", "x-auth-key", "x-access-key",
+            "x-secret-key", "x-private-key", "x-client-id", "x-client-secret",
+            "x-app-key", "x-app-secret", "x-token", "x-auth", "x-api-secret",
+            // Lowercase variants for consistency
+            "bearer-token", "api-token", "auth-key", "access-key",
+            "secret-key", "private-key", "client-id", "client-secret",
+            "app-key", "app-secret", "token", "auth", "api-secret"
         ]
 
         // Include only non-sensitive headers, normalized to lowercase and sorted

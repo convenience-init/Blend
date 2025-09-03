@@ -77,13 +77,6 @@ import Testing
         static let minimalPNGBase64 =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
 
-        static let minimalPNGData: Data = {
-            guard let data = Data(base64Encoded: minimalPNGBase64) else {
-                fatalError("Failed to decode minimalPNGBase64 - invalid Base64 string")
-            }
-            return data
-        }()
-
         /// Test-friendly version that throws instead of crashing
         static func getMinimalPNGData() throws -> Data {
             guard let data = Data(base64Encoded: minimalPNGBase64) else {
@@ -92,6 +85,16 @@ import Testing
             }
             return data
         }
+
+        /// Static property that decodes the Base64 data, using Issue.record if decoding fails
+        private static let minimalPNGData: Data = {
+            guard let data = Data(base64Encoded: minimalPNGBase64) else {
+                Issue.record("Failed to decode minimalPNGBase64 - invalid Base64 string")
+                // Return empty data as fallback to prevent crashes
+                return Data()
+            }
+            return data
+        }()
 
         private static let defaultTestURL = URL(string: "https://mock.api/test")!
         private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
@@ -102,12 +105,13 @@ import Testing
         private static let concurrentTestURL3 = URL(string: "https://mock.api/test3")!
 
         private func makeMockSession(
-            data: Data = Self.minimalPNGData,
+            data: Data? = nil,
             url: URL = Self.defaultTestURL,
             statusCode: Int = 200,
             headers: [String: String] = ["Content-Type": "image/png"],
             artificialDelay: UInt64 = 100_000_000  // 100ms default delay for stable timing
         ) throws -> MockURLSession {
+            let dataToUse = data ?? Self.minimalPNGData
             guard
                 let response = HTTPURLResponse(
                     url: url,
@@ -121,7 +125,7 @@ import Testing
                     details: nil)
             }
             return MockURLSession(
-                nextData: data, nextResponse: response, artificialDelay: artificialDelay)
+                nextData: dataToUse, nextResponse: response, artificialDelay: artificialDelay)
         }
 
         @MainActor

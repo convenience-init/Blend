@@ -310,19 +310,19 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             var pathComponents: [String] = []
 
             for key in codingPath {
-                if !key.stringValue.isEmpty {
-                    // Regular string key (e.g., "items", "name")
-                    pathComponents.append(key.stringValue)
-                } else if let intValue = key.intValue {
-                    // Array index - format as "[index]" and attach to previous component
+                if let intValue = key.intValue {
+                    // Array index - format as "[index]" and attach to previous component if present
                     let indexComponent = "[\(intValue)]"
                     if let lastIndex = pathComponents.indices.last {
                         // Attach to the previous component (e.g., "items[0]")
                         pathComponents[lastIndex] += indexComponent
                     } else {
-                        // If this is the first component, just use the index (edge case)
+                        // If this is the first component, just use the index
                         pathComponents.append(indexComponent)
                     }
+                } else if !key.stringValue.isEmpty {
+                    // Regular string key (e.g., "items", "name")
+                    pathComponents.append(key.stringValue)
                 }
                 // Skip keys that have neither stringValue nor intValue
             }

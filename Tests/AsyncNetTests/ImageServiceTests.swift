@@ -31,7 +31,7 @@ struct ImageServiceTests {
 
     @Test func testFetchImageDataSuccess() async throws {
         // Prepare mock image data and response
-        let imageData = Data([0xFF, 0xD8, 0xFF])  // JPEG header
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])  // JPEG header
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -79,7 +79,7 @@ struct ImageServiceTests {
     }
 
     @Test func testFetchImageDataUnauthorized() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 401,
@@ -100,7 +100,7 @@ struct ImageServiceTests {
     }
 
     @Test func testFetchImageDataBadMimeType() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -135,7 +135,7 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageMultipartSuccess() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/upload")!,
             statusCode: 200,
@@ -246,7 +246,7 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageBase64Success() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/upload")!,
             statusCode: 200,
@@ -391,10 +391,13 @@ struct ImageServiceTests {
             // Verify the limit matches our configured value
             #expect(reportedLimit == 1024, "Error limit should match configured max upload size")
 
-            // Verify the reported size is reasonable (should be >= original data size or at least > limit)
+            // Calculate expected Base64 size (Base64 encoding expands data by ~4/3)
+            let expectedBase64Size = ((largeImageData.count + 2) / 3) * 4
+
+            // Verify the reported size matches the expected Base64-encoded size
             #expect(
-                reportedSize >= largeImageData.count || reportedSize > reportedLimit,
-                "Reported size (\(reportedSize)) should be >= original data size (\(largeImageData.count)) or > limit (\(reportedLimit))")
+                reportedSize >= expectedBase64Size,
+                "Reported size (\(reportedSize)) should be >= expected Base64 size (\(expectedBase64Size)) for \(largeImageData.count) bytes of data")
         } catch {
             #expect(
                 Bool(false), "Expected NetworkError.payloadTooLarge, got different error: \(error)")
@@ -417,7 +420,7 @@ struct ImageServiceTests {
 struct ImageServicePerformanceTests {
 
     @Test func testNetworkLatencyColdStart() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -437,7 +440,12 @@ struct ImageServicePerformanceTests {
         let duration = ContinuousClock().now - start
         let elapsedSeconds =
             Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
-        print("DEBUG: Cold start latency: \(elapsedSeconds * 1000) ms")
+        
+        // Record timing information for test visibility
+        #expect(
+            elapsedSeconds < 0.1,
+            "Cold start latency should be less than 100ms, was \(elapsedSeconds * 1000)ms")
+
         #expect(duration < .seconds(0.1))  // <100ms for mock network call
     }
 
@@ -522,19 +530,16 @@ struct ImageServicePerformanceTests {
         #if canImport(Darwin)
             if let memoryBefore = memoryBefore, let memoryAfter = currentResidentSizeBytes() {
                 let memoryDelta = Int64(memoryAfter) - Int64(memoryBefore)
-                print(
-                    "DEBUG: Memory delta during caching test: \(memoryDelta) bytes (\(Double(memoryDelta) / 1024 / 1024) MB)"
-                )
                 // Allow some memory growth but ensure it's reasonable (less than 10MB growth for 1MB cached data)
                 #expect(
                     abs(memoryDelta) < 10 * 1024 * 1024,
-                    "Memory growth should be reasonable during caching operations")
+                    "Memory growth should be reasonable during caching operations. Delta: \(memoryDelta) bytes (\(Double(memoryDelta) / 1024 / 1024) MB)")
             }
         #endif
     }
 
     @Test func testCacheHitRate() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -561,7 +566,7 @@ struct ImageServicePerformanceTests {
     }
 
     @Test func testConcurrentRequestHandling() async throws {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
             statusCode: 200,
@@ -613,7 +618,13 @@ struct ImageServicePerformanceTests {
             }
         }
         let successCount = results.filter { $0 }.count
-        print("DEBUG: Concurrent request successes: \(successCount)/\(concurrentRequests)")
+        
+        // Record concurrent request results for test visibility
+        #expect(
+            successCount == concurrentRequests,
+            "All \(concurrentRequests) concurrent requests should succeed, got \(successCount) successes"
+        )
+
         #expect(successCount == concurrentRequests)
     }
 }

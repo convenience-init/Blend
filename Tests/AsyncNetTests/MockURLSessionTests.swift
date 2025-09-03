@@ -10,7 +10,7 @@ struct MockURLSessionTests {
 
     @Test func testErrorPrecedenceOverData() async {
         // Test that scripted errors take precedence over scripted data/responses
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: testURL,
             statusCode: 200,
@@ -35,7 +35,7 @@ struct MockURLSessionTests {
 
     @Test func testMultiCallScripting() async {
         // Test scenario: first call fails with network error, second call succeeds
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let successResponse = HTTPURLResponse(
             url: testURL,
             statusCode: 200,
@@ -73,7 +73,7 @@ struct MockURLSessionTests {
     }
 
     @Test func testOutOfBoundsHandling() async {
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: testURL,
             statusCode: 200,
@@ -119,7 +119,7 @@ struct MockURLSessionTests {
 
     @Test func testErrorPrecedenceWithCustomError() async {
         // Test error precedence with a custom error and valid data/response
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: testURL,
             statusCode: 200,
@@ -156,7 +156,7 @@ struct MockURLSessionTests {
 
     @Test func testBackwardCompatibility() async {
         // Test that the old single-value initializer still works
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: testURL,
             statusCode: 200,
@@ -181,7 +181,7 @@ struct MockURLSessionTests {
 
     @Test func testErrorPrecedenceInMultiCallScenario() async {
         // Test error precedence in a multi-call scenario where some calls have both error and data
-        let imageData = Data([0xFF, 0xD8, 0xFF])
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: testURL,
             statusCode: 200,
