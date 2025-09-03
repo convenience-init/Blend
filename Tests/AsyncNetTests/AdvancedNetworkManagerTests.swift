@@ -34,14 +34,14 @@ struct AdvancedNetworkManagerTests {
 
     @Test func testRetryPolicyBackoff() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
-        // Provide 1 scripted response for maxRetries: 1 (1 total attempt)
+        // Provide 1 scripted response for maxAttempts: 1 (1 total attempt)
         let mockSession = MockURLSession(scriptedCalls: [
             (nil, nil, NetworkError.networkUnavailable)  // First attempt
         ])
         let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
         let request = URLRequest(url: URL(string: "https://mock.api/fail")!)
         let retryPolicy = RetryPolicy(
-            maxRetries: 1, shouldRetry: { _, _ in true }, backoff: { _ in 0.01 })
+            maxAttempts: 1, shouldRetry: { _, _ in true }, backoff: { _ in 0.01 })
         do {
             _ = try await manager.fetchData(
                 for: request, cacheKey: "fail-key", retryPolicy: retryPolicy)
@@ -54,14 +54,14 @@ struct AdvancedNetworkManagerTests {
             }
         }
         let recorded = await mockSession.recordedRequests
-        #expect(recorded.count == 1, "Expected 1 total attempt for maxRetries: 1 (no retries)")
+        #expect(recorded.count == 1, "Expected 1 total attempt for maxAttempts: 1 (no retries)")
     }
 
     @Test func testRetryPolicyBackoffCapping() async throws {
         // Test that backoff is capped at maxBackoff when used in fetchData
         // Use a deterministic custom policy to avoid flakiness from factory jitter
         let policy = RetryPolicy(
-            maxRetries: 3,
+            maxAttempts: 3,
             shouldRetry: { _, _ in true },
             backoff: { attempt in
                 // Deterministic exponential backoff: 1s, 2s, 4s, 8s (no jitter)
@@ -83,7 +83,7 @@ struct AdvancedNetworkManagerTests {
 
         // Test that capping happens when using the policy in practice
         let highAttemptPolicy = RetryPolicy(
-            maxRetries: 10,
+            maxAttempts: 10,
             shouldRetry: { _, _ in true },
             backoff: { attempt in
                 // Deterministic exponential backoff for high attempts
@@ -255,7 +255,7 @@ struct AdvancedNetworkManagerTests {
         let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
         let request = URLRequest(url: URL(string: "https://mock.api/test")!)
         let retryPolicy = RetryPolicy(
-            maxRetries: 3,
+            maxAttempts: 3,
             shouldRetry: { error, _ in
                 // Only retry on networkUnavailable error
                 if let networkError = error as? NetworkError,

@@ -55,6 +55,8 @@ public class AsyncImageModel {
         private var task: Task<Void, Never>?
 
         func setTask(_ newTask: Task<Void, Never>?) {
+            // Cancel any existing task before storing the new one
+            task?.cancel()
             task = newTask
         }
 
@@ -90,9 +92,6 @@ public class AsyncImageModel {
     }
 
     public func loadImage(from url: String?) async {
-        // Cancel any existing load task
-        await taskHolder.cancelTask()
-
         // Create new task for this load operation
         let task = Task<Void, Never> { [weak self, imageService = self.imageService, url] in
             do {
@@ -154,7 +153,7 @@ public class AsyncImageModel {
             }
         }
 
-        // Store the task and start it
+        // Store the new task (this will cancel any existing task)
         await taskHolder.setTask(task)
         await task.value
 
@@ -259,7 +258,7 @@ public struct AsyncNetImageView: View {
     let imageService: ImageService
     let autoUpload: Bool
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
-    @State internal var model: AsyncImageModel
+    @State private var model: AsyncImageModel
     /// Prevents multiple auto-upload attempts
     @State private var hasAttemptedAutoUpload: Bool = false
 
@@ -380,6 +379,7 @@ public struct AsyncNetImageView: View {
 
     /// Public method to programmatically trigger image upload
     /// - Returns: True if upload was initiated, false if no image loaded or uploadURL not set
+    @MainActor
     public func uploadImage() async -> Bool {
         guard model.loadedImage != nil, uploadURL != nil else { return false }
         await performUpload(expectedUrl: nil)

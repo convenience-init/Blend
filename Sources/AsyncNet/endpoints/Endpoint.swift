@@ -118,7 +118,7 @@ extension Endpoint {
 	/// - Starting with all headers from the `headers` property
 	/// - Canonicalizing any existing "content-type" key to "Content-Type" (case-insensitive)
 	/// - Trimming header keys and values, dropping headers with empty/whitespace-only keys or values
-	/// - Rejecting headers containing CR or LF characters to prevent header injection attacks
+	/// - Rejecting headers containing any ASCII C0 control characters (0x00–0x1F) and DEL (0x7F) to prevent header injection attacks
 	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key exists after normalization
 	/// - Ensuring consistent casing for the Content-Type header only (other header names retain their original casing)
 	///
@@ -133,9 +133,9 @@ extension Endpoint {
 		var normalizedKeyMap: [String: String] = [:]  // normalized key -> canonical key
 
 		for (key, value) in normalizedHeaders {
-			// Trim both key and value
-			let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-			let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+			// Trim both key and value (only whitespace, not control characters)
+			let trimmedKey = key.trimmingCharacters(in: .whitespaces)
+			let trimmedValue = value.trimmingCharacters(in: .whitespaces)
 
 			// Skip headers with empty/whitespace-only keys
 			guard !trimmedKey.isEmpty else { continue }
@@ -143,11 +143,22 @@ extension Endpoint {
 			// Skip headers with empty/whitespace-only values
 			guard !trimmedValue.isEmpty else { continue }
 
-			// Reject headers containing CR or LF characters (header injection protection)
+			// Create character set for ASCII C0 control characters (0x00–0x1F) and DEL (0x7F)
+			let forbiddenCharacters = CharacterSet(charactersIn: "\u{00}"..."\u{1F}").union(
+				CharacterSet(charactersIn: "\u{7F}"))
+
+			// Reject headers containing any C0 control characters or DEL (header injection protection)
 			guard
-				!trimmedKey.contains("\r") && !trimmedKey.contains("\n")
-					&& !trimmedValue.contains("\r") && !trimmedValue.contains("\n")
+				!trimmedKey.contains(where: {
+					$0.unicodeScalars.contains(where: { forbiddenCharacters.contains($0) })
+				})
+					&& !trimmedValue.contains(where: {
+						$0.unicodeScalars.contains(where: { forbiddenCharacters.contains($0) })
+					})
 			else { continue }
+
+			// RFC 9110: Header field names MUST NOT contain ":" (colon) character
+			guard !trimmedKey.contains(":") else { continue }
 
 			// Create normalized key for case-insensitive comparison
 			let normalizedKey = trimmedKey.lowercased()
@@ -177,12 +188,13 @@ extension Endpoint {
 		// Only add contentType if no existing content-type header exists, contentType is non-nil with non-empty trimmed value,
 		// and there's an actual request body present and non-empty, and contentType doesn't contain control characters
 		if !hasContentType,
-			let contentType = contentType?.trimmingCharacters(in: .whitespacesAndNewlines),
+			let contentType = contentType?.trimmingCharacters(in: .whitespaces),
 			!contentType.isEmpty,
 			let body = body, !body.isEmpty,
-			!contentType.contains(where: {
-				$0.isNewline || $0 == "\r" || $0 == "\n"
-					|| $0.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 })
+			!contentType.unicodeScalars.contains(where: {
+				CharacterSet(charactersIn: "\u{00}"..."\u{1F}").union(
+					CharacterSet(charactersIn: "\u{7F}")
+				).contains($0)
 			})
 		{
 			canonicalizedHeaders["Content-Type"] = contentType

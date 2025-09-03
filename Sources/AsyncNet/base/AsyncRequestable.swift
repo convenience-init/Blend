@@ -319,11 +319,7 @@ public extension AsyncRequestable {
 		asyncRequest.httpMethod = endPoint.method.rawValue
 		
 		// Only set httpBody for non-GET methods (GET validation already done above)
-		if let body = endPoint.body {
-			// Double-check GET validation for consistency (should never trigger due to early validation)
-			if endPoint.method == .get {
-				throw NetworkError.invalidEndpoint(reason: "GET requests must not have a body")
-			}
+		if let body = endPoint.body, endPoint.method != .get {
 			asyncRequest.httpBody = body
 		}
 		return asyncRequest
@@ -349,7 +345,7 @@ public extension AsyncRequestable {
 	///   - retryPolicy: The retry strategy to use when requests fail. Built-in options:
 	///     - `.default`: 4 total attempts with exponential backoff (recommended for most cases)
 	///     - Custom policies can specify max retries, retry conditions, and backoff timing
-	///     - Set to `RetryPolicy(maxRetries: 1)` to disable retries entirely
+	///     - Set to `RetryPolicy(maxAttempts: 1)` to disable retries entirely
 	///
 	/// - Returns: The decoded response model of type `ResponseModel`, automatically decoded from JSON.
 	///
@@ -372,7 +368,7 @@ public extension AsyncRequestable {
 	///     to: UsersEndpoint(),
 	///     networkManager: manager,
 	///     cacheKey: "user-profile-\(userId)",
-	///     retryPolicy: RetryPolicy(maxRetries: 6, backoff: { attempt in pow(1.5, Double(attempt)) })
+	///     retryPolicy: RetryPolicy(maxAttempts: 6, backoff: { attempt in pow(1.5, Double(attempt)) })
 	/// )
 	/// ```
 	///

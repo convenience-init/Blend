@@ -82,7 +82,10 @@ jobs:
         run: |
           #!/bin/bash
           # Validate selected Xcode is available on the runner
-          xcodebuild -version || true
+          if ! xcodebuild -version; then
+            echo "ERROR: xcodebuild -version failed. The selected Xcode version may not be available on this runner."
+            exit 1
+          fi
 
       - name: Build (macOS SPM)
         if: matrix.target == 'macos' && matrix.build == 'spm'
@@ -107,12 +110,14 @@ jobs:
           # Find an available iPhone simulator and capture both name and UDID
           echo "Querying available iOS simulators..."
           if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>/dev/null); then
+            # Capture exit code and stderr immediately after the failing command
+            EXIT_CODE=$?
             STDERR_OUTPUT=$(xcrun simctl list --json devices available 2>&1 >/dev/null)
-            echo "ERROR: xcrun simctl list failed with exit code $?"
+            echo "ERROR: xcrun simctl list failed with exit code $EXIT_CODE"
             echo "xcrun stderr output: $STDERR_OUTPUT"
             echo "Available devices list:"
             xcrun simctl list devices available || true
-            exit 1
+            exit $EXIT_CODE
           fi
 
           # Validate JSON output is non-empty
@@ -125,17 +130,79 @@ jobs:
 
           # Check if jq is available
           if ! command -v jq >/dev/null 2>&1; then
-            echo "ERROR: jq is not installed"
-            echo "jq is required for parsing simulator device information"
-            echo ""
-            echo "To install jq on macOS:"
-            echo "  brew install jq"
-            echo ""
-            echo "Or add jq to your GitHub Actions runner image"
-            echo ""
-            echo "Available devices list:"
-            xcrun simctl list devices available || true
-            exit 1
+            echo "jq is not installed, attempting to install it..."
+            
+            # Attempt to install jq based on the OS
+            if command -v brew >/dev/null 2>&1; then
+              echo "Detected macOS/Homebrew, installing jq with brew..."
+              if brew update && brew install jq; then
+                echo "Successfully installed jq via brew"
+              else
+                echo "Failed to install jq via brew"
+                echo "jq is required for parsing simulator device information"
+                echo ""
+                echo "To install jq manually on macOS:"
+                echo "  brew update && brew install jq"
+                echo ""
+                echo "Or add jq to your GitHub Actions runner image"
+                echo ""
+                echo "Available devices list:"
+                xcrun simctl list devices available || true
+                exit 1
+              fi
+            elif command -v apt-get >/dev/null 2>&1; then
+              echo "Detected Linux/apt-get, installing jq with apt-get..."
+              if apt-get update && apt-get install -y jq; then
+                echo "Successfully installed jq via apt-get"
+              else
+                echo "Failed to install jq via apt-get"
+                echo "jq is required for parsing simulator device information"
+                echo ""
+                echo "To install jq manually on Linux:"
+                echo "  apt-get update && apt-get install -y jq"
+                echo ""
+                echo "Or add jq to your GitHub Actions runner image"
+                echo ""
+                echo "Available devices list:"
+                xcrun simctl list devices available || true
+                exit 1
+              fi
+            elif command -v choco >/dev/null 2>&1; then
+              echo "Detected Windows/Chocolatey, installing jq with choco..."
+              if choco install jq -y; then
+                echo "Successfully installed jq via choco"
+              else
+                echo "Failed to install jq via choco"
+                echo "jq is required for parsing simulator device information"
+                echo ""
+                echo "To install jq manually on Windows:"
+                echo "  choco install jq -y"
+                echo ""
+                echo "Or add jq to your GitHub Actions runner image"
+                echo ""
+                echo "Available devices list:"
+                xcrun simctl list devices available || true
+                exit 1
+              fi
+            else
+              echo "Unable to detect package manager (brew, apt-get, or choco)"
+              echo "jq is required for parsing simulator device information"
+              echo ""
+              echo "To install jq on macOS:"
+              echo "  brew update && brew install jq"
+              echo ""
+              echo "To install jq on Linux:"
+              echo "  apt-get update && apt-get install -y jq"
+              echo ""
+              echo "To install jq on Windows:"
+              echo "  choco install jq -y"
+              echo ""
+              echo "Or add jq to your GitHub Actions runner image"
+              echo ""
+              echo "Available devices list:"
+              xcrun simctl list devices available || true
+              exit 1
+            fi
           fi
 
           echo "Parsing JSON output with jq..."
@@ -148,6 +215,8 @@ jobs:
             | select(.isAvailable == true)
             | select(.state == "Shutdown" or .state == "Booted")
             | [.name, .udid] | @tsv' | head -1 2>/dev/null); then
+            # Capture exit code and stderr immediately after the failing command
+            EXIT_CODE=$?
             STDERR_OUTPUT=$(echo "$JSON_OUTPUT" | jq -r '
               .devices
               | to_entries[]
@@ -157,13 +226,13 @@ jobs:
               | select(.isAvailable == true)
               | select(.state == "Shutdown" or .state == "Booted")
               | [.name, .udid] | @tsv' | head -1 2>&1 >/dev/null)
-            echo "ERROR: jq parsing failed with exit code $?"
+            echo "ERROR: jq parsing failed with exit code $EXIT_CODE"
             echo "jq stderr output: $STDERR_OUTPUT"
             echo "JSON output was:"
             echo "$JSON_OUTPUT"
             echo "Available devices list:"
             xcrun simctl list devices available || true
-            exit 1
+            exit $EXIT_CODE
           fi
 
           if [ -n "${IOS_LINE:-}" ]; then
@@ -232,12 +301,14 @@ jobs:
           # Find an available Apple TV simulator and capture both name and UDID
           echo "Querying available tvOS simulators..."
           if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>/dev/null); then
+            # Capture exit code and stderr immediately after the failing command
+            EXIT_CODE=$?
             STDERR_OUTPUT=$(xcrun simctl list --json devices available 2>&1 >/dev/null)
-            echo "ERROR: xcrun simctl list failed with exit code $?"
+            echo "ERROR: xcrun simctl list failed with exit code $EXIT_CODE"
             echo "xcrun stderr output: $STDERR_OUTPUT"
             echo "Available devices list:"
             xcrun simctl list devices available || true
-            exit 1
+            exit $EXIT_CODE
           fi
 
           # Validate JSON output is non-empty
@@ -250,17 +321,79 @@ jobs:
 
           # Check if jq is available
           if ! command -v jq >/dev/null 2>&1; then
-            echo "ERROR: jq is not installed"
-            echo "jq is required for parsing simulator device information"
-            echo ""
-            echo "To install jq on macOS:"
-            echo "  brew install jq"
-            echo ""
-            echo "Or add jq to your GitHub Actions runner image"
-            echo ""
-            echo "Available devices list:"
-            xcrun simctl list devices available || true
-            exit 1
+            echo "jq is not installed, attempting to install it..."
+            
+            # Attempt to install jq based on the OS
+            if command -v brew >/dev/null 2>&1; then
+              echo "Detected macOS/Homebrew, installing jq with brew..."
+              if brew update && brew install jq; then
+                echo "Successfully installed jq via brew"
+              else
+                echo "Failed to install jq via brew"
+                echo "jq is required for parsing simulator device information"
+                echo ""
+                echo "To install jq manually on macOS:"
+                echo "  brew update && brew install jq"
+                echo ""
+                echo "Or add jq to your GitHub Actions runner image"
+                echo ""
+                echo "Available devices list:"
+                xcrun simctl list devices available || true
+                exit 1
+              fi
+            elif command -v apt-get >/dev/null 2>&1; then
+              echo "Detected Linux/apt-get, installing jq with apt-get..."
+              if apt-get update && apt-get install -y jq; then
+                echo "Successfully installed jq via apt-get"
+              else
+                echo "Failed to install jq via apt-get"
+                echo "jq is required for parsing simulator device information"
+                echo ""
+                echo "To install jq manually on Linux:"
+                echo "  apt-get update && apt-get install -y jq"
+                echo ""
+                echo "Or add jq to your GitHub Actions runner image"
+                echo ""
+                echo "Available devices list:"
+                xcrun simctl list devices available || true
+                exit 1
+              fi
+            elif command -v choco >/dev/null 2>&1; then
+              echo "Detected Windows/Chocolatey, installing jq with choco..."
+              if choco install jq -y; then
+                echo "Successfully installed jq via choco"
+              else
+                echo "Failed to install jq via choco"
+                echo "jq is required for parsing simulator device information"
+                echo ""
+                echo "To install jq manually on Windows:"
+                echo "  choco install jq -y"
+                echo ""
+                echo "Or add jq to your GitHub Actions runner image"
+                echo ""
+                echo "Available devices list:"
+                xcrun simctl list devices available || true
+                exit 1
+              fi
+            else
+              echo "Unable to detect package manager (brew, apt-get, or choco)"
+              echo "jq is required for parsing simulator device information"
+              echo ""
+              echo "To install jq on macOS:"
+              echo "  brew update && brew install jq"
+              echo ""
+              echo "To install jq on Linux:"
+              echo "  apt-get update && apt-get install -y jq"
+              echo ""
+              echo "To install jq on Windows:"
+              echo "  choco install jq -y"
+              echo ""
+              echo "Or add jq to your GitHub Actions runner image"
+              echo ""
+              echo "Available devices list:"
+              xcrun simctl list devices available || true
+              exit 1
+            fi
           fi
 
           echo "Parsing JSON output with jq..."
@@ -273,6 +406,8 @@ jobs:
             | select(.isAvailable == true)
             | select(.state == "Shutdown" or .state == "Booted")
             | [.name, .udid] | @tsv' | head -1 2>/dev/null); then
+            # Capture exit code and stderr immediately after the failing command
+            EXIT_CODE=$?
             STDERR_OUTPUT=$(echo "$JSON_OUTPUT" | jq -r '
               .devices
               | to_entries[]
@@ -282,13 +417,13 @@ jobs:
               | select(.isAvailable == true)
               | select(.state == "Shutdown" or .state == "Booted")
               | [.name, .udid] | @tsv' | head -1 2>&1 >/dev/null)
-            echo "ERROR: jq parsing failed with exit code $?"
+            echo "ERROR: jq parsing failed with exit code $EXIT_CODE"
             echo "jq stderr output: $STDERR_OUTPUT"
             echo "JSON output was:"
             echo "$JSON_OUTPUT"
             echo "Available devices list:"
             xcrun simctl list devices available || true
-            exit 1
+            exit $EXIT_CODE
           fi
 
           if [ -n "${TVOS_LINE:-}" ]; then
