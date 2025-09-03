@@ -184,8 +184,8 @@ public actor ImageService {
             if now - node.insertionTimestamp >= cacheConfig.maxAge {
                 // Node was expired - evict it completely from all caches
                 let cacheKey = key
-                imageCache.removeObject(forKey: cacheKey)
-                dataCache.removeObject(forKey: cacheKey)
+                await imageCache.removeObject(forKey: cacheKey)
+                await dataCache.removeObject(forKey: cacheKey)
                 lruDict.removeValue(forKey: key)
                 removeLRUNode(node)
                 // Invalidate heap entry to prevent it from being processed during expiration
@@ -196,15 +196,15 @@ public actor ImageService {
 
         // Check if image/data exists in caches
         let cacheKey = key
-        let inImageCache = imageCache.object(forKey: cacheKey) != nil
-        let inDataCache = dataCache.object(forKey: cacheKey) != nil
+        let inImageCache = await imageCache.object(forKey: cacheKey) != nil
+        let inDataCache = await dataCache.object(forKey: cacheKey) != nil
         let isCached = inImageCache || inDataCache
         
         // If cached but not in LRU, reinsert to maintain LRU behavior (only for non-expired items)
         if isCached && lruDict[key] == nil {
             // Capture the key value to avoid Sendable issues
             let keyString = key
-            addOrUpdateLRUNode(for: keyString)
+            await addOrUpdateLRUNode(for: keyString)
         }
         
         return isCached
@@ -515,8 +515,8 @@ public actor ImageService {
         }
         throw lastError ?? NetworkError.networkUnavailable
     }
-    private let imageCache: Cache<String, PlatformImage>
-    private let dataCache: Cache<String, NSData>
+    private let imageCache: Cache<String, SendableImage>
+    private let dataCache: Cache<String, SendableData>
     private let injectedURLSession: URLSessionProtocol?
 
     // Computed property that returns the injected session or uses shared default
@@ -534,9 +534,9 @@ public actor ImageService {
         dataCacheTotalCostLimit: Int = 100 * 1024 * 1024,
         urlSession: URLSessionProtocol? = nil
     ) {
-        imageCache = Cache<String, PlatformImage>(
+        imageCache = Cache<String, SendableImage>(
             countLimit: imageCacheCountLimit, totalCostLimit: imageCacheTotalCostLimit)
-        dataCache = Cache<String, NSData>(
+        dataCache = Cache<String, SendableData>(
             countLimit: dataCacheCountLimit, totalCostLimit: dataCacheTotalCostLimit)
         self.cacheConfig = CacheConfiguration(maxLRUCount: imageCacheCountLimit)
 
@@ -601,8 +601,8 @@ public actor ImageService {
 
         let cacheKey = urlString
         // Check cache for image data, evict expired
-        evictExpiredCache()
-        if let cachedData = dataCache.object(forKey: cacheKey) as Data?,
+        await evictExpiredCache()
+        if let cachedData = await dataCache.object(forKey: cacheKey)?.data,
             let node = lruDict[urlString],
             Date().timeIntervalSince1970 - node.insertionTimestamp < cacheConfig.maxAge
         {
@@ -682,19 +682,17 @@ public actor ImageService {
             do {
                 _ = try await fetchTask.value
             } catch {
-                // Task failed - cleanup will happen in defer block
+                // Task failed - cleanup will happen when task completes
             }
             // Always remove the task from inFlightImageTasks when it completes
-            await self.removeInFlightTask(forKey: urlString)
+            self.removeInFlightTask(forKey: urlString)
         }
-
-        defer { inFlightImageTasks.removeValue(forKey: urlString) }
 
         let data = try await fetchTask.value
 
         // Cache the data back in the actor context
-        dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
-        addOrUpdateLRUNode(for: urlString)
+        await dataCache.setObject(SendableData(data), forKey: cacheKey, cost: data.count)
+        await addOrUpdateLRUNode(for: urlString)
 
         return data
     }
@@ -920,7 +918,7 @@ public actor ImageService {
     /// Retrieves a cached image for the given key
     /// - Parameter key: The cache key (typically the URL string)
     /// - Returns: The cached image if available
-    public func cachedImage(forKey key: String) -> PlatformImage? {
+    public func cachedImage(forKey key: String) async -> PlatformImage? {
         let cacheKey = key
         let now = Date().timeIntervalSince1970
 
@@ -929,15 +927,15 @@ public actor ImageService {
             // Check expiration first to avoid race conditions
             if now - node.insertionTimestamp < cacheConfig.maxAge {
                 // Not expired - safe to return cached data
-                if let cachedImage = imageCache.object(forKey: cacheKey) {
+                if let cachedImage = await imageCache.object(forKey: cacheKey) {
                     moveLRUNodeToHead(node)
                     cacheHits += 1
-                    return cachedImage
+                    return cachedImage.image
                 }
             } else {
                 // Expired - atomically remove from all caches
-                imageCache.removeObject(forKey: cacheKey)
-                dataCache.removeObject(forKey: cacheKey)
+                await imageCache.removeObject(forKey: cacheKey)
+                await dataCache.removeObject(forKey: cacheKey)
                 lruDict.removeValue(forKey: key)
                 removeLRUNode(node)
                 // Invalidate heap entry to prevent it from being processed during expiration
@@ -951,9 +949,9 @@ public actor ImageService {
     }
 
     /// Clears all cached images
-    public func clearCache() {
-        imageCache.removeAllObjects()
-        dataCache.removeAllObjects()
+    public func clearCache() async {
+        await imageCache.removeAllObjects()
+        await dataCache.removeAllObjects()
 
         // Properly clean up all LRU nodes to prevent any potential retain cycles
         var node = lruHead
@@ -983,13 +981,15 @@ public actor ImageService {
     ///   - image: The image to cache
     ///   - key: The cache key (typically the URL string)
     ///   - data: Optional image data to cache alongside the image
-    public func storeImageInCache(_ image: PlatformImage, forKey key: String, data: Data? = nil) {
+    public func storeImageInCache(_ image: PlatformImage, forKey key: String, data: Data? = nil)
+        async
+    {
         let cacheKey = key
-        imageCache.setObject(image, forKey: cacheKey)
+        await imageCache.setObject(SendableImage(image), forKey: cacheKey)
         if let data = data {
-            dataCache.setObject(data as NSData, forKey: cacheKey, cost: data.count)
+            await dataCache.setObject(SendableData(data), forKey: cacheKey, cost: data.count)
         }
-        addOrUpdateLRUNode(for: key)
+        await addOrUpdateLRUNode(for: key)
     }
 
     /// Removes a specific image from both the image cache and data cache
@@ -999,10 +999,10 @@ public actor ImageService {
     ///
     /// - Parameter key: The cache key (typically the URL string) used to identify the cached image to remove.
     ///                  Should be the same key used when storing the image.
-    public func removeFromCache(key: String) {
+    public func removeFromCache(key: String) async {
         let cacheKey = key
-        imageCache.removeObject(forKey: cacheKey)
-        dataCache.removeObject(forKey: cacheKey)
+        await imageCache.removeObject(forKey: cacheKey)
+        await dataCache.removeObject(forKey: cacheKey)
         if let node = lruDict.removeValue(forKey: key) {
             removeLRUNode(node)
         }
@@ -1015,7 +1015,7 @@ public actor ImageService {
     /// Evict expired cache entries based on maxAge using efficient heap-based expiration
     /// The expiration heap allows O(log n) insertions and O(log n) deletions while
     /// efficiently finding and removing expired items regardless of their position in LRU
-    private func evictExpiredCache() {
+    private func evictExpiredCache() async {
         let now = Date().timeIntervalSince1970
 
         // Use heap-based expiration for efficient removal of expired entries
@@ -1023,8 +1023,8 @@ public actor ImageService {
         while let expiredEntry = expirationHeap.popExpired(currentTime: now) {
             let key = expiredEntry.key
             let cacheKey = key
-            imageCache.removeObject(forKey: cacheKey)
-            dataCache.removeObject(forKey: cacheKey)
+            await imageCache.removeObject(forKey: cacheKey)
+            await dataCache.removeObject(forKey: cacheKey)
             if let node = lruDict.removeValue(forKey: key) {
                 removeLRUNode(node)
             }
@@ -1032,10 +1032,10 @@ public actor ImageService {
     }
 
     /// Update cache configuration (maxAge, maxLRUCount)
-    public func updateCacheConfiguration(_ config: CacheConfiguration) {
+    public func updateCacheConfiguration(_ config: CacheConfiguration) async {
         self.cacheConfig = config
         // Evict expired entries first
-        evictExpiredCache()
+        await evictExpiredCache()
         // Retain only the most recently used items
         var node = lruHead
         var count = 0
@@ -1055,8 +1055,8 @@ public actor ImageService {
         for node in nodesToEvict {
             let key = node.key
             let cacheKey = key
-            imageCache.removeObject(forKey: cacheKey)
-            dataCache.removeObject(forKey: cacheKey)
+            await imageCache.removeObject(forKey: cacheKey)
+            await dataCache.removeObject(forKey: cacheKey)
             lruDict.removeValue(forKey: key)
             removeLRUNode(node)
             // Invalidate heap entry for evicted node
@@ -1075,7 +1075,7 @@ public actor ImageService {
     /// Cleanup in-flight tasks when the service is deallocated
     deinit {
         // Cancel all in-flight tasks and clear the dictionary
-        for (key, task) in inFlightImageTasks {
+        for (_, task) in inFlightImageTasks {
             task.cancel()
         }
         inFlightImageTasks.removeAll()
@@ -1149,12 +1149,32 @@ public actor ImageService {
     }
 }
 
+/// Wrapper for non-Sendable image types to make them usable in Swift 6 concurrency
+/// This is safe because images are immutable once created and thread-safe for reading
+public struct SendableImage: @unchecked Sendable {
+    public let image: PlatformImage
+
+    public init(_ image: PlatformImage) {
+        self.image = image
+    }
+}
+
+/// Wrapper for non-Sendable data types to make them usable in Swift 6 concurrency
+/// This is safe because Data/NSData are immutable once created and thread-safe for reading
+public struct SendableData: @unchecked Sendable {
+    public let data: Data
+
+    public init(_ data: Data) {
+        self.data = data
+    }
+}
+
 // MARK: - LRU Helpers (ImageService)
 extension ImageService {
     // NOTE: All LRUNode operations must be performed within the ImageService actor
     // for thread safety, as LRUNode is not Sendable due to mutable properties.
     // This design choice prioritizes performance over redundant actor isolation.
-    private func addOrUpdateLRUNode(for key: String) {
+    private func addOrUpdateLRUNode(for key: String) async {
         let now = Date().timeIntervalSince1970
         if let node = lruDict[key] {
             // Only move to head on access, do NOT update timestamp
@@ -1177,8 +1197,8 @@ extension ImageService {
             // Evict nodes until we're within the configured limit
             while lruDict.count > maxCount, let tail = lruTail {
                 let cacheKey = tail.key
-                imageCache.removeObject(forKey: cacheKey)
-                dataCache.removeObject(forKey: cacheKey)
+                await imageCache.removeObject(forKey: cacheKey)
+                await dataCache.removeObject(forKey: cacheKey)
                 lruDict.removeValue(forKey: tail.key)
                 removeLRUNode(tail)
                 // Invalidate heap entry for evicted node
@@ -1401,15 +1421,15 @@ private struct UploadPayload: Encodable {
     }
 #endif
 
-/// A modern Swift 6 compatible cache implementation to replace NSCache
-/// Provides thread-safe storage with cost and count limits
-public final class Cache<Key: Hashable, Value> {
+/// A Swift 6 compatible actor-based cache implementation
+/// Provides thread-safe storage with cost and count limits using structured concurrency
+public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
     private var storage: [Key: CacheEntry] = [:]
     private var _totalCost: Int = 0
-    public var countLimit: Int?
-    public var totalCostLimit: Int?
+    public let countLimit: Int?
+    public let totalCostLimit: Int?
 
-    public struct CacheEntry {
+    public struct CacheEntry: Sendable {
         let value: Value
         let cost: Int
 

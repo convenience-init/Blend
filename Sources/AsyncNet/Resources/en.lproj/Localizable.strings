@@ -71,7 +71,7 @@
 "Check the request parameters and format." = "Check the request parameters and format.";
 "Check your credentials and try again." = "Check your credentials and try again.";
 "Check your permissions for this resource." = "Check your permissions for this resource.";
-"Verify the endpoint URL and resource exists." = "Verify the endpoint URL and resource exists.";
+"Verify the endpoint URL and resource exist." = "Verify the endpoint URL and resource exist.";
 "Wait before making another request or reduce request frequency." = "Wait before making another request or reduce request frequency.";
 "Try again later. The server encountered an error." = "Try again later. The server encountered an error.";
 "Check the request and try again." = "Check the request and try again.";
@@ -93,7 +93,3 @@
 "Check the mock script configuration and ensure sufficient responses are provided." = "Check the mock script configuration and ensure sufficient responses are provided.";
 "Reduce the payload size or use multipart upload for large files." = "Reduce the payload size or use multipart upload for large files.";
 "Check the mock script configuration and ensure all calls have both data and response configured." = "Check the mock script configuration and ensure all calls have both data and response configured.";
-"The URL is not supported" = "The URL is not supported";
-"The server certificate is not trusted" = "The server certificate is not trusted";
-"The server certificate has an invalid date" = "The server certificate has an invalid date";
-"A client certificate is required" = "A client certificate is required";

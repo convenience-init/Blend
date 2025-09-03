@@ -255,13 +255,10 @@ public extension AsyncRequestable {
 		}
 	}
 	
-	public func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
 	where ResponseModel: Decodable {
-		guard var request = try buildAsyncRequest(for: endPoint) else {
-			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
-		}
+		let request = try buildURLRequest(from: endPoint)
 		let session = URLSession.shared
-		applyTimeout(from: endPoint, to: &request)
 		let (data, response) = try await session.data(for: request)
 		guard let httpResponse = response as? HTTPURLResponse else {
 			throw NetworkError.noResponse
@@ -290,13 +287,16 @@ public extension AsyncRequestable {
 		}
 	}
 	
-	/// Builds a URLRequest from the given endpoint.
+	/// Builds a URLRequest from the given endpoint with proper validation and configuration.
+	///
+	/// This method centralizes the common request building logic used across different service implementations,
+	/// ensuring consistency and reducing code duplication.
 	///
 	/// - Parameter endPoint: The endpoint to build the request for.
-	/// - Returns: A configured URLRequest, or nil if the endpoint is invalid.
-	/// - Throws: `NetworkError` if the endpoint configuration is invalid.
-	private func buildAsyncRequest(for endPoint: Endpoint) throws -> URLRequest? {
-		// Fail fast: Validate GET requests don't have a body before building any components
+	/// - Returns: A configured URLRequest.
+	/// - Throws: `NetworkError.invalidEndpoint` if the endpoint configuration is invalid.
+	func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
+		// Validate GET requests don't have a body
 		if endPoint.method == .get && endPoint.body != nil {
 			throw NetworkError.invalidEndpoint(
 				reason:
@@ -304,25 +304,44 @@ public extension AsyncRequestable {
 			)
 		}
 
+		// Build URL from Endpoint properties
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
 		components.host = endPoint.host
 		components.path = endPoint.normalizedPath
-		if let queryItems = endPoint.queryItems {
-			components.queryItems = queryItems
+		components.queryItems = endPoint.queryItems
+
+		if let port = endPoint.port {
+			components.port = port
 		}
+		if let fragment = endPoint.fragment {
+			components.fragment = fragment
+		}
+
 		guard let url = components.url else {
-			return nil
+			throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
 		}
-		var asyncRequest = URLRequest(url: url)
-		asyncRequest.allHTTPHeaderFields = endPoint.resolvedHeaders
-		asyncRequest.httpMethod = endPoint.method.rawValue
-		
-		// Only set httpBody for non-GET methods (GET validation already done above)
+
+		var request = URLRequest(url: url)
+		request.httpMethod = endPoint.method.rawValue
+
+		if let resolvedHeaders = endPoint.resolvedHeaders {
+			for (key, value) in resolvedHeaders {
+				request.setValue(value, forHTTPHeaderField: key)
+			}
+		}
+
+		// Only set httpBody for non-GET methods
 		if let body = endPoint.body, endPoint.method != .get {
-			asyncRequest.httpBody = body
+			request.httpBody = body
 		}
-		return asyncRequest
+
+		// Set timeout from endpoint
+		if let timeout = endPoint.effectiveTimeout {
+			request.timeoutInterval = timeout
+		}
+
+		return request
 	}
 	
 	/// Sends an asynchronous network request using AdvancedNetworkManager with enhanced features.
@@ -383,76 +402,13 @@ public extension AsyncRequestable {
 		cacheKey: String? = nil,
 		retryPolicy: RetryPolicy = .default
 	) async throws -> ResponseModel where ResponseModel: Decodable {
-		guard var request = try buildAsyncRequest(for: endPoint) else {
-			throw NetworkError.invalidEndpoint(reason: "Invalid URL components for endpoint: \(endPoint)")
-		}
-		applyTimeout(from: endPoint, to: &request)
+		let request = try buildURLRequest(from: endPoint)
 		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
 		do {
 			return try jsonDecoder.decode(ResponseModel.self, from: data)
 		} catch {
 			throw NetworkError.decodingError(underlying: error, data: data)
 		}
-	}
-}
-
-/// Shared helper for building URLRequest from Endpoint to eliminate code duplication
-public extension AdvancedAsyncRequestable {
-	/// Builds a URLRequest from the given endpoint with proper validation and configuration.
-	///
-	/// This method centralizes the common request building logic used across different service implementations,
-	/// ensuring consistency and reducing code duplication.
-	///
-	/// - Parameter endPoint: The endpoint to build the request for.
-	/// - Returns: A configured URLRequest.
-	/// - Throws: `NetworkError.invalidEndpoint` if the endpoint configuration is invalid.
-	func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
-		// Validate GET requests don't have a body
-		if endPoint.method == .get && endPoint.body != nil {
-			throw NetworkError.invalidEndpoint(
-				reason:
-					"GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
-			)
-		}
-
-		// Build URL from Endpoint properties
-		var components = URLComponents()
-		components.scheme = endPoint.scheme.rawValue
-		components.host = endPoint.host
-		components.path = endPoint.normalizedPath
-		components.queryItems = endPoint.queryItems
-
-		if let port = endPoint.port {
-			components.port = port
-		}
-		if let fragment = endPoint.fragment {
-			components.fragment = fragment
-		}
-
-		guard let url = components.url else {
-			throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
-		}
-
-		var request = URLRequest(url: url)
-		request.httpMethod = endPoint.method.rawValue
-
-		if let resolvedHeaders = endPoint.resolvedHeaders {
-			for (key, value) in resolvedHeaders {
-				request.setValue(value, forHTTPHeaderField: key)
-			}
-		}
-
-		// Only set httpBody for non-GET methods
-		if let body = endPoint.body, endPoint.method != .get {
-			request.httpBody = body
-		}
-
-		// Set timeout from endpoint
-		if let timeout = endPoint.effectiveTimeout {
-			request.timeoutInterval = timeout
-		}
-
-		return request
 	}
 }
 

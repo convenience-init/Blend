@@ -96,16 +96,36 @@
         /// - Returns: NSBitmapImageRep containing the rasterized image, or nil if creation fails
         @MainActor
         private func rasterizedBitmapOnMainThread() -> NSBitmapImageRep? {
-            let targetSize = size
+            // Prevent quality loss: derive pixel dimensions from the best available rep (not points)
+            // Using NSImage.size (points) can downscale high‑DPI images where size ≠ pixel dimensions.
+            // Prefer the largest NSBitmapImageRep or fall back to CGImage dimensions, then rasterize.
+            // Also switch to sRGB and enable high interpolation for better color fidelity and scaling.
 
-            // Ensure we have valid dimensions
-            guard targetSize.width > 0, targetSize.height > 0 else {
-                return nil
+            // Validate image
+            guard isValid else { return nil }
+
+            // Determine pixel dimensions from the best available source
+            var pixelsWide: Int
+            var pixelsHigh: Int
+
+            if let bestRep =
+                representations
+                .compactMap({ $0 as? NSBitmapImageRep })
+                .filter({ $0.pixelsWide > 0 && $0.pixelsHigh > 0 })
+                .max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh })
+            {
+                pixelsWide = bestRep.pixelsWide
+                pixelsHigh = bestRep.pixelsHigh
+            } else if let cg = cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                pixelsWide = cg.width
+                pixelsHigh = cg.height
+            } else {
+                // Fallback to point size as a last resort
+                let targetSize = size
+                guard targetSize.width > 0, targetSize.height > 0 else { return nil }
+                pixelsWide = Int(ceil(targetSize.width))
+                pixelsHigh = Int(ceil(targetSize.height))
             }
-
-            // Calculate pixel dimensions using ceiling to prevent clipping
-            let pixelsWide = Int(ceil(targetSize.width))
-            let pixelsHigh = Int(ceil(targetSize.height))
 
             // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
             let MAX_DIMENSION = 16384  // 16K pixels max per dimension (reasonable for most use cases)
@@ -141,7 +161,7 @@
                     samplesPerPixel: 4,
                     hasAlpha: true,
                     isPlanar: false,
-                    colorSpaceName: .deviceRGB,
+                    colorSpaceName: .calibratedRGB,
                     bytesPerRow: 0,
                     bitsPerPixel: 32
                 )
@@ -158,13 +178,14 @@
             }
 
             NSGraphicsContext.current = context
+            NSGraphicsContext.current?.imageInterpolation = .high
 
             // Draw the image into the bitmap context using the ceiled dimensions
-            let bitmapSize = NSSize(width: pixelsWide, height: pixelsHigh)
-            let rect = NSRect(origin: .zero, size: bitmapSize)
-            draw(
-                in: rect, from: NSRect(origin: .zero, size: targetSize), operation: .copy,
-                fraction: 1.0)
+            let destSize = NSSize(width: pixelsWide, height: pixelsHigh)
+            let destRect = NSRect(origin: .zero, size: destSize)
+            // Source rect expressed in pixel space to avoid downscaling
+            let srcRect = NSRect(origin: .zero, size: destSize)
+            draw(in: destRect, from: srcRect, operation: .copy, fraction: 1.0)
 
             return bitmapRep
         }

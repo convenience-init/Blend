@@ -50,45 +50,20 @@ public class AsyncImageModel {
     
     private let imageService: ImageService
     
-    // Task holder that can be accessed from deinit
-    private actor TaskHolder {
-        private var task: Task<Void, Never>?
+    // Store the current task in a box to allow nonisolated access from deinit
+    private let taskBox = TaskBox()
 
-        func setTask(_ newTask: Task<Void, Never>?) {
-            // Cancel any existing task before storing the new one
-            task?.cancel()
-            task = newTask
-        }
-
-        func getTask() -> Task<Void, Never>? {
-            return task
-        }
-
-        func cancelTask() {
-            task?.cancel()
-        }
-
-        func clearTask() {
-            task = nil
-        }
-
-        func cancelAndClear() {
-            task?.cancel()
-            task = nil
-        }
+    private final class TaskBox: @unchecked Sendable {
+        var task: Task<Void, Never>?
     }
-    private let taskHolder = TaskHolder()
 
     public init(imageService: ImageService) {
         self.imageService = imageService
     }
 
     deinit {
-        // Cancel any in-flight load task to prevent task leaks
-        let holder = taskHolder
-        Task {
-            await holder.cancelAndClear()
-        }
+        // Cancel any in-flight load task synchronously to prevent task leaks
+        taskBox.task?.cancel()
     }
 
     public func loadImage(from url: String?) async {
@@ -154,11 +129,12 @@ public class AsyncImageModel {
         }
 
         // Store the new task (this will cancel any existing task)
-        await taskHolder.setTask(task)
+        taskBox.task?.cancel()
+        taskBox.task = task
         await task.value
 
         // Clear the task when done
-        await taskHolder.clearTask()
+        taskBox.task = nil
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -170,9 +146,7 @@ public class AsyncImageModel {
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
             self.error = error
-            Task { @MainActor in
-                onError?(error)
-            }
+            onError?(error)
             return
         }
         isUploading = true
@@ -183,9 +157,7 @@ public class AsyncImageModel {
                 image, compressionQuality: configuration.compressionQuality)
         else {
             self.error = NetworkError.imageProcessingFailed
-            Task { @MainActor in
-                onError?(NetworkError.imageProcessingFailed)
-            }
+            onError?(NetworkError.imageProcessingFailed)
             return
         }
 
@@ -205,9 +177,7 @@ public class AsyncImageModel {
                     configuration: configuration
                 )
             }
-            Task { @MainActor in
-                onSuccess?(responseData)
-            }
+            onSuccess?(responseData)
         } catch {
             let netError: NetworkError
             if let existingError = error as? NetworkError {
@@ -216,9 +186,7 @@ public class AsyncImageModel {
                 netError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
             }
             self.error = netError
-            Task { @MainActor in
-                onError?(netError)
-            }
+            onError?(netError)
         }
     }
 }

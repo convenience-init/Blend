@@ -62,7 +62,6 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
 /// accessing the shared singleton reference itself is synchronous.
 ///
 /// Enhanced configuration system for AsyncNet (ASYNC-302)
-@available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
 public actor AsyncNetConfig {
     /// Shared instance for global configuration access
     public static let shared = AsyncNetConfig()

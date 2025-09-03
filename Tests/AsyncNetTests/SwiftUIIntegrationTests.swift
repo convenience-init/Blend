@@ -23,6 +23,55 @@ import Testing
         }
     }
 
+    /// MockURLSession for testing concurrent loads with multiple URLs
+    private actor ConcurrentMockSession: URLSessionProtocol {
+        private let imageData: Data
+        private let supportedURLs: [URL]
+        private var callCount: Int = 0
+        private let artificialDelay: UInt64 = 100_000_000  // 100ms delay for stable timing
+
+        init(imageData: Data, urls: [URL]) {
+            self.imageData = imageData
+            self.supportedURLs = urls
+        }
+
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            callCount += 1
+
+            // Add artificial delay to simulate network latency
+            if artificialDelay > 0 {
+                try await Task.sleep(nanoseconds: artificialDelay)
+            }
+
+            // Verify the request URL is one of our supported URLs
+            guard let requestURL = request.url,
+                supportedURLs.contains(where: { $0.absoluteString == requestURL.absoluteString })
+            else {
+                throw NetworkError.customError(
+                    "Unsupported URL: \(request.url?.absoluteString ?? "nil")",
+                    details: nil
+                )
+            }
+
+            // Create HTTP response for the requested URL
+            guard
+                let response = HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/png"]
+                )
+            else {
+                throw NetworkError.customError(
+                    "Failed to create HTTPURLResponse for URL: \(requestURL.absoluteString)",
+                    details: nil
+                )
+            }
+
+            return (imageData, response)
+        }
+    }
+
     @Suite("AsyncImageModel Tests")
     struct SwiftUIIntegrationTests {
         static let minimalPNGBase64 =
@@ -131,39 +180,25 @@ import Testing
         @Test func testAsyncNetImageModelConcurrentLoad() async throws {
             let imageData = try Self.getMinimalPNGData()
 
-            // Create separate mock sessions and services for each concurrent load
-            let mockSession1 = try makeMockSession(
-                data: imageData, url: Self.concurrentTestURL1)
-            let mockSession2 = try makeMockSession(
-                data: imageData, url: Self.concurrentTestURL2)
-            let mockSession3 = try makeMockSession(
-                data: imageData, url: Self.concurrentTestURL3)
-
-            let service1 = ImageService(
-                imageCacheCountLimit: 100,
-                imageCacheTotalCostLimit: 50 * 1024 * 1024,
-                dataCacheCountLimit: 200,
-                dataCacheTotalCostLimit: 100 * 1024 * 1024,
-                urlSession: mockSession1
-            )
-            let service2 = ImageService(
-                imageCacheCountLimit: 100,
-                imageCacheTotalCostLimit: 50 * 1024 * 1024,
-                dataCacheCountLimit: 200,
-                dataCacheTotalCostLimit: 100 * 1024 * 1024,
-                urlSession: mockSession2
-            )
-            let service3 = ImageService(
-                imageCacheCountLimit: 100,
-                imageCacheTotalCostLimit: 50 * 1024 * 1024,
-                dataCacheCountLimit: 200,
-                dataCacheTotalCostLimit: 100 * 1024 * 1024,
-                urlSession: mockSession3
+            // Create a single mock session that can handle all three URLs
+            let mockSession = ConcurrentMockSession(
+                imageData: imageData,
+                urls: [Self.concurrentTestURL1, Self.concurrentTestURL2, Self.concurrentTestURL3]
             )
 
-            let model1 = await AsyncImageModel(imageService: service1)
-            let model2 = await AsyncImageModel(imageService: service2)
-            let model3 = await AsyncImageModel(imageService: service3)
+            // Create a single ImageService instance to test concurrency within one service
+            let service = ImageService(
+                imageCacheCountLimit: 100,
+                imageCacheTotalCostLimit: 50 * 1024 * 1024,
+                dataCacheCountLimit: 200,
+                dataCacheTotalCostLimit: 100 * 1024 * 1024,
+                urlSession: mockSession
+            )
+
+            // Initialize all models with the same service instance
+            let model1 = await AsyncImageModel(imageService: service)
+            let model2 = await AsyncImageModel(imageService: service)
+            let model3 = await AsyncImageModel(imageService: service)
 
             // Track timing to verify true concurrency
             var startTimes: [String: Date] = [:]

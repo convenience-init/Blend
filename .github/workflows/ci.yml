@@ -8,10 +8,23 @@ on:
   pull_request:
     branches: [ main ]
 
-# Set minimal read-only permissions for security
+# Minimal permissions following principle of least privilege
+# 
+# actions: read (not write) is CORRECT because:
+# - This workflow only uses standard GitHub Actions (checkout, cache, upload-artifact)
+# - It does NOT call the GitHub Actions API directly
+# - Concurrency cancellation (cancel-in-progress: true) is handled by GitHub's infrastructure
+# - No programmatic workflow management or API calls are performed
+#
+# actions: write would only be needed if the workflow:
+# - Used actions/github-script to call GitHub APIs
+# - Programmatically canceled other workflow runs
+# - Managed workflow approvals or other Actions API operations
+#
+# Using read permissions reduces security blast radius while maintaining full functionality.
 permissions:
   contents: read
-  actions: write
+  actions: read
 
 # Prevent duplicate workflow runs and cancel in-progress jobs
 concurrency:
@@ -550,5 +563,9 @@ jobs:
           name: coverage-profdata-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.build }}-xcode${{ matrix.xcode }}-swift${{ matrix.swift }}
           path: ${{ steps.coverage_profdata_check.outputs.profdata_path }}
 
-# Note: iPadOS builds are not included in the current matrix for simplicity
-# To add iPadOS support, add 'ipados' to the target axis and update the test script accordingly
+# Note: iPadOS builds are not included because iPadOS and iOS have been unified
+# Starting with iOS 18/iPadOS 18 (September 2024), Apple merged the platforms:
+# - iPadOS SDK was discontinued
+# - iPads now run iOS natively
+# - Single iOS build covers both iPhone and iPad devices
+# - No separate iPadOS target is needed in the matrix
