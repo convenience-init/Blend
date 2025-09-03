@@ -314,8 +314,16 @@ public struct AsyncNetImageView: View {
             let currentUrl = url
             await model.loadImage(from: url)
             // Perform auto-upload immediately after successful load
-            if model.loadedImage != nil && autoUpload && uploadURL != nil && !hasAttemptedAutoUpload
-                && currentUrl == url
+            // Capture all relevant state to prevent race conditions
+            let loadedImage = model.loadedImage
+            let shouldAutoUpload = autoUpload
+            let currentUploadURL = uploadURL
+            let hasAlreadyAttempted = hasAttemptedAutoUpload
+            let currentURL = url
+
+            if loadedImage != nil && shouldAutoUpload && currentUploadURL != nil
+                && !hasAlreadyAttempted
+                && currentUrl == currentURL
             {
                 hasAttemptedAutoUpload = true
                 await performUpload(expectedUrl: currentUrl)

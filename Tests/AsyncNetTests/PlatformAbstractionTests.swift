@@ -195,10 +195,39 @@ struct PlatformAbstractionTests {
                     let totalBytes = rep.bytesPerRow * rep.pixelsHigh
                     if totalBytes > 0 {
                         let bytesToCorrupt = min(10, totalBytes)
-                        let buffer = UnsafeMutableBufferPointer(
-                            start: bitmapData, count: totalBytes)
-                        for i in 0..<bytesToCorrupt {
-                            buffer[i] = UInt8.random(in: 0...255)
+                        // Create a safe copy of the bitmap data
+                        let originalData = Data(bytes: bitmapData, count: totalBytes)
+                        var corruptedData = originalData
+
+                        // Corrupt random bytes in the copy
+                        for _ in 0..<bytesToCorrupt {
+                            let randomIndex = Int.random(in: 0..<totalBytes)
+                            corruptedData[randomIndex] = UInt8.random(in: 0...255)
+                        }
+
+                        // Create a new bitmap rep with the corrupted data
+                        if let corruptedRep = NSBitmapImageRep(
+                            bitmapDataPlanes: nil,
+                            pixelsWide: rep.pixelsWide,
+                            pixelsHigh: rep.pixelsHigh,
+                            bitsPerSample: rep.bitsPerSample,
+                            samplesPerPixel: rep.samplesPerPixel,
+                            hasAlpha: rep.hasAlpha,
+                            isPlanar: rep.isPlanar,
+                            colorSpaceName: rep.colorSpaceName,
+                            bitmapFormat: rep.bitmapFormat,
+                            bytesPerRow: rep.bytesPerRow,
+                            bitsPerPixel: rep.bitsPerPixel
+                        ) {
+                            // Copy the corrupted data to the new rep
+                            corruptedData.withUnsafeBytes { buffer in
+                                if let baseAddress = buffer.baseAddress {
+                                    memcpy(corruptedRep.bitmapData, baseAddress, totalBytes)
+                                }
+                            }
+                            // Replace the representation with the corrupted one
+                            corruptedImage.removeRepresentation(rep)
+                            corruptedImage.addRepresentation(corruptedRep)
                         }
                     }
                 }

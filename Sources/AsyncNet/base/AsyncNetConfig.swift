@@ -175,8 +175,8 @@ public actor AsyncNetConfig {
         _timeoutDuration = AsyncNetConfig.defaultTimeout
     }
 
-    /// Resets the maximum upload size to the static default (see AsyncNetConfig.defaultMaxUploadSize)
+    /// Resets the maximum upload size to the initial runtime-configured value (preserves environment overrides)
     public func resetMaxUploadSize() {
-        _maxUploadSize = AsyncNetConfig.defaultMaxUploadSize
+        _maxUploadSize = _initialMaxUploadSize
     }
 }

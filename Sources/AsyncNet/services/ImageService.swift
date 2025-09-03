@@ -302,9 +302,11 @@ public actor ImageService {
                 heap[index].isValid = false
                 keyToIndex.removeValue(forKey: key)
             }
-            // Trigger compaction if invalid entries exceed 25% of total entries
+            // Trigger compaction if invalid entries exceed 10% of total entries or reach minimum threshold
             let invalidCount = heap.count - keyToIndex.count
-            if heap.count > 0 && Double(invalidCount) / Double(heap.count) > 0.25 {
+            if heap.count > 0
+                && (Double(invalidCount) / Double(heap.count) > 0.10 || invalidCount >= 50)
+            {
                 pruneInvalidEntries()
             }
         }
@@ -444,6 +446,8 @@ public actor ImageService {
         public let maxAttempts: Int
         public let baseDelay: TimeInterval
         public let jitter: TimeInterval
+        /// Maximum delay between retry attempts (prevents unbounded exponential growth)
+        public let maxDelay: TimeInterval
         /// Optional error filter: only retry for errors matching this predicate
         public let shouldRetry: (@Sendable (Error) -> Bool)?
         /// Optional custom backoff strategy: returns delay for given attempt
@@ -453,12 +457,14 @@ public actor ImageService {
             maxAttempts: Int = 3,
             baseDelay: TimeInterval = 0.5,
             jitter: TimeInterval = 0.5,
+            maxDelay: TimeInterval = 30.0,
             shouldRetry: (@Sendable (Error) -> Bool)? = nil,
             backoff: (@Sendable (Int) -> TimeInterval)? = nil
         ) {
             self.maxAttempts = maxAttempts
             self.baseDelay = baseDelay
             self.jitter = jitter
+            self.maxDelay = maxDelay
             self.shouldRetry = shouldRetry
             self.backoff = backoff
         }
@@ -504,12 +510,22 @@ public actor ImageService {
                 } else {
                     delay = config.baseDelay * pow(2.0, Double(attempt))
                 }
+                
+                // Cap the delay to prevent unbounded exponential growth
+                let cappedDelay = min(delay, config.maxDelay)
                 let jitter = Double.random(in: 0...config.jitter)
+                let totalDelay = cappedDelay + jitter
                 
                 // Check for cancellation before sleeping
                 try Task.checkCancellation()
 
-                try await Task.sleep(nanoseconds: UInt64((delay + jitter) * 1_000_000_000))
+                // Safe conversion to nanoseconds with overflow protection
+                // Clamp to a reasonable maximum (24 hours) to prevent overflow
+                let maxReasonableDelay: TimeInterval = 24 * 60 * 60  // 24 hours
+                let safeDelay = min(max(totalDelay, 0.0), maxReasonableDelay)
+                let nanoseconds = UInt64(safeDelay * 1_000_000_000)
+
+                try await Task.sleep(nanoseconds: nanoseconds)
                 
                 // Check for cancellation before next attempt
                 try Task.checkCancellation()
@@ -683,14 +699,16 @@ public actor ImageService {
         inFlightImageTasks[urlString] = fetchTask
 
         // Ensure task cleanup happens when the task completes or fails
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
+
             do {
                 _ = try await fetchTask.value
             } catch {
                 // Task failed - cleanup will happen when task completes
             }
             // Always remove the task from inFlightImageTasks when it completes
-            self.removeInFlightTask(forKey: urlString)
+            await self.removeInFlightTask(forKey: urlString)
         }
 
         let data = try await fetchTask.value

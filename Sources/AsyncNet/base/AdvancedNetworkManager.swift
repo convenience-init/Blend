@@ -534,6 +534,31 @@ public actor AdvancedNetworkManager {
             return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
         #elseif canImport(CommonCrypto)
             // Use CommonCrypto's CC_SHA256 when available
+            
+            // Check for potential overflow when casting body.count to CC_LONG
+            guard body.count <= CC_LONG.max else {
+                // Handle large buffers by hashing incrementally to avoid overflow
+                var context = CC_SHA256_CTX()
+                CC_SHA256_Init(&context)
+
+                // Process body in chunks to avoid CC_LONG overflow
+                let chunkSize = Int(CC_LONG.max)
+                var remainingData = body
+
+                while !remainingData.isEmpty {
+                    let chunk = remainingData.prefix(chunkSize)
+                    remainingData = remainingData.dropFirst(chunkSize)
+
+                    chunk.withUnsafeBytes { buffer in
+                        _ = CC_SHA256_Update(&context, buffer.baseAddress, CC_LONG(chunk.count))
+                    }
+                }
+
+                var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+                CC_SHA256_Final(&hash, &context)
+
+                return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
+            }
 
             var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
             body.withUnsafeBytes { buffer in

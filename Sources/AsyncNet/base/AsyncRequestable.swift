@@ -396,6 +396,8 @@ public extension AsyncRequestable {
 	) async throws -> ResponseModel where ResponseModel: Decodable {
 		let request = try buildURLRequest(from: endPoint)
 		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
+		// Note: HTTP response status validation is performed by AdvancedNetworkManager.fetchData
+		// which throws appropriate NetworkError instances for non-2xx status codes
 		do {
 			return try jsonDecoder.decode(ResponseModel.self, from: data)
 		} catch {

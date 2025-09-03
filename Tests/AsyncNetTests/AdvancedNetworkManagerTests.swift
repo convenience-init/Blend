@@ -284,6 +284,42 @@ struct AdvancedNetworkManagerTests {
         let recorded = await mockSession.recordedRequests
         #expect(recorded.count == 1, "Non-retryable error should not be retried")
     }
+
+    @Test func testRetryPolicyBackoffCappingInPractice() async throws {
+        let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
+        // Script multiple failures to trigger retries
+        let mockSession = MockURLSession(scriptedCalls: [
+            (nil, nil, NetworkError.networkUnavailable),  // First attempt
+            (nil, nil, NetworkError.networkUnavailable),  // Retry 1
+            (
+                Data([0x01]),
+                HTTPURLResponse(
+                    url: URL(string: "https://mock.api/test")!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ), nil
+            ),  // Retry 2 succeeds
+        ])
+        let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
+        let request = URLRequest(url: URL(string: "https://mock.api/test")!)
+
+        let policy = RetryPolicy(
+            maxAttempts: 3,
+            shouldRetry: { _, _ in true },
+            backoff: { attempt in pow(10.0, Double(attempt)) },  // 10s, 100s, 1000s
+            maxBackoff: 0.5  // Cap at 0.5 seconds
+        )
+
+        let startTime = Date()
+        _ = try await manager.fetchData(
+            for: request, cacheKey: "test-key", retryPolicy: policy)
+        let elapsed = Date().timeIntervalSince(startTime)
+
+        // With maxBackoff of 0.5s and 2 retries, total delay should be ~1s
+        // Allow some tolerance for execution time
+        #expect(elapsed < 2.0, "Total elapsed time should respect maxBackoff capping")
+    }
 }
 
 @Suite("AsyncRequestable & Endpoint Tests")
