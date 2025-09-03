@@ -9,6 +9,10 @@ import os
     import CryptoKit
 #endif
 
+#if canImport(CommonCrypto)
+    import CommonCrypto
+#endif
+
 /// AdvancedNetworkManager provides comprehensive network request management with:
 /// - Request deduplication and caching
 /// - Retry logic with exponential backoff and jitter
@@ -251,12 +255,13 @@ public actor DefaultNetworkCache: NetworkCache {
         var nodesToRemove: [Node] = []
         let initialCount = cache.count  // Capture stable count before cleanup
         let cleanupLimit = max(1, min(10, initialCount / 4))  // Check up to 25% or 10 entries, minimum 1
+        let maxIterations = min(initialCount, 100)  // Hard safety cap to prevent infinite loops
         var checked = 0
         var visitedNodes = Set<ObjectIdentifier>()
 
         // Start from tail and work backwards, checking for expired entries
         var current = tail
-        while let node = current, checked < cleanupLimit, checked < initialCount {
+        while let node = current, checked < cleanupLimit, checked < maxIterations {
             // Cycle detection: break if we've seen this node before
             let nodeId = ObjectIdentifier(node)
             if visitedNodes.contains(nodeId) {
@@ -468,11 +473,10 @@ public actor AdvancedNetworkManager {
             // If this task was cancelled, cancel the stored task and clean up
             if error is CancellationError {
                 // Cancel the stored task in inFlightTasks to ensure proper cancellation
-                if let storedTask = inFlightTasks[key] {
+                if let storedTask = inFlightTasks[key], !storedTask.isCancelled {
                     storedTask.cancel()
                 }
-                // Remove the cancelled task from inFlightTasks immediately
-                inFlightTasks.removeValue(forKey: key)
+                // Note: Task removal is handled by the defer block above
             }
             throw error
         }
@@ -528,12 +532,21 @@ public actor AdvancedNetworkManager {
         #if canImport(CryptoKit)
             let hash = SHA256.hash(data: body)
             return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
+        #elseif canImport(CommonCrypto)
+            // Use CommonCrypto's CC_SHA256 when available
+
+            var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+            body.withUnsafeBytes { buffer in
+                _ = CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &hash)
+            }
+            return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
         #else
-            // Fallback to a simple hash when CryptoKit is not available
-            let bodySize = body.count
-            let firstBytes = body.prefix(min(16, bodySize))
-            let hashValue = firstBytes.reduce(0) { $0 &+ UInt32($1) }
-            return "fallback:\(String(format: "%08x", hashValue)):\(bodySize)"
+            // Fallback to FNV-1a 64-bit hash over the entire body for better collision resistance
+            let fnv1aHash = body.reduce(14695981039346656037) { hash, byte in
+                let hash = hash ^ UInt64(byte)
+                return hash &* 1099511628211
+            }
+            return "fallback:\(String(format: "%016llx", fnv1aHash)):\(body.count)"
         #endif
     }
 
@@ -696,10 +709,17 @@ public struct RetryPolicy: Sendable {
         seed: UInt64
     ) -> RetryPolicy {
         let jitterProvider: (@Sendable (Int) -> TimeInterval) = { attempt in
-            // Use a deterministic hash of seed + attempt for reproducible jitter
-            let hash = seed &+ UInt64(attempt)
-            // Convert hash to a value between 0 and 0.5
-            return Double(hash % 500) / 1000.0
+            // Use SplitMix64 PRNG for better statistical properties and uniform distribution
+            let combinedSeed = seed &+ UInt64(attempt)
+
+            // SplitMix64 algorithm - deterministic PRNG with good statistical properties
+            var z = combinedSeed &+ 0x9E37_79B9_7F4A_7C15
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            let randomUInt64 = z ^ (z >> 31)
+
+            // Scale UInt64 to TimeInterval range [0.0, 0.5)
+            return Double(randomUInt64) / Double(UInt64.max) * 0.5
         }
 
         return RetryPolicy(

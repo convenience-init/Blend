@@ -517,7 +517,7 @@ jobs:
               echo "No UDID available, skipping boot (will use platform=name format)"
             fi
 
-            echo "${OUTPUT_PREFIX}_simulator=$SIMULATOR_NAME" >> "$GITHUB_OUTPUT"
+            echo "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME" >> "$GITHUB_OUTPUT"
             echo "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID" >> "$GITHUB_OUTPUT"
             echo "Successfully configured ${PLATFORM_KEY} Simulator: name='$SIMULATOR_NAME' udid='${SIMULATOR_UDID:-N/A}'"
           }

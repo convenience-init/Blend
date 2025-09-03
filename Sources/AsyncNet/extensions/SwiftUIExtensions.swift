@@ -263,7 +263,7 @@ public struct AsyncNetImageView: View {
                     if uploadURL != nil {
                         Button(action: {
                             Task {
-                                await performUpload(expectedUrl: nil)
+                                await performUpload(expectedUrl: url)
                             }
                         }) {
                             Image(
@@ -350,7 +350,7 @@ public struct AsyncNetImageView: View {
     @MainActor
     public func uploadImage() async -> Bool {
         guard model.loadedImage != nil, uploadURL != nil else { return false }
-        await performUpload(expectedUrl: nil)
+        await performUpload(expectedUrl: url)
         return true
     }
 }

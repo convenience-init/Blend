@@ -1,7 +1,7 @@
 /* Localized strings for AsyncNet */
 
 /* HTTP error messages */
-"HTTP error: Status code %d" = "HTTP error: Status code %d";
+"HTTP error: Status code %ld" = "HTTP error: Status code %ld";
 
 /* Decoding error messages */
 "Decoding error: %@" = "Decoding error: %@";
@@ -11,7 +11,7 @@
 "Network unavailable." = "Network unavailable.";
 "Request timed out after %.2f seconds." = "Request timed out after %.2f seconds.";
 "Invalid endpoint: %@" = "Invalid endpoint: %@";
-"Not authorized (status %d)." = "Not authorized (status %d).";
+"Not authorized (status %ld)." = "Not authorized (status %ld).";
 "No network response." = "No network response.";
 "Unsupported MIME type: %@" = "Unsupported MIME type: %@";
 "Upload failed: %@" = "Upload failed: %@";
@@ -21,9 +21,9 @@
 "Request was canceled." = "Request was canceled.";
 "Authentication failed." = "Authentication failed.";
 "Transport error: %@ - %@" = "Transport error: %@ - %@";
-"Out of script bounds: Call %d" = "Out of script bounds: Call %d";
+"Out of script bounds: Call %ld" = "Out of script bounds: Call %ld";
 "Payload too large: %1$llu bytes exceeds limit of %2$llu bytes" = "The payload size of %1$llu bytes exceeds the limit of %2$llu bytes.";
-"Invalid mock configuration: Call %d is missing %@" = "Invalid mock configuration: Call %d is missing %@";
+"Invalid mock configuration: Call %ld is missing %@" = "Invalid mock configuration: Call %ld is missing %@";
 
 /* Transport error descriptions */
 "Not connected to the internet" = "Not connected to the internet";
@@ -64,7 +64,7 @@
 "The background session requires a shared container" = "The background session requires a shared container";
 "The background session is in use by another process" = "The background session is in use by another process";
 "The background session was disconnected" = "The background session was disconnected";
-"Transport error: %d" = "Transport error: %d";
+"Transport error: %ld" = "Transport error: %ld";
 
 /* Recovery suggestions */
 "Please try again or contact support." = "Please try again or contact support.";

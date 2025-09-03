@@ -187,15 +187,14 @@ public actor ImageService {
             // If not expired, check caches immediately while we know LRU state is valid
             if now - node.insertionTimestamp < cacheConfig.maxAge {
                 let cacheKey = key
+                // Perform cache checks synchronously within actor context
                 let inImageCache = await imageCache.object(forKey: cacheKey) != nil
                 let inDataCache = await dataCache.object(forKey: cacheKey) != nil
                 let isCached = inImageCache || inDataCache
 
-                // If cached but not in LRU, reinsert to maintain LRU behavior
-                if isCached && lruDict[key] == nil {
-                    // Capture the key value to avoid Sendable issues
-                    let keyString = key
-                    await addOrUpdateLRUNode(for: keyString)
+                // The node is already in LRU, just move it to head if cached
+                if isCached {
+                    moveLRUNodeToHead(node)
                 }
 
                 return isCached
@@ -774,6 +773,20 @@ public actor ImageService {
                 )
             #endif
             throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxUploadSize)
+        }
+
+        // Warn if image is large (base64 encoding will increase size by ~33%)
+        let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
+        if imageData.count > maxRecommendedSize {
+            #if canImport(OSLog)
+                asyncNetLogger.info(
+                    "Warning: Large image (\(imageData.count, privacy: .public) bytes) approaches upload limit. Base64 encoding will increase size by ~33%."
+                )
+            #else
+                print(
+                    "Warning: Large image (\(imageData.count) bytes) approaches upload limit. Base64 encoding will increase size by ~33%."
+                )
+            #endif
         }
 
         // Create multipart request
