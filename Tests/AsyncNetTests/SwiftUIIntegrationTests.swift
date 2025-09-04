@@ -24,10 +24,11 @@ import Testing
     }
 
     /// MockURLSession for testing concurrent loads with multiple URLs
-    private actor ConcurrentMockSession: URLSessionProtocol {
+    private final class ConcurrentMockSession: @unchecked Sendable, URLSessionProtocol {
         private let imageData: Data
         private let supportedURLs: [URL]
-        private var callCount: Int = 0
+        private let callCountLock = NSLock()
+        @MainActor private var _callCount: Int = 0
         private let artificialDelay: UInt64 = 100_000_000  // 100ms delay for stable timing
 
         init(imageData: Data, urls: [URL]) {
@@ -35,8 +36,14 @@ import Testing
             self.supportedURLs = urls
         }
 
-        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-            callCount += 1
+        /// Thread-safe getter for call count (safe to call after concurrent work completes)
+        @MainActor var callCount: Int {
+            _callCount
+        }
+
+        @MainActor func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            // Thread-safe increment of call count
+            _callCount += 1
 
             // Add artificial delay to simulate network latency
             if artificialDelay > 0 {
@@ -200,9 +207,9 @@ import Testing
             )
 
             // Initialize all models with the same service instance
-            let model1 = await AsyncImageModel(imageService: service)
-            let model2 = await AsyncImageModel(imageService: service)
-            let model3 = await AsyncImageModel(imageService: service)
+            let model1 = await MainActor.run { AsyncImageModel(imageService: service) }
+            let model2 = await MainActor.run { AsyncImageModel(imageService: service) }
+            let model3 = await MainActor.run { AsyncImageModel(imageService: service) }
 
             // Track timing to verify true concurrency
             var startTimes: [String: Date] = [:]

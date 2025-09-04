@@ -10,21 +10,17 @@ on:
 
 # Minimal permissions following principle of least privilege
 # 
-# actions: read (not write) is CORRECT because:
-# - This workflow only uses standard GitHub Actions (checkout, cache, upload-artifact)
-# - It does NOT call the GitHub Actions API directly
-# - Concurrency cancellation (cancel-in-progress: true) is handled by GitHub's infrastructure
-# - No programmatic workflow management or API calls are performed
+# actions: write is REQUIRED because:
+# - actions/cache needs write permission to save new cache entries
+# - actions/upload-artifact needs write permission to upload artifacts
+# - cancel-in-progress: true may benefit from write permissions for workflow management
 #
-# actions: write would only be needed if the workflow:
-# - Used actions/github-script to call GitHub APIs
-# - Programmatically canceled other workflow runs
-# - Managed workflow approvals or other Actions API operations
-#
-# Using read permissions reduces security blast radius while maintaining full functionality.
+# contents: read is sufficient because:
+# - This workflow only reads repository contents via checkout
+# - No repository modifications are performed
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 # Prevent duplicate workflow runs and cancel in-progress jobs
 concurrency:
@@ -41,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-latest]
+        runner: [macos-15]
         target: [macos, ios, tvos]
         xcode: [16]
         swift: [6.0.3]  # Matches Xcode 16's bundled Swift toolchain to prevent version mismatches
@@ -52,9 +48,6 @@ jobs:
             build: spm
           - target: tvos
             build: spm
-          # macOS 14 doesn't support Xcode 16 on hosted runners
-          - runner: macos-14
-            xcode: 16
 
     steps:
       - name: Checkout code
@@ -119,17 +112,35 @@ jobs:
           #!/bin/bash
           set -euo pipefail
 
-          # Call the shared simulator discovery script
-          ./scripts/ci/find_simulator.sh "iOS" "iPhone" "iPhone 14" "ios"
+          # Call the shared simulator discovery script with explicit bash
+          bash scripts/ci/find_simulator.sh "iOS" "iPhone" "iPhone 14" "ios"
 
       - name: Build (iOS)
         if: matrix.target == 'ios'
         run: |
-          if [ -n "${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}" ]; then
-            DEST="id=${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}"
-          else
-            DEST="platform=iOS Simulator,name=${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          #!/bin/bash
+          set -euo pipefail
+          
+          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}"
+          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          
+          # Validate that at least one simulator output is available
+          if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
+            echo "ERROR: Both iOS simulator UDID and name outputs are empty or missing" >&2
+            echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
+            echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "Cannot proceed with iOS build without valid simulator information." >&2
+            exit 1
           fi
+          
+          # Set destination based on available outputs
+          if [ -n "$SIM_UDID" ]; then
+            DEST="id=$SIM_UDID"
+          else
+            DEST="platform=iOS Simulator,name=$SIM_NAME"
+          fi
+          
+          echo "Building for iOS simulator: $DEST"
           xcodebuild -scheme AsyncNet -destination "$DEST" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Find tvOS Simulator
@@ -139,8 +150,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
 
-          # Call the shared simulator discovery script
-          ./scripts/ci/find_simulator.sh "tvOS" "Apple TV" "Apple TV 4K" "tvos"
+          # Call the shared simulator discovery script with explicit bash
+          bash scripts/ci/find_simulator.sh "tvOS" "Apple TV" "Apple TV 4K" "tvos"
 
       - name: Verify iOS Simulators
         if: matrix.target == 'ios'
@@ -172,21 +183,57 @@ jobs:
       - name: Test iOS
         if: matrix.target == 'ios'
         run: |
-          if [ -n "${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}" ]; then
-            DEST="id=${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}"
-          else
-            DEST="platform=iOS Simulator,name=${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          #!/bin/bash
+          set -euo pipefail
+          
+          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}"
+          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          
+          # Validate that at least one simulator output is available
+          if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
+            echo "ERROR: Both iOS simulator UDID and name outputs are empty or missing" >&2
+            echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
+            echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "Cannot proceed with iOS tests without valid simulator information." >&2
+            exit 1
           fi
+          
+          # Set destination based on available outputs
+          if [ -n "$SIM_UDID" ]; then
+            DEST="id=$SIM_UDID"
+          else
+            DEST="platform=iOS Simulator,name=$SIM_NAME"
+          fi
+          
+          echo "Testing on iOS simulator: $DEST"
           xcodebuild test -scheme AsyncNet -destination "$DEST" -destination-timeout 180 -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Test tvOS
         if: matrix.target == 'tvos'
         run: |
-          if [ -n "${{ steps.find_tvos_simulator.outputs.tvos_simulator_udid }}" ]; then
-            DEST="id=${{ steps.find_tvos_simulator.outputs.tvos_simulator_udid }}"
-          else
-            DEST="platform=tvOS Simulator,name=${{ steps.find_tvos_simulator.outputs.tvos_simulator_name }}"
+          #!/bin/bash
+          set -euo pipefail
+          
+          SIM_UDID="${{ steps.find_tvos_simulator.outputs.tvos_simulator_udid }}"
+          SIM_NAME="${{ steps.find_tvos_simulator.outputs.tvos_simulator_name }}"
+          
+          # Validate that at least one simulator output is available
+          if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
+            echo "ERROR: Both tvOS simulator UDID and name outputs are empty or missing" >&2
+            echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
+            echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "Cannot proceed with tvOS tests without valid simulator information." >&2
+            exit 1
           fi
+          
+          # Set destination based on available outputs
+          if [ -n "$SIM_UDID" ]; then
+            DEST="id=$SIM_UDID"
+          else
+            DEST="platform=tvOS Simulator,name=$SIM_NAME"
+          fi
+          
+          echo "Testing on tvOS simulator: $DEST"
           xcodebuild test -scheme AsyncNet -destination "$DEST" -destination-timeout 180 -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Check coverage profdata

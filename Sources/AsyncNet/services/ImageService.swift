@@ -401,10 +401,14 @@ public actor ImageService {
             // If not expired, check caches immediately while we know LRU state is valid
             if now - node.insertionTimestamp < cacheConfig.maxAge {
                 let cacheKey = key
-                // Perform cache checks synchronously within actor context
-                let inImageCache = await imageCache.object(forKey: cacheKey) != nil
-                let inDataCache = await dataCache.object(forKey: cacheKey) != nil
-                let isCached = inImageCache || inDataCache
+                // Perform cache checks concurrently to prevent race conditions
+                async let inImageCache = imageCache.object(forKey: cacheKey) != nil
+                async let inDataCache = dataCache.object(forKey: cacheKey) != nil
+
+                // Await the results separately and combine them
+                let imageCached = await inImageCache
+                let dataCached = await inDataCache
+                let isCached = imageCached || dataCached
 
                 // The node is already in LRU, just move it to head if cached
                 if isCached {
@@ -1877,6 +1881,7 @@ private struct UploadPayload: Encodable {
 #if canImport(SwiftUI)
     extension SwiftUI.Image {
         /// Creates a SwiftUI Image from a platform-specific image
+       
         /// - Parameter platformImage: The UIImage or NSImage to convert
         public init(platformImage: PlatformImage) {
             #if canImport(UIKit)

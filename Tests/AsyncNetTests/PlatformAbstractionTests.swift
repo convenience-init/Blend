@@ -221,9 +221,10 @@ struct PlatformAbstractionTests {
                         ) {
                             // Copy the corrupted data to the new rep
                             corruptedData.withUnsafeBytes { buffer in
-                                if let baseAddress = buffer.baseAddress {
-                                    memcpy(corruptedRep.bitmapData, baseAddress, totalBytes)
-                                }
+                                guard let dest = corruptedRep.bitmapData,
+                                    let src = buffer.baseAddress
+                                else { return }
+                                memcpy(dest, src, totalBytes)
                             }
                             // Replace the representation with the corrupted one
                             corruptedImage.removeRepresentation(rep)

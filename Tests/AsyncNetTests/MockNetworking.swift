@@ -1,9 +1,8 @@
 import Foundation
+import AsyncNet
 
-@testable import AsyncNet
-
-/// MockURLSession for unit testing, conforms to URLSessionProtocol
-actor MockURLSession: URLSessionProtocol {
+/// Mock networking utilities for testing AsyncNet components
+public actor MockURLSession: URLSessionProtocol {
     /// Private mutable storage for scripted responses - single array keeps all values aligned
     private var scriptedScripts: [(data: Data?, response: URLResponse?, error: Error?)]
     private var _callCount: Int = 0
@@ -110,7 +109,7 @@ actor MockURLSession: URLSessionProtocol {
         }
     }
 
-    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let currentCallIndex = _callCount
         _callCount += 1
         _recordedRequests.append(request)

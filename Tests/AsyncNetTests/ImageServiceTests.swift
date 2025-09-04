@@ -446,7 +446,7 @@ struct ImageServicePerformanceTests {
             elapsedSeconds < 0.1,
             "Cold start latency should be less than 100ms, was \(elapsedSeconds * 1000)ms")
 
-        #expect(duration < .seconds(0.1))  // <100ms for mock network call
+        #expect(duration < .milliseconds(100))  // <100ms for mock network call
     }
 
     @Test func testCachingAvoidsRepeatedNetworkCalls() async throws {

@@ -17,6 +17,56 @@ DEVICE_MATCH="$2"
 FALLBACK_DEVICE="$3"
 OUTPUT_PREFIX="$4"
 
+# Timeout configuration
+TIMEOUT_SEC=300  # 5 minutes timeout for simulator operations
+
+# Timeout wrapper for bootstatus commands to prevent infinite hangs
+timeout_bootstatus() {
+    local simulator_name="$1"
+    local simulator_udid="$2"
+    local context_message="$3"
+    
+    echo "Starting bootstatus check with ${TIMEOUT_SEC}s timeout: $simulator_name ($simulator_udid)"
+    
+    # Start bootstatus in background
+    xcrun simctl bootstatus "$simulator_udid" -b 2>&1 &
+    local bootstatus_pid=$!
+    
+    # Start timeout sleeper in background
+    (
+        sleep "$TIMEOUT_SEC"
+        if kill -0 "$bootstatus_pid" 2>/dev/null; then
+            echo "TIMEOUT: bootstatus command timed out after ${TIMEOUT_SEC}s for $simulator_name ($simulator_udid)"
+            kill "$bootstatus_pid" 2>/dev/null || true
+        fi
+    ) &
+    local sleeper_pid=$!
+    
+    # Wait for bootstatus to finish
+    local exit_code
+    wait "$bootstatus_pid" 2>/dev/null
+    exit_code=$?
+    
+    # Clean up sleeper process
+    kill "$sleeper_pid" 2>/dev/null || true
+    wait "$sleeper_pid" 2>/dev/null || true
+    
+    # Check if we timed out (process was killed)
+    if ! kill -0 "$bootstatus_pid" 2>/dev/null && [ $exit_code -eq 143 ]; then
+        # Process was killed (SIGTERM = 143), treat as timeout
+        echo "ERROR: $context_message timed out after ${TIMEOUT_SEC}s for '$simulator_name' (UDID: $simulator_udid)"
+        echo "Available devices from xcrun simctl:"
+        xcrun simctl list devices available || true
+        echo ""
+        echo "Device details:"
+        xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$simulator_name" || true
+        return 1
+    fi
+    
+    # Return the original exit code
+    return $exit_code
+}
+
 # Reusable function for simulator discovery
 find_simulator() {
     local PLATFORM_KEY="$1"
@@ -104,7 +154,7 @@ find_simulator() {
         echo "  macOS: brew install jq" >&2
         echo "  Linux: sudo apt-get install jq" >&2
         echo "  Windows: choco install jq" >&2
-        "" >&2
+        echo "" >&2
         echo "Available devices list:" >&2
         xcrun simctl list devices available || true
         exit 1
@@ -185,7 +235,7 @@ find_simulator() {
 
         # Ensure fallback device is booted for stable UDID
         echo "Ensuring fallback simulator is booted: $SIMULATOR_NAME ($SIMULATOR_UDID)"
-        if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
+        if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Fallback simulator bootstatus check"; then
             echo "Fallback simulator not booted; attempting boot..."
             if ! xcrun simctl boot "$SIMULATOR_UDID" 2>&1; then
                 echo "ERROR: Failed to boot fallback simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
@@ -194,7 +244,7 @@ find_simulator() {
                 exit 1
             fi
             echo "Waiting for fallback simulator to be ready..."
-            if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
+            if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Fallback simulator readiness check"; then
                 echo "ERROR: Failed to reach booted state for fallback simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
                 xcrun simctl list devices available || true
                 xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$SIMULATOR_NAME" || true
@@ -209,7 +259,7 @@ find_simulator() {
     # Note: Fallback device is already booted above, so we only need to handle the primary device here
     if [ -n "$SIMULATOR_UDID" ] && [ "$SIMULATOR_NAME" != "$FALLBACK_DEVICE" ]; then
         echo "Ensuring simulator is booted: $SIMULATOR_NAME ($SIMULATOR_UDID)"
-        if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
+        if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Primary simulator bootstatus check"; then
             echo "Simulator not booted; attempting boot..."
             if ! xcrun simctl boot "$SIMULATOR_UDID" 2>&1; then
                 echo "ERROR: Failed to boot simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
@@ -218,7 +268,7 @@ find_simulator() {
                 exit 1
             fi
             echo "Waiting for simulator to be ready..."
-            if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
+            if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Primary simulator readiness check"; then
                 echo "ERROR: Failed to reach booted state for '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
                 xcrun simctl list devices available || true
                 xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$SIMULATOR_NAME" || true
@@ -228,6 +278,16 @@ find_simulator() {
     fi
 
     if [ -n "${GITHUB_OUTPUT:-}" ]; then
+        # Validate that we have non-empty simulator information before writing outputs
+        if [ -z "$SIMULATOR_NAME" ]; then
+            echo "ERROR: Simulator name is empty or null - cannot proceed with CI"
+            exit 1
+        fi
+        if [ -z "$SIMULATOR_UDID" ]; then
+            echo "ERROR: Simulator UDID is empty or null - cannot proceed with CI"
+            exit 1
+        fi
+        
         {
             printf '%s\n' "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME"
             printf '%s\n' "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID"

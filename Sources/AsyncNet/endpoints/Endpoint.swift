@@ -181,6 +181,10 @@ extension Endpoint {
 		var canonicalizedHeaders: [String: String] = [:]
 		var normalizedKeyMap: [String: String] = [:]  // normalized key -> canonical key
 
+		// Create character set for ASCII C0 control characters (0x00–0x1F) and DEL (0x7F) once before the loop
+		let forbiddenCharacters = CharacterSet.controlCharacters.union(
+			CharacterSet(charactersIn: "\u{7F}"))
+
 		for (key, value) in normalizedHeaders {
 			// Trim both key and value (only whitespace, not control characters)
 			let trimmedKey = key.trimmingCharacters(in: .whitespaces)
@@ -191,10 +195,6 @@ extension Endpoint {
 
 			// Skip headers with empty/whitespace-only values
 			guard !trimmedValue.isEmpty else { continue }
-
-			// Create character set for ASCII C0 control characters (0x00–0x1F) and DEL (0x7F)
-			let forbiddenCharacters = CharacterSet(charactersIn: "\u{00}"..."\u{1F}").union(
-				CharacterSet(charactersIn: "\u{7F}"))
 
 			// Reject headers containing any C0 control characters or DEL (header injection protection)
 			guard
@@ -240,11 +240,7 @@ extension Endpoint {
 			let contentType = contentType?.trimmingCharacters(in: .whitespaces),
 			!contentType.isEmpty,
 			let body = body, !body.isEmpty,
-			!contentType.unicodeScalars.contains(where: {
-				CharacterSet(charactersIn: "\u{00}"..."\u{1F}").union(
-					CharacterSet(charactersIn: "\u{7F}")
-				).contains($0)
-			})
+			!contentType.unicodeScalars.contains(where: { forbiddenCharacters.contains($0) })
 		{
 			canonicalizedHeaders["Content-Type"] = contentType
 		}
