@@ -539,10 +539,10 @@ public actor ImageService {
                 keyToIndex.removeValue(forKey: key)
                 operationCount += 1
 
-                // More aggressive pruning: trigger when invalid ratio >5% or >=20 invalid entries
+                // More aggressive pruning: trigger when invalid ratio >20% or >=100 invalid entries
                 let invalidCount = heap.count - validCount
                 if heap.count > 0
-                    && (Double(invalidCount) / Double(heap.count) > 0.05 || invalidCount >= 20)
+                    && (Double(invalidCount) / Double(heap.count) > 0.20 || invalidCount >= 100)
                 {
                     pruneInvalidEntries()
                 }
@@ -774,11 +774,32 @@ public actor ImageService {
                 }
 
                 // Custom backoff strategy
-                let delay: TimeInterval
+                var delay: TimeInterval
                 if let backoff = config.backoff {
                     delay = backoff(attempt)
                 } else {
-                    delay = config.baseDelay * pow(2.0, Double(attempt))
+                    // Safe exponential backoff calculation to prevent overflow
+                    // Compute the maximum exponent that won't exceed config.maxDelay
+                    let maxExponent = log2(config.maxDelay / config.baseDelay)
+                    let safeExponent = min(Double(attempt), maxExponent)
+
+                    // Use safe multiplication with early exit to avoid overflow
+                    var exponential: Double = 1.0
+                    for _ in 0..<Int(safeExponent) {
+                        exponential *= 2.0
+                        // Early exit if we've reached the cap
+                        if exponential * config.baseDelay >= config.maxDelay {
+                            exponential = config.maxDelay / config.baseDelay
+                            break
+                        }
+                    }
+
+                    delay = config.baseDelay * exponential
+
+                    // Additional safety check for finite values
+                    if !delay.isFinite || delay.isNaN {
+                        delay = config.maxDelay
+                    }
                 }
                 
                 // Cap the delay to prevent unbounded exponential growth
@@ -793,6 +814,15 @@ public actor ImageService {
                 // Clamp to a reasonable maximum (24 hours) to prevent overflow
                 let maxReasonableDelay: TimeInterval = 24 * 60 * 60  // 24 hours
                 let safeDelay = min(max(totalDelay, 0.0), maxReasonableDelay)
+                
+                // Additional validation before nanosecond conversion
+                guard safeDelay.isFinite && !safeDelay.isNaN else {
+                    throw NetworkError.customError(
+                        "Invalid delay calculation",
+                        details: "Delay became non-finite: \(totalDelay)"
+                    )
+                }
+
                 let nanoseconds = UInt64(safeDelay * 1_000_000_000)
 
                 try await Task.sleep(nanoseconds: nanoseconds)
@@ -834,29 +864,6 @@ public actor ImageService {
         self.interceptors = []
 
         self.injectedURLSession = urlSession
-    }
-
-    /// Convenience initializer for backward compatibility
-    /// - Parameters:
-    ///   - cacheCountLimit: Shared count limit for both image and data caches (deprecated, use separate parameters)
-    ///   - cacheTotalCostLimit: Shared cost limit for both image and data caches (deprecated, use separate parameters)
-    ///   - urlSession: Optional URL session for network requests
-    @available(
-        *, deprecated,
-        message:
-            "Use init(imageCacheCountLimit:imageCacheTotalCostLimit:dataCacheCountLimit:dataCacheTotalCostLimit:urlSession:) for better cache performance"
-    )
-    public init(
-        cacheCountLimit: Int = 100, cacheTotalCostLimit: Int = 50 * 1024 * 1024,
-        urlSession: URLSessionProtocol? = nil
-    ) {
-        self.init(
-            imageCacheCountLimit: cacheCountLimit,
-            imageCacheTotalCostLimit: cacheTotalCostLimit,
-            dataCacheCountLimit: cacheCountLimit,
-            dataCacheTotalCostLimit: cacheTotalCostLimit,
-            urlSession: urlSession
-        )
     }
 
     // MARK: - Image Fetching
@@ -908,10 +915,20 @@ public actor ImageService {
             return try await existingTask.value
         }
 
+        // Set up in-flight task tracking before creating the task
+        inFlightImageTasks[urlString] = nil  // Placeholder to ensure the key exists
+
         // Create new task for this request, with retry/backoff
         let fetchTask = Task<Data, Error> {
-            [weak self] () async throws -> Data in
-            guard let self else { throw CancellationError() }
+            () async throws -> Data in
+            // Capture strong reference to self for the entire task execution
+            defer {
+                // Always remove the task from inFlightImageTasks when it completes
+                // This ensures cleanup happens regardless of success, failure, or cancellation
+                Task {
+                    self.removeInFlightTask(forKey: urlString)
+                }
+            }
 
             let data = try await self.withRetry(config: effectiveRetryConfig) {
                 guard let url = URL(string: urlString),
@@ -966,20 +983,8 @@ public actor ImageService {
             return data
         }
 
+        // Now set the actual task in the dictionary
         inFlightImageTasks[urlString] = fetchTask
-
-        // Ensure task cleanup happens when the task completes or fails
-        Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                _ = try await fetchTask.value
-            } catch {
-                // Task failed - cleanup will happen when task completes
-            }
-            // Always remove the task from inFlightImageTasks when it completes
-            await self.removeInFlightTask(forKey: urlString)
-        }
 
         let data = try await fetchTask.value
 
@@ -1879,6 +1884,7 @@ private struct UploadPayload: Encodable {
 
 // MARK: - SwiftUI Image Extension
 #if canImport(SwiftUI)
+
     extension SwiftUI.Image {
         /// Creates a SwiftUI Image from a platform-specific image
        

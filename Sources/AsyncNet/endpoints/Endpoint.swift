@@ -45,7 +45,7 @@ public enum URLScheme: String, Sendable {
 ///     var headers: [String: String]? = ["Authorization": "Bearer token"]
 /// }
 /// ```
-/// A deprecation shim is provided for backward compatibility, but you should migrate to `headers`.
+/// The deprecated `header` property has been completely removed. All conforming types must use `headers`.
 ///
 /// **2. Body Type Change: `[String: String]?` → `Data?`**
 /// ```swift
@@ -149,18 +149,10 @@ public protocol Endpoint: Sendable {
 
 	/// Optional fragment identifier for the endpoint URL
 	var fragment: String? { get }
-
-	@available(*, deprecated, message: "Use `headers`")
-	var header: [String: String]? { get }
 }
 
 // MARK: - Header Normalization
 extension Endpoint {
-	@available(*, deprecated, message: "Use `headers`")
-	public var header: [String: String]? {
-		get { headers }
-	}
-
 	/// Returns a normalized headers dictionary that merges `headers` with `contentType`.
 	///
 	/// This computed property provides a single source of truth for HTTP headers by:

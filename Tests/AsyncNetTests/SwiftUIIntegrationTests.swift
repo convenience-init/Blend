@@ -24,11 +24,10 @@ import Testing
     }
 
     /// MockURLSession for testing concurrent loads with multiple URLs
-    private final class ConcurrentMockSession: @unchecked Sendable, URLSessionProtocol {
+    private actor ConcurrentMockSession: URLSessionProtocol {
         private let imageData: Data
         private let supportedURLs: [URL]
-        private let callCountLock = NSLock()
-        @MainActor private var _callCount: Int = 0
+        private var _callCount: Int = 0
         private let artificialDelay: UInt64 = 100_000_000  // 100ms delay for stable timing
 
         init(imageData: Data, urls: [URL]) {
@@ -37,11 +36,11 @@ import Testing
         }
 
         /// Thread-safe getter for call count (safe to call after concurrent work completes)
-        @MainActor var callCount: Int {
+        var callCount: Int {
             _callCount
         }
 
-        @MainActor func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             // Thread-safe increment of call count
             _callCount += 1
 
@@ -522,6 +521,10 @@ import Testing
 
             // ImageService has built-in retry logic (3 attempts by default), so we need to provide enough failures
             // followed by a success. The pattern will be: fail, fail, fail (exhaust retries), then success on retry
+            // This test assumes:
+            // - ImageService retries exactly 3 times on network errors before giving up
+            // - The 4th call (after exhausting retries) will succeed with the scripted success response
+            // - No additional calls should be made after success
             let testData = try Self.getMinimalPNGData()
             let session = MockURLSession(scriptedCalls: [
                 (nil, nil, NetworkError.networkUnavailable),  // First attempt fails
@@ -548,6 +551,15 @@ import Testing
             #expect(
                 model.isLoading == false, "Loading flag should be false after failed load")
 
+            // Verify that exactly 3 retry attempts were made (initial + 2 retries, since ImageService gives up after 3 total attempts)
+            #expect(
+                await session.callCount == 3,
+                "Should have made exactly 3 attempts before giving up (initial + 2 retries)")
+            #expect(
+                await session.allScriptsConsumed == false,
+                "Should not have consumed all scripts after failure (3 calls made, 4 scripts available)"
+            )
+
             // Now simulate a successful retry on the same model instance
             // This will use the success response from the mock session
             await model.loadImage(from: Self.defaultTestURL.absoluteString)
@@ -564,6 +576,14 @@ import Testing
             }
             #expect(model.hasError == false, "hasError should be false after successful retry")
             #expect(model.isLoading == false, "isLoading should be false after successful retry")
+
+            // Verify that the successful retry made exactly 1 additional call (total of 4 calls)
+            #expect(
+                await session.callCount == 4,
+                "Should have made exactly 4 total attempts (3 failures + 1 success)")
+            #expect(
+                await session.allScriptsConsumed == true,
+                "Should have consumed all scripted responses after success")
         }
     }
 #endif

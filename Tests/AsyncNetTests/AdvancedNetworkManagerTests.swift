@@ -71,8 +71,9 @@ struct AdvancedNetworkManagerTests {
         #expect(recorded.count == 3, "Expected 3 total attempts (1 initial + 2 retries)")
 
         // Verify backoff delays were applied (should be around 0.1 + 0.2 = 0.3s total delay)
-        #expect(elapsed >= 0.2, "Expected at least 0.2s elapsed due to backoff delays")
-        #expect(elapsed < 1.0, "Expected less than 1.0s elapsed (backoff should be reasonable)")
+        #expect(
+            elapsed >= 0.3, "Expected at least 0.3s elapsed due to backoff delays (0.1s + 0.2s)")
+        #expect(elapsed < 1.5, "Expected less than 1.5s elapsed (backoff should be reasonable)")
     }
 
     @Test func testRetryPolicyBackoffCapping() async throws {

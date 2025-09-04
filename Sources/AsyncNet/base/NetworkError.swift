@@ -729,35 +729,6 @@ extension NetworkError {
         return .customError(message: message, details: details)
     }
 
-    /// Wraps an Error into a NetworkError.
-    ///
-    /// This synchronous version uses a static default timeout duration for backward compatibility.
-    /// For configurable timeout behavior and thread-safe configuration, use `wrapAsync(_:config:)` instead.
-    ///
-    /// - Parameter error: The error to wrap
-    /// - Returns: A NetworkError representation of the input error
-    @available(
-        *, deprecated,
-        message: "Use wrapAsync(_:config:) for configurable timeout behavior and thread safety"
-    )
-    public static func wrap(_ error: Error) -> NetworkError {
-        if let networkError = error as? NetworkError {
-            return networkError
-        }
-        // If error is URLError, map to networkUnavailable or requestTimeout
-        if let urlError = error as? URLError {
-            return NetworkError.map(
-                urlError: urlError, timeout: NetworkError.defaultTimeoutDuration)
-        }
-        // Handle DecodingError specifically with detailed context
-        if let decodingError = error as? DecodingError {
-            let reason = NetworkError.decodingErrorReason(decodingError)
-            return .decodingFailed(reason: reason, underlying: decodingError, data: nil)
-        }
-        // Fallback to custom error
-        return .customError(message: "Unknown error", details: String(describing: error))
-    }
-
     /// Wraps an Error into a NetworkError with configurable timeout duration.
     /// This async version allows for thread-safe configuration of timeout behavior.
     /// - Parameters:
@@ -782,14 +753,6 @@ extension NetworkError {
         }
     }
 
-    /// Default timeout duration used when wrapping URLError.timedOut
-    /// This value is immutable to avoid race conditions in concurrent contexts.
-    /// For configurable timeout behavior, use the async wrap function with AsyncNetConfig.
-    ///
-    /// This constant is kept for backward compatibility with the deprecated synchronous wrap function.
-    /// New code should use AsyncNetConfig.shared.timeoutDuration for configurable timeouts.
-    public static let defaultTimeoutDuration: TimeInterval = 60.0
-
     /// Maps a URLError to the appropriate NetworkError with the specified timeout duration.
     ///
     /// This helper function centralizes the URLError-to-NetworkError mapping logic
@@ -799,7 +762,7 @@ extension NetworkError {
     ///   - urlError: The URLError to map
     ///   - timeout: The timeout duration to use for timeout errors
     /// - Returns: The appropriate NetworkError for the given URLError
-    private static func map(urlError: URLError, timeout: TimeInterval) -> NetworkError {
+    private static func map(urlError: URLError, timeout: TimeInterval = 60.0) -> NetworkError {
         switch urlError.code {
         case .notConnectedToInternet:
             return .networkUnavailable
@@ -808,9 +771,9 @@ extension NetworkError {
         case .cannotFindHost:
             return .invalidEndpoint(reason: "Host not found")
         case .cannotConnectToHost:
-            return .networkUnavailable
+            return .transportError(code: urlError.code, underlying: urlError)
         case .networkConnectionLost:
-            return .networkUnavailable
+            return .transportError(code: urlError.code, underlying: urlError)
         case .dnsLookupFailed:
             return .invalidEndpoint(reason: "DNS lookup failed")
         case .cancelled:

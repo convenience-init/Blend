@@ -324,6 +324,14 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageMultipartPayloadTooLarge() async throws {
+        // Ensure config is reset even if test fails
+        defer {
+            // Use fire-and-forget task for async cleanup in defer block
+            Task.detached {
+                await resetAsyncNetConfig()
+            }
+        }
+
         // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
         try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
@@ -358,11 +366,18 @@ struct ImageServiceTests {
             await mockSession.recordedRequests.isEmpty,
             "No network requests should be recorded when payload size exceeds limit")
 
-        // Reset config after test
-        await resetAsyncNetConfig()
+        // Config cleanup is handled by defer block above
     }
 
     @Test func testUploadImageBase64PayloadTooLarge() async throws {
+        // Ensure config is reset even if test fails
+        defer {
+            // Use fire-and-forget task for async cleanup in defer block
+            Task.detached {
+                await resetAsyncNetConfig()
+            }
+        }
+        
         // Set a small but valid max upload size for testing (minimum is 1024 bytes = 1KB)
         try await AsyncNetConfig.shared.setMaxUploadSize(1024)  // 1KB
 
@@ -411,9 +426,6 @@ struct ImageServiceTests {
         #expect(
             await mockSession.recordedRequests.isEmpty,
             "No network requests should be recorded when payload size exceeds limit")
-
-        // Reset config after test
-        await resetAsyncNetConfig()
     }
 }
 @Suite("Image Service Performance Benchmarks")
@@ -587,13 +599,13 @@ struct ImageServicePerformanceTests {
         var results = [Bool](repeating: false, count: concurrentRequests)
 
         // Use deterministic concurrency limiting with TaskGroup
-        await withTaskGroup(of: (Int, Bool).self) { group in
+        try await withThrowingTaskGroup(of: (Int, Bool).self) { group in
             var activeTasks = 0
 
             for i in 0..<concurrentRequests {
                 // If we've reached the concurrency limit, wait for a task to complete
                 while activeTasks >= maxConcurrentTasks {
-                    if let completedResult = await group.next() {
+                    if let completedResult = try await group.next() {
                         let (completedIndex, success) = completedResult
                         results[completedIndex] = success
                         activeTasks -= 1
@@ -605,7 +617,7 @@ struct ImageServicePerformanceTests {
 
                 // Add the next task
                 group.addTask {
-                    let result = try? await service.fetchImageData(from: url)
+                    let result = try await service.fetchImageData(from: url)
                     let success = result == imageData
                     return (i, success)
                 }
@@ -613,7 +625,7 @@ struct ImageServicePerformanceTests {
             }
 
             // Collect remaining results
-            for await (i, success) in group {
+            for try await (i, success) in group {
                 results[i] = success
             }
         }

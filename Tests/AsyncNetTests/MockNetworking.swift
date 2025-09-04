@@ -33,6 +33,12 @@ public actor MockURLSession: URLSessionProtocol {
         _recordedRequests.last
     }
 
+    /// Check if all scripted responses have been consumed
+    /// Returns true if callCount >= scriptedScripts.count, indicating all scripts were used
+    var allScriptsConsumed: Bool {
+        _callCount >= scriptedScripts.count
+    }
+
     /// Initialize with multiple scripted results for testing multi-call scenarios
     init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
         precondition(

@@ -33,20 +33,33 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - **Xcode Flags**: Use these additional compiler flags for maximum concurrency safety:
   - `-Xfrontend -strict-concurrency=complete` (matches Xcode "Strict Concurrency: Complete")
   - `-Xfrontend -warn-concurrency` (additional concurrency warnings)
-  - `-Xfrontend -enable-actor-data-race-checks` (Debug-only; enables runtime actor data race detection with performance overhead)
+  - `-Xfrontend -enable-actor-data-race-checks` (⚠️ **DEBUG ONLY - NEVER USE IN PRODUCTION** ⚠️)
+    - **Critical Warning**: This flag imposes **significant runtime overhead** and can severely degrade application performance
+    - **Production Impact**: Can cause 2-10x performance degradation, increased memory usage, and unpredictable behavior in production
+    - **Safe Usage**: Enable **only for debug/development builds**, never ship to users
+    - **Build Configuration**: Gate behind debug-only configurations:
+      ```swift
+      #if DEBUG
+      // Only enable in debug builds
+      -Xfrontend -enable-actor-data-race-checks
+      #endif
+      ```
+    - **Alternatives**: Use Thread Sanitizer (`-sanitize=thread`) in CI/local testing for race detection without production overhead
+
 **CI/CD Requirements:**
 - Use Xcode 16+ in GitHub Actions or other CI systems
 - Ensure SwiftPM resolves to Swift 6 toolchain
 - Test on iOS 18+ and macOS 15+ simulators/devices
+- **⚠️ Performance Warning**: Avoid `-enable-actor-data-race-checks` in CI builds - use Thread Sanitizer instead
 - **CI Build Commands**: Use these explicit commands in your CI matrix/job:
   - `swift build --configuration Debug \
      -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
-     -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-     -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks`
+     -Xswiftc -Xfrontend -Xswiftc -warn-concurrency`
   - `swift test --configuration Debug \
      -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
-     -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-     -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks`
+     -Xswiftc -Xfrontend -Xswiftc -warn-concurrency`
+- **For Race Detection in CI**: Use Thread Sanitizer instead of actor data race checks:
+  - `swift test -c debug --sanitize=thread` (detects races without production overhead)
 
 > **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
 
