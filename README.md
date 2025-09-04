@@ -104,7 +104,7 @@ struct UsersEndpoint: Endpoint {
     var host: String = "api.example.com"
     var path: String = "/users"
     var method: RequestMethod = .get
-    var headers: [String: String]? = ["Content-Type": "application/json"]
+    var headers: [String: String]? = ["Accept": "application/json"]
     var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
     var timeoutDuration: Duration? = .seconds(30)

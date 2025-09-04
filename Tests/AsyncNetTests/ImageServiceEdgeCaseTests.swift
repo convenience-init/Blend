@@ -72,9 +72,11 @@ struct ImageServiceEdgeCaseTests {
             urlSession: mockSession)
 
         // Set a conservative maxAge for testing cache expiry (avoids flakiness on slower CI/hosts)
-        let maxAge: TimeInterval = 0.1  // 100ms - conservative value for reliable testing
+        let maxAgeSeconds: TimeInterval = 0.1  // 100ms - conservative value for reliable testing
+        let bufferSeconds: TimeInterval = 0.3  // 300ms buffer for reliable expiry on slower systems
+
         await service.updateCacheConfiguration(
-            ImageService.CacheConfiguration(maxAge: maxAge, maxLRUCount: 5))
+            ImageService.CacheConfiguration(maxAge: maxAgeSeconds, maxLRUCount: 5))
 
         let url = "https://mock.api/test"
         _ = try await service.fetchImageData(from: url)
@@ -83,7 +85,9 @@ struct ImageServiceEdgeCaseTests {
         #expect(await service.isImageCached(forKey: url) == true)
 
         // Sleep for maxAge duration plus generous buffer to ensure expiry on slower systems
-        let sleepDuration = UInt64(maxAge * 1_000_000_000) + 100_000_000  // maxAge + 100ms buffer
+        let maxAgeNanoseconds = UInt64(maxAgeSeconds * 1_000_000_000)
+        let bufferNanoseconds = UInt64(bufferSeconds * 1_000_000_000)
+        let sleepDuration = maxAgeNanoseconds + bufferNanoseconds
         try await Task.sleep(nanoseconds: sleepDuration)
 
         // Verify image is no longer cached after expiry

@@ -1,7 +1,7 @@
 /* Localized strings for AsyncNet */
 
 /* HTTP error messages */
-"HTTP error: Status code %ld" = "HTTP error: Status code %ld";
+"HTTP error: Status code %ld" = "HTTP error: received status code %ld";
 
 /* Decoding error messages */
 "Decoding error: %@" = "Decoding error: %@";

@@ -34,27 +34,45 @@ struct AdvancedNetworkManagerTests {
 
     @Test func testRetryPolicyBackoff() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
-        // Provide 1 scripted response for maxAttempts: 1 (1 total attempt)
+        // Script multiple failures to trigger retries: first 2 fail, third succeeds
         let mockSession = MockURLSession(scriptedCalls: [
-            (nil, nil, NetworkError.networkUnavailable)  // First attempt
+            (nil, nil, NetworkError.networkUnavailable),  // First attempt fails
+            (nil, nil, NetworkError.networkUnavailable),  // Retry 1 fails
+            (
+                Data([0x01, 0x02, 0x03]),
+                HTTPURLResponse(
+                    url: URL(string: "https://mock.api/test")!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                ), nil
+            ),  // Retry 2 succeeds
         ])
         let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
-        let request = URLRequest(url: URL(string: "https://mock.api/fail")!)
+        let request = URLRequest(url: URL(string: "https://mock.api/test")!)
         let retryPolicy = RetryPolicy(
-            maxAttempts: 1, shouldRetry: { _, _ in true }, backoff: { _ in 0.01 })
-        do {
-            _ = try await manager.fetchData(
-                for: request, cacheKey: "fail-key", retryPolicy: retryPolicy)
-            Issue.record("Expected fetchData to throw an error")
-        } catch {
-            if let networkError = error as? NetworkError, case .networkUnavailable = networkError {
-                // Success - caught the expected NetworkError.networkUnavailable
-            } else {
-                #expect(Bool(false), "Expected NetworkError.networkUnavailable, got \(error)")
-            }
-        }
+            maxAttempts: 3,  // 1 initial + 2 retries = 3 total attempts
+            shouldRetry: { _, _ in true },
+            backoff: { attempt in
+                // Exponential backoff: 0.1s, 0.2s, 0.4s
+                return pow(2.0, Double(attempt)) * 0.1
+            })
+
+        let startTime = Date()
+        let result = try await manager.fetchData(
+            for: request, cacheKey: "test-key", retryPolicy: retryPolicy)
+        let elapsed = Date().timeIntervalSince(startTime)
+
+        // Verify the request eventually succeeded with the expected data
+        #expect(result == Data([0x01, 0x02, 0x03]))
+
+        // Verify that retries occurred (3 total attempts: 1 initial + 2 retries)
         let recorded = await mockSession.recordedRequests
-        #expect(recorded.count == 1, "Expected 1 total attempt for maxAttempts: 1 (no retries)")
+        #expect(recorded.count == 3, "Expected 3 total attempts (1 initial + 2 retries)")
+
+        // Verify backoff delays were applied (should be around 0.1 + 0.2 = 0.3s total delay)
+        #expect(elapsed >= 0.2, "Expected at least 0.2s elapsed due to backoff delays")
+        #expect(elapsed < 1.0, "Expected less than 1.0s elapsed (backoff should be reasonable)")
     }
 
     @Test func testRetryPolicyBackoffCapping() async throws {

@@ -86,7 +86,27 @@ public actor ImageService {
             throw NetworkError.payloadTooLarge(size: encodedSize, limit: maxUploadSize)
         }
 
+        // Determine upload strategy based on encoded size
+        if encodedSize <= configuration.streamThreshold {
+            // Use JSON + base64 for smaller images (existing path)
+            return try await uploadImageBase64Small(
+                imageData, to: url, configuration: configuration)
+        } else {
+            // Use streaming multipart for larger images to avoid memory spikes
+            return try await uploadImageBase64Streaming(
+                imageData, to: url, configuration: configuration)
+        }
+    }
+
+    /// Upload small images using JSON payload with base64 encoding
+    private func uploadImageBase64Small(
+        _ imageData: Data,
+        to url: URL,
+        configuration: UploadConfiguration
+    ) async throws -> Data {
         // Warn if encoded image is large (base64 adds ~33% overhead)
+        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        let encodedSize = ((imageData.count + 2) / 3) * 4
         let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
         if encodedSize > maxRecommendedSize {
             #if canImport(OSLog)
@@ -154,6 +174,194 @@ public actor ImageService {
             throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
     }
+
+    /// Upload large images using streaming multipart/form-data to avoid memory spikes
+    private func uploadImageBase64Streaming(
+        _ imageData: Data,
+        to url: URL,
+        configuration: UploadConfiguration
+    ) async throws -> Data {
+        // Log that we're using streaming upload for large images
+        let encodedSize = ((imageData.count + 2) / 3) * 4
+        #if canImport(OSLog)
+            asyncNetLogger.info(
+                "Using streaming multipart upload for large image (\(encodedSize, privacy: .public) bytes encoded, \(imageData.count, privacy: .public) bytes raw) to prevent memory spikes"
+            )
+        #else
+            print(
+                "Using streaming multipart upload for large image (\(encodedSize) bytes encoded, \(imageData.count) bytes raw) to prevent memory spikes"
+            )
+        #endif
+
+        // Determine MIME type: prefer configured value, then detect from data, then fallback
+        let mimeType: String
+        let trimmedConfiguredMimeType = configuration.mimeType.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        if !trimmedConfiguredMimeType.isEmpty {
+            mimeType = trimmedConfiguredMimeType
+        } else {
+            mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
+        }
+
+        // Create multipart request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        // Apply request interceptors
+        let interceptors = self.interceptors
+        for interceptor in interceptors {
+            request = await interceptor.willSend(request: request)
+        }
+
+        let boundary = "Boundary-" + UUID().uuidString
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        // Check if we can use streaming upload with concrete URLSession
+        if let concreteSession = urlSession as? URLSession {
+            // Use streaming upload with concrete URLSession
+            let inputStream = MultipartInputStream(
+                boundary: boundary,
+                fieldName: configuration.fieldName,
+                fileName: configuration.fileName,
+                mimeType: mimeType,
+                additionalFields: configuration.additionalFields,
+                imageData: imageData
+            )
+
+            // Set the input stream on the request
+            request.httpBodyStream = inputStream
+
+            let (data, response) = try await concreteSession.data(for: request)
+
+            // Apply response interceptors
+            for interceptor in interceptors {
+                await interceptor.didReceive(response: response, data: data)
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NetworkError.noResponse
+            }
+
+            switch httpResponse.statusCode {
+            case 200...299:
+                return data
+            case 400:
+                throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
+            case 401:
+                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+            case 403:
+                throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+            case 404:
+                throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+            case 429:
+                throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+            case 500...599:
+                throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
+            default:
+                throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+            }
+        } else {
+            // Fallback: Use regular multipart upload for test/mock sessions
+            return try await uploadImageMultipartFallback(
+                imageData, to: url, configuration: configuration, boundary: boundary,
+                mimeType: mimeType)
+        }
+    }
+
+    /// Fallback multipart upload for test/mock URLSession implementations
+    private func uploadImageMultipartFallback(
+        _ imageData: Data,
+        to url: URL,
+        configuration: UploadConfiguration,
+        boundary: String,
+        mimeType: String
+    ) async throws -> Data {
+        // Create multipart body data (not streamed, but still avoids base64 encoding)
+        var body = Data()
+
+        // Add additional fields
+        for (key, value) in configuration.additionalFields {
+            let boundaryString = "--\(boundary)\r\n"
+            let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
+            let valueString = "\(value)\r\n"
+
+            guard let boundaryData = boundaryString.data(using: .utf8),
+                let dispositionData = dispositionString.data(using: .utf8),
+                let valueData = valueString.data(using: .utf8)
+            else {
+                throw NetworkError.invalidEndpoint(reason: "Failed to encode multipart data")
+            }
+
+            body.append(boundaryData)
+            body.append(dispositionData)
+            body.append(valueData)
+        }
+
+        // Add image data
+        let imageBoundaryString = "--\(boundary)\r\n"
+        let imageDispositionString =
+            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
+        let imageTypeString = "Content-Type: \(mimeType)\r\n\r\n"
+        let closingBoundaryString = "\r\n--\(boundary)--\r\n"
+
+        guard let imageBoundaryData = imageBoundaryString.data(using: .utf8),
+            let imageDispositionData = imageDispositionString.data(using: .utf8),
+            let imageTypeData = imageTypeString.data(using: .utf8),
+            let closingBoundaryData = closingBoundaryString.data(using: .utf8)
+        else {
+            throw NetworkError.invalidEndpoint(reason: "Failed to encode image multipart data")
+        }
+
+        body.append(imageBoundaryData)
+        body.append(imageDispositionData)
+        body.append(imageTypeData)
+        body.append(imageData)
+        body.append(closingBoundaryData)
+
+        // Create request with body data
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        // Apply request interceptors
+        let interceptors = self.interceptors
+        for interceptor in interceptors {
+            request = await interceptor.willSend(request: request)
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+
+        // Apply response interceptors
+        for interceptor in interceptors {
+            await interceptor.didReceive(response: response, data: data)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.noResponse
+        }
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            return data
+        case 400:
+            throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
+        case 401:
+            throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+        case 403:
+            throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+        case 404:
+            throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+        case 429:
+            throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+        case 500...599:
+            throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
+        default:
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+        }
+    }
     // MARK: - Image Uploading
 
     /// Configuration for image upload operations
@@ -163,13 +371,18 @@ public actor ImageService {
         public let fileName: String
         public let additionalFields: [String: String]
         public let mimeType: String
+        /// Threshold for switching to streaming upload (bytes of base64-encoded data)
+        /// Images with encoded size above this threshold will use streaming multipart upload
+        /// to avoid memory spikes. Default is 10MB of encoded data (~7.5MB raw).
+        public let streamThreshold: Int
 
         public init(
             compressionQuality: CGFloat = 0.8,
             fieldName: String = "file",
             fileName: String = "image.jpg",
             additionalFields: [String: String] = [:],
-            mimeType: String? = nil
+            mimeType: String? = nil,
+            streamThreshold: Int = 10 * 1024 * 1024  // 10MB encoded = ~7.5MB raw
         ) {
             self.compressionQuality = compressionQuality
             self.fieldName = fieldName
@@ -177,6 +390,7 @@ public actor ImageService {
             self.additionalFields = additionalFields
             // Use provided mimeType or default to image/jpeg for backward compatibility
             self.mimeType = mimeType ?? "image/jpeg"
+            self.streamThreshold = streamThreshold
         }
     }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
@@ -257,6 +471,11 @@ public actor ImageService {
     private final class ExpirationHeap {
         private var heap: [ExpirationEntry] = []
         private var keyToIndex: [String: Int] = [:]  // Track position of each key in heap
+        private var validCount: Int = 0  // Cached count of valid entries for O(1) access
+        private var lastCleanupTime: TimeInterval = 0  // Track last cleanup time
+        private let cleanupInterval: TimeInterval = 30.0  // Cleanup every 30 seconds
+        private var operationCount: Int = 0  // Track operations since last cleanup
+        private let operationsPerCleanup: Int = 100  // Trigger cleanup every 100 operations
 
         struct ExpirationEntry {
             let expirationTime: TimeInterval
@@ -274,6 +493,13 @@ public actor ImageService {
             heap.append(entry)
             keyToIndex[entry.key] = heap.count - 1
             siftUp(heap.count - 1)
+            validCount += 1  // Increment valid count
+            operationCount += 1
+
+            // Trigger lightweight cleanup on rapid growth
+            if operationCount >= operationsPerCleanup {
+                performLightweightCleanup()
+            }
         }
 
         /// Pop the earliest expiring entry (if it's still valid)
@@ -290,8 +516,11 @@ public actor ImageService {
 
                 // Only return if entry is still valid (not manually removed)
                 if entry.isValid {
+                    validCount -= 1  // Decrement valid count for returned entry
+                    operationCount += 1
                     return entry
                 }
+                // Entry was invalid, continue to next
             }
             return nil
         }
@@ -299,15 +528,20 @@ public actor ImageService {
         /// Mark an entry as invalid (when manually removed)
         func invalidate(key: String) {
             if let index = keyToIndex[key] {
-                heap[index].isValid = false
+                if heap[index].isValid {
+                    heap[index].isValid = false
+                    validCount -= 1  // Decrement valid count
+                }
                 keyToIndex.removeValue(forKey: key)
-            }
-            // Trigger compaction if invalid entries exceed 10% of total entries or reach minimum threshold
-            let invalidCount = heap.count - keyToIndex.count
-            if heap.count > 0
-                && (Double(invalidCount) / Double(heap.count) > 0.10 || invalidCount >= 50)
-            {
-                pruneInvalidEntries()
+                operationCount += 1
+
+                // More aggressive pruning: trigger when invalid ratio >5% or >=20 invalid entries
+                let invalidCount = heap.count - validCount
+                if heap.count > 0
+                    && (Double(invalidCount) / Double(heap.count) > 0.05 || invalidCount >= 20)
+                {
+                    pruneInvalidEntries()
+                }
             }
         }
 
@@ -332,16 +566,48 @@ public actor ImageService {
             for i in stride(from: heap.count / 2 - 1, through: 0, by: -1) {
                 siftDown(i)
             }
+
+            // Update cached valid count (should match heap.count after pruning)
+            validCount = heap.count
+            lastCleanupTime = Date().timeIntervalSince1970
+            operationCount = 0  // Reset operation counter
+        }
+
+        /// Perform lightweight cleanup without full heap rebuild
+        /// This is called periodically to prevent excessive memory growth
+        private func performLightweightCleanup() {
+            let currentTime = Date().timeIntervalSince1970
+            let timeSinceLastCleanup = currentTime - lastCleanupTime
+
+            // Only perform cleanup if enough time has passed or we have significant invalid entries
+            if timeSinceLastCleanup >= cleanupInterval || operationCount >= operationsPerCleanup {
+                let invalidCount = heap.count - validCount
+
+                // More aggressive cleanup thresholds for background cleanup
+                if heap.count > 0
+                    && (Double(invalidCount) / Double(heap.count) > 0.03 || invalidCount >= 10)
+                {
+                    pruneInvalidEntries()
+                } else {
+                    // Even if we don't prune, reset counters to prevent excessive checks
+                    operationCount = 0
+                    lastCleanupTime = currentTime
+                }
+            }
         }
 
         /// Check if heap has any potentially expired entries
         func hasExpiredEntries(currentTime: TimeInterval) -> Bool {
+            // Quick check: if no valid entries, no expired entries
+            guard validCount > 0 else { return false }
+
+            // Check the root of the heap (earliest expiration)
             return heap.first?.expirationTime ?? .infinity <= currentTime
         }
 
-        /// Get count of valid entries
+        /// Get count of valid entries (O(1) with cached value)
         var count: Int {
-            return heap.filter { $0.isValid }.count
+            return validCount
         }
 
         private func siftUp(_ index: Int) {
@@ -1248,44 +1514,100 @@ public actor ImageService {
 
     #if canImport(UniformTypeIdentifiers)
 
-        /// Fallback MIME detection using platform APIs
+        /// Fallback MIME detection using platform APIs with in-memory image source
         private func detectMimeTypeUsingPlatformAPI(from data: Data) -> String? {
-            // Create a temporary file URL for type detection
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("tmp")
-
-            do {
-                try data.write(to: tempURL)
-                defer {
-                    try? FileManager.default.removeItem(at: tempURL)
-                }
-
-                // Use UTType for MIME type detection based on file extension
-                // This is a simple fallback that works for well-known extensions
-                if let type = UTType(filenameExtension: tempURL.pathExtension) {
-                    if type.conforms(to: UTType.jpeg) {
-                        return "image/jpeg"
-                    } else if type.conforms(to: UTType.png) {
-                        return "image/png"
-                    } else if type.conforms(to: UTType.gif) {
-                        return "image/gif"
-                    } else if type.conforms(to: UTType.webP) {
-                        return "image/webp"
-                    } else if type.conforms(to: UTType.bmp) {
-                        return "image/bmp"
-                    } else if type.conforms(to: UTType.tiff) {
-                        return "image/tiff"
-                    } else if type.conforms(to: UTType.heic) {
-                        return "image/heic"
-                }
+            // First attempt: Use CGImageSource to detect image type in-memory
+            if let mimeType = detectMimeTypeUsingImageSource(from: data) {
+                return mimeType
             }
-            } catch {
-                // Ignore errors and return nil
+
+            // Fallback: Use existing byte-pattern detection if image source fails
+            return detectMimeType(from: data)
         }
 
-        return nil
-    }
+        /// Detect MIME type using CGImageSource for in-memory processing
+        private func detectMimeTypeUsingImageSource(from data: Data) -> String? {
+            #if canImport(UIKit) || canImport(AppKit)
+                // Create CFData from Data for CoreGraphics compatibility
+                guard let cfData = CFDataCreate(kCFAllocatorDefault, [UInt8](data), data.count)
+                else {
+                    return nil
+                }
+
+                // Create image source from data
+                guard let imageSource = CGImageSourceCreateWithData(cfData, nil) else {
+                    return nil
+                }
+
+                // Get the UTI type identifier from the image source
+                guard let uti = CGImageSourceGetType(imageSource) as String? else {
+                    return nil
+                }
+
+                // Convert UTI to MIME type using UTType
+                #if canImport(UniformTypeIdentifiers)
+                    if let type = UTType(uti) {
+                        // Map common image UTIs to MIME types
+                        if type.conforms(to: UTType.jpeg) {
+                            return "image/jpeg"
+                        } else if type.conforms(to: UTType.png) {
+                            return "image/png"
+                        } else if type.conforms(to: UTType.gif) {
+                            return "image/gif"
+                        } else if type.conforms(to: UTType.webP) {
+                            return "image/webp"
+                        } else if type.conforms(to: UTType.bmp) {
+                            return "image/bmp"
+                        } else if type.conforms(to: UTType.tiff) {
+                            return "image/tiff"
+                        } else if type.conforms(to: UTType.heic) || type.conforms(to: UTType.heif) {
+                            return "image/heic"
+                        }
+                    }
+                #endif
+
+                // Fallback: Direct UTI to MIME mapping for common types
+                switch uti {
+                case "public.jpeg", "public.jpg":
+                    return "image/jpeg"
+                case "public.png":
+                    return "image/png"
+                case "com.compuserve.gif":
+                    return "image/gif"
+                case "org.webmproject.webp":
+                    return "image/webp"
+                case "com.microsoft.bmp":
+                    return "image/bmp"
+                case "public.tiff":
+                    return "image/tiff"
+                case "public.heic", "public.heif":
+                    return "image/heic"
+                case "public.avif":
+                    return "image/avif"
+                default:
+                    // For unknown UTIs, try to extract MIME type if it looks like one
+                    if uti.hasPrefix("public.") && uti.contains("image") {
+                        // Some UTIs might be convertible to MIME types
+                        let mimeEquivalent = uti.replacingOccurrences(of: "public.", with: "image/")
+                        if mimeEquivalent != uti {
+                            return mimeEquivalent
+                        }
+                    }
+                    return nil
+                }
+            #else
+                return nil
+            #endif
+        }
+
+    #else
+
+        /// Fallback MIME detection for platforms without UniformTypeIdentifiers
+        private func detectMimeTypeUsingPlatformAPI(from data: Data) -> String? {
+            // Use existing byte-pattern detection as fallback
+            return detectMimeType(from: data)
+        }
+
     #endif
 }
 
@@ -1362,23 +1684,28 @@ extension ImageService {
     private func removeLRUNode(_ node: LRUNode) {
         // Properly clean up all references to prevent retain cycles
         // This ensures nodes can be deallocated when removed from lruDict
-        
-        // Handle prev reference (now weak, so check if it still exists)
-        if let prevNode = node.prev {
-            prevNode.next = node.next
+
+        // Capture strong local references upfront to avoid race conditions
+        // where weak references can become nil between checks
+        let strongPrev = node.prev  // Capture weak reference as strong local
+        let strongNext = node.next  // Capture strong reference as local
+
+        // Handle prev reference using captured strong reference
+        if let prevNode = strongPrev {
+            prevNode.next = strongNext
         } else {
             // If prev is nil, this node was the head
-            lruHead = node.next
+            lruHead = strongNext
         }
-        
-        // Handle next reference (strong, so should always exist if not tail)
-        if let nextNode = node.next {
-            nextNode.prev = node.prev  // This creates a weak reference
+
+        // Handle next reference using captured strong reference
+        if let nextNode = strongNext {
+            nextNode.prev = strongPrev  // This creates a weak reference
         } else {
             // If next is nil, this node was the tail
-            lruTail = node.prev  // This is a weak reference, but that's okay
+            lruTail = strongPrev  // This is a weak reference, but that's okay
         }
-        
+
         // Clear our own references to break any remaining links
         node.prev = nil  // This is redundant for weak references but good practice
         node.next = nil
@@ -1655,5 +1982,159 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
         }
         _totalCost -= entry.cost
         insertionOrder.removeFirst()
+    }
+}
+
+/// Custom InputStream for streaming multipart/form-data uploads
+/// Generates multipart data on-the-fly to avoid memory spikes with large images
+private final class MultipartInputStream: InputStream {
+    private let boundary: String
+    private let fieldName: String
+    private let fileName: String
+    private let mimeType: String
+    private let additionalFields: [String: String]
+    private let imageData: Data
+    private var currentPart: Int = 0
+    private var partOffset: Int = 0
+    private var parts: [Data] = []
+    private var isOpen: Bool = false
+
+    init(
+        boundary: String,
+        fieldName: String,
+        fileName: String,
+        mimeType: String,
+        additionalFields: [String: String],
+        imageData: Data
+    ) {
+        self.boundary = boundary
+        self.fieldName = fieldName
+        self.fileName = fileName
+        self.mimeType = mimeType
+        self.additionalFields = additionalFields
+        self.imageData = imageData
+        super.init(data: Data())  // Initialize with empty data, we'll override behavior
+
+        prepareParts()
+    }
+
+    private func prepareParts() {
+        // Part 1: Additional fields
+        for (key, value) in additionalFields {
+            let boundaryData = Data("--\(boundary)\r\n".utf8)
+            let dispositionData = Data(
+                "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".utf8)
+            let valueData = Data("\(value)\r\n".utf8)
+
+            parts.append(boundaryData)
+            parts.append(dispositionData)
+            parts.append(valueData)
+        }
+
+        // Part 2: Image data header
+        let imageBoundaryData = Data("--\(boundary)\r\n".utf8)
+        let imageDispositionData = Data(
+            "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(fileName)\"\r\n"
+                .utf8)
+        let imageTypeData = Data("Content-Type: \(mimeType)\r\n\r\n".utf8)
+
+        parts.append(imageBoundaryData)
+        parts.append(imageDispositionData)
+        parts.append(imageTypeData)
+
+        // Part 3: Image data (will be streamed in chunks)
+        // Part 4: Closing boundary
+        let closingBoundaryData = Data("\r\n--\(boundary)--\r\n".utf8)
+        parts.append(closingBoundaryData)
+    }
+
+    override var hasBytesAvailable: Bool {
+        return isOpen
+            && (currentPart < parts.count
+                || (currentPart == parts.count - 1 && partOffset < imageData.count))
+    }
+
+    override func open() {
+        isOpen = true
+        currentPart = 0
+        partOffset = 0
+    }
+
+    override func close() {
+        isOpen = false
+    }
+
+    override func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength len: Int) -> Int {
+        guard isOpen else { return 0 }
+
+        var bytesRead = 0
+        var remainingLength = len
+
+        while remainingLength > 0 && hasBytesAvailable {
+            if currentPart < parts.count {
+                // Reading from pre-built parts
+                let part = parts[currentPart]
+                let availableInPart = part.count - partOffset
+                let bytesToRead = min(remainingLength, availableInPart)
+
+                if bytesToRead > 0 {
+                    part.copyBytes(
+                        to: buffer.advanced(by: bytesRead),
+                        from: partOffset..<partOffset + bytesToRead)
+                    partOffset += bytesToRead
+                    bytesRead += bytesToRead
+                    remainingLength -= bytesToRead
+                }
+
+                // Move to next part if current part is exhausted
+                if partOffset >= part.count {
+                    currentPart += 1
+                    partOffset = 0
+
+                    // If we've moved to the image data part, break to handle it separately
+                    if currentPart == parts.count - 1 {
+                        break
+                    }
+                }
+            } else if currentPart == parts.count - 1 {
+                // Reading image data (the last part before closing boundary)
+                let availableInImage = imageData.count - partOffset
+                let bytesToRead = min(remainingLength, availableInImage)
+
+                if bytesToRead > 0 {
+                    imageData.copyBytes(
+                        to: buffer.advanced(by: bytesRead),
+                        from: partOffset..<partOffset + bytesToRead)
+                    partOffset += bytesToRead
+                    bytesRead += bytesToRead
+                    remainingLength -= bytesToRead
+                }
+
+                // If image data is exhausted, move to closing boundary
+                if partOffset >= imageData.count {
+                    currentPart += 1
+                    partOffset = 0
+                }
+            } else {
+                // All parts exhausted
+                break
+            }
+        }
+
+        return bytesRead
+    }
+
+    override var streamStatus: Stream.Status {
+        if !isOpen {
+            return .notOpen
+        } else if !hasBytesAvailable {
+            return .atEnd
+        } else {
+            return .open
+        }
+    }
+
+    override var streamError: Error? {
+        return nil
     }
 }

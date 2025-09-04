@@ -159,7 +159,14 @@ public protocol AdvancedAsyncRequestable: AsyncRequestable {
 	///
 	/// **Generic Detail Type:**
 	/// ```swift
-	/// typealias SecondaryResponseModel = T.Details where T: DetailResponseProtocol
+	/// struct UserService<T: DetailResponseProtocol>: AdvancedAsyncRequestable {
+	///     typealias ResponseModel = [UserSummary]
+	///     typealias SecondaryResponseModel = T.Details
+	///
+	///     func sendRequest<T: Decodable>(to endpoint: Endpoint) async throws -> T {
+	///         // Implementation here
+	///     }
+	/// }
 	/// ```
 	associatedtype SecondaryResponseModel: Decodable
 }
@@ -168,10 +175,6 @@ public protocol AdvancedAsyncRequestable: AsyncRequestable {
 ///
 /// These methods provide type-safe operations that automatically use the correct
 /// associated types, reducing boilerplate and potential errors.
-///
-/// Note: Explicit 'public' modifiers are used for library clarity and maintainability,
-/// even though they are technically redundant in public extensions. This practice
-/// makes the API surface explicit and helps with future refactoring.
 public extension AdvancedAsyncRequestable {
 	/// Fetches a list of items using the primary ResponseModel type.
 	///
@@ -187,7 +190,7 @@ public extension AdvancedAsyncRequestable {
 	/// let users: [UserSummary] = try await fetchList(from: UsersEndpoint())
 	/// ```
 	@discardableResult
-	func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
+	public func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 
@@ -205,7 +208,7 @@ public extension AdvancedAsyncRequestable {
 	/// let userDetails: UserDetails = try await fetchDetails(from: UserDetailsEndpoint(id: "123"))
 	/// ```
 	@discardableResult
-	func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
+	public func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 }

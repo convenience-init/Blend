@@ -26,18 +26,55 @@ find_simulator() {
 
     echo "=== ${PLATFORM_KEY} Simulator Discovery ==="
 
+    # Preflight checks - fail fast on unsupported environments
+    echo "Performing preflight checks..."
+
+    # Check if running on macOS (Darwin)
+    if ! uname -s | grep -q "Darwin"; then
+        echo "ERROR: This script requires macOS (Darwin) to run iOS simulators" >&2
+        echo "Current OS: $(uname -s)" >&2
+        echo "iOS Simulator discovery is only supported on macOS with Xcode installed" >&2
+        exit 1
+    fi
+
+    # Check if xcrun command exists and is executable
+    if ! command -v xcrun >/dev/null 2>&1; then
+        echo "ERROR: xcrun command not found in PATH" >&2
+        echo "xcrun is required for iOS simulator management and is part of Xcode" >&2
+        echo "Please ensure Xcode is installed and xcrun is available in your PATH" >&2
+        echo "You can verify Xcode installation with: xcode-select -p" >&2
+        exit 1
+    fi
+
+    # Verify xcrun can execute (not just exists)
+    if ! xcrun --version >/dev/null 2>&1; then
+        echo "ERROR: xcrun command exists but is not executable" >&2
+        echo "This may indicate a corrupted Xcode installation" >&2
+        echo "Try running: xcode-select --install" >&2
+        echo "Or reinstall Xcode Command Line Tools" >&2
+        exit 1
+    fi
+
+    echo "✓ Preflight checks passed - macOS environment with xcrun detected"
+
     # Find an available simulator and capture both name and UDID
     echo "Querying available ${PLATFORM_KEY} simulators..."
-    if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>/dev/null); then
-        # Capture exit code and stderr immediately after the failing command
-        EXIT_CODE=$?
-        STDERR_OUTPUT=$(xcrun simctl list --json devices available 2>&1 >/dev/null)
+
+    # Run xcrun command once and capture both output and exit code
+    JSON_OUTPUT=$(xcrun simctl list --json devices available 2>&1)
+    EXIT_CODE=$?
+
+    # Check if command failed
+    if [ $EXIT_CODE -ne 0 ]; then
         echo "ERROR: xcrun simctl list failed with exit code $EXIT_CODE"
-        echo "xcrun stderr output: $STDERR_OUTPUT"
+        echo "xcrun output: $JSON_OUTPUT"
         echo "Available devices list:"
         xcrun simctl list devices available || true
         exit $EXIT_CODE
     fi
+
+    # Extract stderr from mixed output if needed (JSON_OUTPUT contains both stdout and stderr)
+    # For successful execution, JSON_OUTPUT should contain valid JSON
 
     # Validate JSON output is non-empty
     if [ -z "$JSON_OUTPUT" ]; then
@@ -49,102 +86,51 @@ find_simulator() {
 
     # Check if jq is available
     if ! command -v jq >/dev/null 2>&1; then
-        echo "jq is not installed, attempting to install it..."
-
-        # Attempt to install jq based on the OS
-        if command -v brew >/dev/null 2>&1; then
-            echo "Detected macOS/Homebrew, installing jq with brew..."
-            if brew update && brew install jq; then
-                echo "Successfully installed jq via brew"
-            else
-                echo "Failed to install jq via brew"
-                echo "jq is required for parsing simulator device information"
-                echo ""
-                echo "To install jq manually on macOS:"
-                echo "  brew update && brew install jq"
-                echo ""
-                echo "Or add jq to your GitHub Actions runner image"
-                echo ""
-                echo "Available devices list:"
-                xcrun simctl list devices available || true
-                exit 1
-            fi
-        elif command -v apt-get >/dev/null 2>&1; then
-            echo "Detected Linux/apt-get, installing jq with apt-get..."
-            if apt-get update && apt-get install -y jq; then
-                echo "Successfully installed jq via apt-get"
-            else
-                echo "Failed to install jq via apt-get"
-                echo "jq is required for parsing simulator device information"
-                echo ""
-                echo "To install jq manually on Linux:"
-                echo "  apt-get update && apt-get install -y jq"
-                echo ""
-                echo "Or add jq to your GitHub Actions runner image"
-                echo ""
-                echo "Available devices list:"
-                xcrun simctl list devices available || true
-                exit 1
-            fi
-        elif command -v choco >/dev/null 2>&1; then
-            echo "Detected Windows/Chocolatey, installing jq with choco..."
-            if choco install jq -y; then
-                echo "Successfully installed jq via choco"
-            else
-                echo "Failed to install jq via choco"
-                echo "jq is required for parsing simulator device information"
-                echo ""
-                echo "To install jq manually on Windows:"
-                echo "  choco install jq -y"
-                echo ""
-                echo "Or add jq to your GitHub Actions runner image"
-                echo ""
-                echo "Available devices list:"
-                xcrun simctl list devices available || true
-                exit 1
-            fi
-        else
-            echo "Unable to detect package manager (brew, apt-get, or choco)"
-            echo "jq is required for parsing simulator device information"
-            echo ""
-            echo "To install jq on macOS:"
-            echo "  brew update && brew install jq"
-            echo ""
-            echo "To install jq on Linux:"
-            echo "  apt-get update && apt-get install -y jq"
-            echo ""
-            echo "To install jq on Windows:"
-            echo "  choco install jq -y"
-            echo ""
-            echo "Or add jq to your GitHub Actions runner image"
-            echo ""
-            echo "Available devices list:"
-            xcrun simctl list devices available || true
-            exit 1
-        fi
+        echo "ERROR: jq is required but not found in PATH" >&2
+        echo "jq is needed to parse simulator device information from xcrun output" >&2
+        echo "" >&2
+        echo "For CI/GitHub Actions, add jq to your runner image:" >&2
+        echo "  - name: Install jq" >&2
+        echo "    run: |" >&2
+        echo "      if command -v brew >/dev/null 2>&1; then" >&2
+        echo "        brew install jq" >&2
+        echo "      elif command -v apt-get >/dev/null 2>&1; then" >&2
+        echo "        sudo apt-get update && sudo apt-get install -y jq" >&2
+        echo "      elif command -v choco >/dev/null 2>&1; then" >&2
+        echo "        choco install jq -y" >&2
+        echo "      fi" >&2
+        echo "" >&2
+        echo "For manual installation:" >&2
+        echo "  macOS: brew install jq" >&2
+        echo "  Linux: sudo apt-get install jq" >&2
+        echo "  Windows: choco install jq" >&2
+        "" >&2
+        echo "Available devices list:" >&2
+        xcrun simctl list devices available || true
+        exit 1
     fi
 
     echo "Parsing JSON output with jq..."
-    if ! SIMULATOR_LINE=$(echo "$JSON_OUTPUT" | jq -r "
+    if ! SIMULATOR_LINE=$(echo "$JSON_OUTPUT" | jq --arg platform_key "$PLATFORM_KEY" --arg device_match "$DEVICE_MATCH" -r "
         .devices
         | to_entries[]
-        | select(.key | contains(\"$PLATFORM_KEY\"))
+        | select(.key | contains(\$platform_key))
         | .value[]
-        | select(.name | contains(\"$DEVICE_MATCH\"))
+        | select(.name | contains(\$device_match))
         | select(.isAvailable == true)
         | select(.state == \"Shutdown\" or .state == \"Booted\")
-        | [.name, .udid] | @tsv" | head -1 2>/dev/null); then
+        | [.name, .udid] | @tsv" 2>/dev/null | head -1); then
         # Capture exit code and stderr immediately after the failing command
         EXIT_CODE=$?
-        STDERR_OUTPUT=$(echo "$JSON_OUTPUT" | jq -r "
+        STDERR_OUTPUT=$(echo "$JSON_OUTPUT" | jq --arg platform_key "$PLATFORM_KEY" --arg device_match "$DEVICE_MATCH" -r "
             .devices
             | to_entries[]
-            | select(.key | contains(\"$PLATFORM_KEY\"))
+            | select(.key | contains(\$platform_key))
             | .value[]
-            | select(.name | contains(\"$DEVICE_MATCH\"))
+            | select(.name | contains(\$device_match))
             | select(.isAvailable == true)
             | select(.state == \"Shutdown\" or .state == \"Booted\")
-            | [.name, .udid] | @tsv" | head -1 2>&1 >/dev/null)
+            | [.name, .udid] | @tsv" 2>&1 | head -1 >/dev/null)
         echo "ERROR: jq parsing failed with exit code $EXIT_CODE"
         echo "jq stderr output: $STDERR_OUTPUT"
         echo "JSON output was:"
@@ -161,23 +147,67 @@ find_simulator() {
     else
         echo "No available ${PLATFORM_KEY} simulators found, attempting fallback to '$FALLBACK_DEVICE'..."
 
-        # Verify fallback device exists
-        if ! xcrun simctl list devices available | grep -q "$FALLBACK_DEVICE"; then
-            echo "ERROR: Fallback device '$FALLBACK_DEVICE' not found in available simulators"
-            echo "Full list of available devices:"
-            xcrun simctl list devices available
-            echo ""
-            echo "JSON devices list:"
-            echo "$JSON_OUTPUT" | jq '.devices' 2>/dev/null || echo "JSON parsing failed"
-            exit 1
+        # Resolve fallback UDID from JSON first
+        SIMULATOR_UDID="$(
+            jq -r --arg platform "$PLATFORM_KEY" --arg device "$FALLBACK_DEVICE" '
+                .devices
+                | to_entries[]
+                | select(.key | contains($platform))
+                | .value[]
+                | select(.name == $device and .isAvailable == true)
+                | .udid
+            ' <<<"$JSON_OUTPUT" | head -n 1
+        )"
+
+        # If JSON resolution failed, try parsing xcrun simctl list output
+        if [ -z "$SIMULATOR_UDID" ] || [ "$SIMULATOR_UDID" = "null" ]; then
+            echo "JSON UDID resolution failed, trying xcrun simctl list parsing..."
+            SIMULATOR_UDID="$(
+                xcrun simctl list devices available | \
+                grep "$FALLBACK_DEVICE" | \
+                sed -n 's/.*(\([^)]*\)).*/\1/p' | \
+                head -n 1
+            )"
         fi
 
+        # Final check - exit if we still don't have a UDID
+        if [ -z "$SIMULATOR_UDID" ] || [ "$SIMULATOR_UDID" = "null" ]; then
+            echo "ERROR: Could not resolve UDID for fallback device '$FALLBACK_DEVICE'"
+            echo "Available devices from JSON:"
+            echo "$JSON_OUTPUT" | jq '.devices' 2>/dev/null || echo "JSON parsing failed"
+            echo ""
+            echo "Available devices from xcrun simctl:"
+            xcrun simctl list devices available || true
+            exit 1
+        fi
         SIMULATOR_NAME="$FALLBACK_DEVICE"
-        SIMULATOR_UDID=""
-        echo "Using fallback ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME'"
+        echo "Using fallback ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
+
+        # Ensure fallback device is booted for stable UDID
+        echo "Ensuring fallback simulator is booted: $SIMULATOR_NAME ($SIMULATOR_UDID)"
+        if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
+            echo "Fallback simulator not booted; attempting boot..."
+            if ! xcrun simctl boot "$SIMULATOR_UDID" 2>&1; then
+                echo "ERROR: Failed to boot fallback simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
+                xcrun simctl list devices available || true
+                xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$SIMULATOR_NAME" || true
+                exit 1
+            fi
+            echo "Waiting for fallback simulator to be ready..."
+            if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
+                echo "ERROR: Failed to reach booted state for fallback simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
+                xcrun simctl list devices available || true
+                xcrun simctl list devices 2>/dev/null | grep -A 2 -B 2 "$SIMULATOR_NAME" || true
+                exit 1
+            fi
+            echo "Fallback simulator successfully booted"
+        else
+            echo "Fallback simulator already booted"
+        fi
     fi
 
-    if [ -n "$SIMULATOR_UDID" ]; then
+    # Note: Fallback device is already booted above, so we only need to handle the primary device here
+    if [ -n "$SIMULATOR_UDID" ] && [ "$SIMULATOR_NAME" != "$FALLBACK_DEVICE" ]; then
         echo "Ensuring simulator is booted: $SIMULATOR_NAME ($SIMULATOR_UDID)"
         if ! xcrun simctl bootstatus "$SIMULATOR_UDID" -b 2>&1; then
             echo "Simulator not booted; attempting boot..."
@@ -195,12 +225,18 @@ find_simulator() {
                 exit 1
             fi
         fi
-    else
-        echo "No UDID available, skipping boot (will use platform=name format)"
     fi
 
-    echo "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME" >> "$GITHUB_OUTPUT"
-    echo "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID" >> "$GITHUB_OUTPUT"
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then
+        {
+            printf '%s\n' "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME"
+            printf '%s\n' "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID"
+        } >> "$GITHUB_OUTPUT"
+    else
+        echo "GITHUB_OUTPUT not set; printing outputs for local run:"
+        printf '%s\n' "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME"
+        printf '%s\n' "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID"
+    fi
     echo "Successfully configured ${PLATFORM_KEY} Simulator: name='$SIMULATOR_NAME' udid='${SIMULATOR_UDID:-N/A}'"
 }
 
