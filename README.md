@@ -434,7 +434,7 @@ struct ProfileView: View {
 }
 
 // Requirements:
-// - **Minimum OS Requirements**: iOS 18.0+ / macOS 15.0+ (required for AsyncNet package)
+// - **Minimum OS Requirements**: iOS 18.0+ / macOS 15.0+
 // - **Swift Version**: Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
 // - **Xcode**: Xcode 16+ (or Swift 6 toolchain) recommended
 // - **Framework**: SwiftUI framework

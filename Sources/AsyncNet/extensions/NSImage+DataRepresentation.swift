@@ -135,7 +135,12 @@
                 representations
                 .compactMap({ $0 as? NSBitmapImageRep })
                 .filter({ $0.pixelsWide > 0 && $0.pixelsHigh > 0 })
-                .max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh })
+                .max(by: {
+                    // Use Int64 to prevent overflow when calculating area
+                    let area0 = Int64($0.pixelsWide) * Int64($0.pixelsHigh)
+                    let area1 = Int64($1.pixelsWide) * Int64($1.pixelsHigh)
+                    return area0 < area1
+                })
             {
                 pixelsWide = bestRep.pixelsWide
                 pixelsHigh = bestRep.pixelsHigh

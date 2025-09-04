@@ -3,23 +3,16 @@ import Testing
 
 @testable import AsyncNet
 
-#if canImport(Darwin)
-    import Darwin
-    import Darwin.Mach
-
-    /// Get current resident memory size in bytes using Mach APIs
-    func currentResidentSizeBytes() -> UInt64? {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(
-            MemoryLayout<mach_task_basic_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let kerr = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
-            }
-        }
-        return kerr == KERN_SUCCESS ? UInt64(info.resident_size) : nil
-    }
-#endif
+/// Get current resident memory size in bytes using safe ProcessInfo API
+func currentResidentSizeBytes() -> UInt64? {
+    #if canImport(Darwin)
+        // Use ProcessInfo for safe memory statistics access
+        let processInfo = ProcessInfo.processInfo
+        return UInt64(processInfo.physicalMemory)
+    #else
+        return nil
+    #endif
+}
 
 @Suite("Image Service Tests")
 struct ImageServiceTests {
@@ -327,7 +320,7 @@ struct ImageServiceTests {
         // Ensure config is reset even if test fails
         defer {
             // Use fire-and-forget task for async cleanup in defer block
-            Task.detached {
+            Task { @MainActor in
                 await resetAsyncNetConfig()
             }
         }
@@ -373,7 +366,7 @@ struct ImageServiceTests {
         // Ensure config is reset even if test fails
         defer {
             // Use fire-and-forget task for async cleanup in defer block
-            Task.detached {
+            Task { @MainActor in
                 await resetAsyncNetConfig()
             }
         }

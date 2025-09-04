@@ -38,12 +38,18 @@ This codebase is a Swift networking library with comprehensive image handling, b
     - **Production Impact**: Can cause 2-10x performance degradation, increased memory usage, and unpredictable behavior in production
     - **Safe Usage**: Enable **only for debug/development builds**, never ship to users
     - **Build Configuration**: Gate behind debug-only configurations:
-      ```swift
-      #if DEBUG
-      // Only enable in debug builds
-      -Xfrontend -enable-actor-data-race-checks
-      #endif
-      ```
+      - **Xcode**: Add `-Xfrontend -enable-actor-data-race-checks` to **Other Swift Flags** in Build Settings, but **only for Debug configuration**
+      - **SwiftPM**: Use `.unsafeFlags([...], .when(configuration: .debug))` in Package.swift:
+        ```swift
+        .target(
+            name: "YourTarget",
+            swiftSettings: [
+                .unsafeFlags([
+                    "-Xfrontend", "-enable-actor-data-race-checks"
+                ], .when(configuration: .debug))
+            ]
+        )
+        ```
     - **Alternatives**: Use Thread Sanitizer (`-sanitize=thread`) in CI/local testing for race detection without production overhead
 
 **CI/CD Requirements:**

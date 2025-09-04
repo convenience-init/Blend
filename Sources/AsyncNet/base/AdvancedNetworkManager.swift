@@ -263,13 +263,12 @@ public actor DefaultNetworkCache: NetworkCache {
         var nodesToRemove: [Node] = []
         let initialCount = cache.count  // Capture stable count before cleanup
         let cleanupLimit = max(1, min(10, initialCount / 4))  // Check up to 25% or 10 entries, minimum 1
-        let maxIterations = min(initialCount, 100)  // Hard safety cap to prevent infinite loops
         var checked = 0
         var visitedNodes = Set<ObjectIdentifier>()
 
         // Start from tail and work backwards, checking for expired entries
         var current = tail
-        while let node = current, checked < cleanupLimit, checked < maxIterations {
+        while let node = current, checked < cleanupLimit {
             // Cycle detection: break if we've seen this node before
             let nodeId = ObjectIdentifier(node)
             if visitedNodes.contains(nodeId) {
@@ -347,17 +346,17 @@ public actor AdvancedNetworkManager {
                 // Check for cancellation before each retry attempt
                 try Task.checkCancellation()
 
-                // Create fresh intercepted request for each attempt
-                var interceptedRequest = request
+                // Create fresh request for each attempt, then apply interceptor chain
+                var currentRequest = request
                 for interceptor in capturedInterceptors {
-                    interceptedRequest = await interceptor.willSend(request: interceptedRequest)
+                    currentRequest = await interceptor.willSend(request: currentRequest)
                 }
-                // Set timeout from retry policy for this attempt
-                interceptedRequest.timeoutInterval = retryPolicy.timeoutInterval
+                // Set timeout from retry policy for this attempt on the final intercepted request
+                currentRequest.timeoutInterval = retryPolicy.timeoutInterval
 
                 do {
                     let (data, response) = try await capturedURLSession.data(
-                        for: interceptedRequest)
+                        for: currentRequest)
                     for interceptor in capturedInterceptors {
                         await interceptor.didReceive(response: response, data: data)
                     }
@@ -368,7 +367,7 @@ public actor AdvancedNetworkManager {
                         case 200...299:
                             // Only cache successful responses for safe/idempotent HTTP methods
                             let shouldCache = shouldCacheResponse(
-                                for: interceptedRequest, response: httpResponse)
+                                for: currentRequest, response: httpResponse)
                             if shouldCache {
                                 await capturedCache.set(data, forKey: key)
                             }
@@ -467,8 +466,13 @@ public actor AdvancedNetworkManager {
                 asyncNetLogger.error(
                     "All retry attempts exhausted for key: \(key, privacy: .private)")
             #endif
-            throw lastError
-                ?? NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
+            // Wrap non-cancellation errors consistently in NetworkError
+            if let lastError = lastError {
+                throw await NetworkError.wrapAsync(lastError, config: AsyncNetConfig.shared)
+            } else {
+                throw NetworkError.customError(
+                    "Unknown error in AdvancedNetworkManager", details: nil)
+            }
         }
         inFlightTasks[key] = newTask
         defer {
@@ -480,13 +484,12 @@ public actor AdvancedNetworkManager {
         } catch {
             // If this task was cancelled, cancel the stored task and clean up
             if error is CancellationError {
-                // Cancel the stored task in inFlightTasks to ensure proper cancellation
-                if let storedTask = inFlightTasks[key], !storedTask.isCancelled {
-                    storedTask.cancel()
-                }
+                // Atomically cancel the stored task in inFlightTasks to ensure proper cancellation
+                cancelInFlightTask(forKey: key)
                 // Note: Task removal is handled by the defer block above
             }
-            throw error
+            // Wrap non-cancellation errors consistently in NetworkError
+            throw await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
         }
     }
 
@@ -622,6 +625,14 @@ public actor AdvancedNetworkManager {
         }
 
         return true
+    }
+
+    /// Atomically cancels a task in inFlightTasks if it exists and is not already cancelled
+    /// This method ensures thread-safe cancellation by performing the check and cancel as one atomic operation
+    private func cancelInFlightTask(forKey key: String) {
+        if let storedTask = inFlightTasks[key], !storedTask.isCancelled {
+            storedTask.cancel()
+        }
     }
 }
 

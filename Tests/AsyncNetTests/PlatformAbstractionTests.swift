@@ -77,14 +77,14 @@ struct PlatformAbstractionTests {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
-                Issue.record("Failed to create NSBitmapImageRep")
+                #expect(Bool(false), "Failed to create NSBitmapImageRep")
                 return
             }
             let success = withGraphicsContext(rep) {
                 drawColorInContext(color: .red, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
             }
             guard success else {
-                Issue.record("Failed to create NSGraphicsContext")
+                #expect(Bool(false), "Failed to create NSGraphicsContext")
                 return
             }
             let image = NSImage(size: size)
@@ -106,14 +106,14 @@ struct PlatformAbstractionTests {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
-                Issue.record("Failed to create NSBitmapImageRep")
+                #expect(Bool(false), "Failed to create NSBitmapImageRep")
                 return
             }
             let success = withGraphicsContext(rep) {
                 drawColorInContext(color: .blue, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
             }
             guard success else {
-                Issue.record("Failed to create NSGraphicsContext")
+                #expect(Bool(false), "Failed to create NSGraphicsContext")
                 return
             }
             let image = NSImage(size: size)
@@ -126,14 +126,14 @@ struct PlatformAbstractionTests {
             if let pngData = png {
                 #expect(pngData.count >= 8, "PNG data must be at least 8 bytes for file signature")
                 let expectedSignature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-                for i in 0..<8 {
-                    if pngData[i] != expectedSignature[i] {
-                        Issue.record(
-                            "PNG file signature mismatch at byte \(i): expected 0x\(String(format: "%02X", expectedSignature[i])), got 0x\(String(format: "%02X", pngData[i]))"
-                        )
-                        break
-                    }
-                }
+                let actualSignature = Array(pngData.prefix(8))
+                #expect(
+                    actualSignature == expectedSignature,
+                    """
+                    PNG file signature mismatch:
+                    Expected: \(expectedSignature.map { String(format: "0x%02X", $0) }.joined(separator: " "))
+                    Actual:   \(actualSignature.map { String(format: "0x%02X", $0) }.joined(separator: " "))
+                    """)
             }
         #endif
     }
@@ -152,14 +152,14 @@ struct PlatformAbstractionTests {
         #elseif canImport(AppKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
-                Issue.record("Failed to create NSBitmapImageRep")
+                #expect(Bool(false), "Failed to create NSBitmapImageRep")
                 return
             }
             let success = withGraphicsContext(rep) {
                 drawColorInContext(color: .green, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
             }
             guard success else {
-                Issue.record("Failed to create NSGraphicsContext")
+                #expect(Bool(false), "Failed to create NSGraphicsContext")
                 return
             }
             let image = NSImage(size: size)
@@ -219,12 +219,9 @@ struct PlatformAbstractionTests {
                             bytesPerRow: rep.bytesPerRow,
                             bitsPerPixel: rep.bitsPerPixel
                         ) {
-                            // Copy the corrupted data to the new rep
-                            corruptedData.withUnsafeBytes { buffer in
-                                guard let dest = corruptedRep.bitmapData,
-                                    let src = buffer.baseAddress
-                                else { return }
-                                memcpy(dest, src, totalBytes)
+                            // Copy the corrupted data to the new rep using safe Data operations
+                            if let dest = corruptedRep.bitmapData {
+                                corruptedData.copyBytes(to: dest, count: totalBytes)
                             }
                             // Replace the representation with the corrupted one
                             corruptedImage.removeRepresentation(rep)

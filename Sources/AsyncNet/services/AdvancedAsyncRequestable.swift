@@ -64,7 +64,7 @@ import Foundation
 ///     }
 ///
 ///     func getSecondaryData() async throws -> UserDetails {
-///         return try await fetchDetails(from: UserDetailsEndpoint())
+///         return try await fetchDetails(from: UserDetailsEndpoint(id: "123"))
 ///     }
 /// }
 /// ```

@@ -62,7 +62,18 @@ public actor ImageService {
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
         // Pre-check to avoid memory issues with very large images
-        let maxSafeRawSize = 50 * 1024 * 1024  // 50MB raw = ~67MB base64
+        // Calculate raw data limit from configured max upload size, accounting for base64 expansion
+        let configMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        let maxSafeRawSize: Int
+        if configMaxUploadSize > 0 {
+            // Base64 encoding increases size by ~33%, so raw limit = configMax * 3/4
+            let calculatedRawLimit = Int(Double(configMaxUploadSize) * 3.0 / 4.0)
+            maxSafeRawSize = max(calculatedRawLimit, 50 * 1024 * 1024)  // Ensure minimum 50MB fallback
+        } else {
+            // Fallback to original 50MB default if config is invalid
+            maxSafeRawSize = 50 * 1024 * 1024
+        }
+
         if imageData.count > maxSafeRawSize {
             throw NetworkError.payloadTooLarge(
                 size: imageData.count,
@@ -395,42 +406,62 @@ public actor ImageService {
     }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
     public func isImageCached(forKey key: String) async -> Bool {
-        // Atomically check LRU state and expiration to prevent race conditions
-        if let node = lruDict[key] {
-            let now = Date().timeIntervalSince1970
-            // If not expired, check caches immediately while we know LRU state is valid
-            if now - node.insertionTimestamp < cacheConfig.maxAge {
-                let cacheKey = key
-                // Perform cache checks concurrently to prevent race conditions
-                async let inImageCache = imageCache.object(forKey: cacheKey) != nil
-                async let inDataCache = dataCache.object(forKey: cacheKey) != nil
+        // Capture initial LRU state to prevent race conditions
+        let initialNode = lruDict[key]
+        let initialTimestamp = Date().timeIntervalSince1970
 
-                // Await the results separately and combine them
-                let imageCached = await inImageCache
-                let dataCached = await inDataCache
-                let isCached = imageCached || dataCached
-
-                // The node is already in LRU, just move it to head if cached
-                if isCached {
-                    moveLRUNodeToHead(node)
-                }
-
-                return isCached
-            } else {
-                // Node was expired - evict it completely from all caches
-                let cacheKey = key
-                await imageCache.removeObject(forKey: cacheKey)
-                await dataCache.removeObject(forKey: cacheKey)
-                lruDict.removeValue(forKey: key)
-                removeLRUNode(node)
-                // Invalidate heap entry to prevent it from being processed during expiration
-                expirationHeap.invalidate(key: key)
-                return false
-            }
+        // If no node exists initially, definitely not cached
+        guard let node = initialNode else {
+            return false
         }
 
-        // Not in LRU at all - definitely not cached
-        return false
+        // If node was expired initially, evict it and return false
+        if initialTimestamp - node.insertionTimestamp >= cacheConfig.maxAge {
+            // Node was expired - evict it completely from all caches
+            let cacheKey = key
+            await imageCache.removeObject(forKey: cacheKey)
+            await dataCache.removeObject(forKey: cacheKey)
+            lruDict.removeValue(forKey: key)
+            removeLRUNode(node)
+            // Invalidate heap entry to prevent it from being processed during expiration
+            expirationHeap.invalidate(key: key)
+            return false
+        }
+
+        // Node exists and was not expired initially - perform async cache checks
+        let cacheKey = key
+        async let inImageCache = imageCache.object(forKey: cacheKey) != nil
+        async let inDataCache = dataCache.object(forKey: cacheKey) != nil
+
+        // Await the results
+        let imageCached = await inImageCache
+        let dataCached = await inDataCache
+        let isCached = imageCached || dataCached
+
+        // Re-validate LRU state after async operations
+        let finalTimestamp = Date().timeIntervalSince1970
+        let currentNode = lruDict[key]
+
+        // Check if node still exists and is still valid
+        guard let finalNode = currentNode,
+            finalNode === node,  // Same node instance
+            finalTimestamp - finalNode.insertionTimestamp < cacheConfig.maxAge
+        else {
+            // Node was removed, replaced, or expired during async operations
+            // If we found cached data but node is invalid, clean up the stale cache entries
+            if isCached {
+                await imageCache.removeObject(forKey: cacheKey)
+                await dataCache.removeObject(forKey: cacheKey)
+            }
+            return false
+        }
+        
+        // Node is still valid and we have cached data - update LRU position
+        if isCached {
+            moveLRUNodeToHead(finalNode)
+        }
+
+        return isCached
     }
     // cacheHits and cacheMisses are public actor variables for test access
     // MARK: - Request/Response Interceptor Support
@@ -1885,6 +1916,8 @@ private struct UploadPayload: Encodable {
 // MARK: - SwiftUI Image Extension
 #if canImport(SwiftUI)
 
+
+
     extension SwiftUI.Image {
         /// Creates a SwiftUI Image from a platform-specific image
        
@@ -1999,6 +2032,24 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
 /// Custom InputStream for streaming multipart/form-data uploads
 /// Generates multipart data on-the-fly to avoid memory spikes with large images
 private final class MultipartInputStream: InputStream {
+    /// Modern Swift error types for stream operations
+    private enum StreamError: Error, CustomStringConvertible {
+        case streamClosed
+        case streamInterrupted
+        case invalidState(String)
+
+        var description: String {
+            switch self {
+            case .streamClosed:
+                return "Stream is closed"
+            case .streamInterrupted:
+                return "Stream operation was interrupted"
+            case .invalidState(let reason):
+                return "Invalid stream state: \(reason)"
+            }
+        }
+    }
+
     private let boundary: String
     private let fieldName: String
     private let fileName: String
@@ -2009,6 +2060,7 @@ private final class MultipartInputStream: InputStream {
     private var partOffset: Int = 0
     private var parts: [Data] = []
     private var isOpen: Bool = false
+    private var lastError: Error?
 
     init(
         boundary: String,
@@ -2066,22 +2118,44 @@ private final class MultipartInputStream: InputStream {
     }
 
     override func open() {
+        guard !isOpen else {
+            lastError = StreamError.invalidState("Stream is already open")
+            return
+        }
         isOpen = true
         currentPart = 0
         partOffset = 0
+        lastError = nil
     }
 
     override func close() {
         isOpen = false
+        lastError = StreamError.streamClosed
     }
 
     override func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength len: Int) -> Int {
-        guard isOpen else { return 0 }
+        // Check if stream is open
+        guard isOpen else {
+            lastError = StreamError.streamClosed
+            return -1  // Return -1 to indicate error/closed stream
+        }
+
+        // Check for cancellation/interruption
+        if Thread.current.isCancelled {
+            lastError = StreamError.streamInterrupted
+            return -1
+        }
 
         var bytesRead = 0
         var remainingLength = len
 
         while remainingLength > 0 && hasBytesAvailable {
+            // Check for cancellation during the loop
+            if Thread.current.isCancelled {
+                lastError = StreamError.streamInterrupted
+                return -1
+            }
+
             if currentPart < parts.count {
                 // Reading from pre-built parts
                 let part = parts[currentPart]
@@ -2146,6 +2220,9 @@ private final class MultipartInputStream: InputStream {
     }
 
     override var streamError: Error? {
-        return nil
+        if !isOpen && currentPart < parts.count {
+            return StreamError.streamClosed
+        }
+        return lastError
     }
 }
