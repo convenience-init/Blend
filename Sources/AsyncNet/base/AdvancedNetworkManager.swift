@@ -615,11 +615,17 @@ public actor AdvancedNetworkManager {
 
         if let cacheControl = normalizedResponseHeaders["cache-control"] as? String {
             let directives = cacheControl.lowercased()
-
-            // Don't cache if no-store, no-cache, private directives are present, or max-age=0
-            if directives.contains("no-store") || directives.contains("no-cache")
-                || directives.contains("private") || directives.contains("max-age=0")
-            {
+            let directiveList = directives.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            let hasNoStore = directiveList.contains { $0.hasPrefix("no-store") }
+            let hasNoCache = directiveList.contains { $0.hasPrefix("no-cache") }
+            let hasPrivate = directiveList.contains { $0.hasPrefix("private") }
+            let hasMaxAgeZero = directiveList.contains { directive in
+                directive.hasPrefix("max-age=")
+                    && directive.dropFirst(8).trimmingCharacters(in: .whitespaces) == "0"
+            }
+            if hasNoStore || hasNoCache || hasPrivate || hasMaxAgeZero {
                 return false
             }
         }

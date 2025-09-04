@@ -169,6 +169,23 @@ public protocol AdvancedAsyncRequestable: AsyncRequestable {
 	/// }
 	/// ```
 	associatedtype SecondaryResponseModel: Decodable
+
+	/// Generic request function required to support `SecondaryResponseModel`.
+	///
+	/// This method provides explicit generic support for decoding any `Decodable` type,
+	/// ensuring that `fetchDetails()` can properly return `SecondaryResponseModel`
+	/// without type inference conflicts.
+	///
+	/// ## Implementation Example
+	/// ```swift
+	/// func sendRequest<T: Decodable>(to endpoint: Endpoint) async throws -> T {
+	///     let request = try buildURLRequest(from: endpoint)
+	///     let (data, response) = try await urlSession.data(for: request)
+	///     // ... HTTP status validation ...
+	///     return try jsonDecoder.decode(T.self, from: data)
+	/// }
+	/// ```
+	func sendRequest<T: Decodable>(to endpoint: Endpoint) async throws -> T
 }
 
 /// Convenience methods for AdvancedAsyncRequestable services.
@@ -190,7 +207,7 @@ public extension AdvancedAsyncRequestable {
 	/// let users: [UserSummary] = try await fetchList(from: UsersEndpoint())
 	/// ```
 	@discardableResult
-	public func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
+	func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 
@@ -208,7 +225,7 @@ public extension AdvancedAsyncRequestable {
 	/// let userDetails: UserDetails = try await fetchDetails(from: UserDetailsEndpoint(id: "123"))
 	/// ```
 	@discardableResult
-	public func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
+	func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 }

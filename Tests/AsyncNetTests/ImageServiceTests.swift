@@ -1,14 +1,27 @@
 import Foundation
 import Testing
 
+#if canImport(Darwin)
+    import Darwin.Mach
+#endif
+
 @testable import AsyncNet
 
-/// Get current resident memory size in bytes using safe ProcessInfo API
+/// Get current resident memory size in bytes using Mach task_info API
 func currentResidentSizeBytes() -> UInt64? {
     #if canImport(Darwin)
-        // Use ProcessInfo for safe memory statistics access
-        let processInfo = ProcessInfo.processInfo
-        return UInt64(processInfo.physicalMemory)
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(
+                    mach_task_self_,
+                    task_flavor_t(MACH_TASK_BASIC_INFO),
+                    $0,
+                    &count)
+            }
+        }
+        return result == KERN_SUCCESS ? UInt64(info.resident_size) : nil
     #else
         return nil
     #endif
@@ -16,11 +29,6 @@ func currentResidentSizeBytes() -> UInt64? {
 
 @Suite("Image Service Tests")
 struct ImageServiceTests {
-
-    /// Helper function to reset AsyncNetConfig after tests that modify it
-    private func resetAsyncNetConfig() async {
-        await AsyncNetConfig.shared.resetMaxUploadSize()
-    }
 
     @Test func testFetchImageDataSuccess() async throws {
         // Prepare mock image data and response
@@ -317,11 +325,14 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageMultipartPayloadTooLarge() async throws {
+        // Store original value to restore later (not used since resetMaxUploadSize() resets to default)
+        _ = await AsyncNetConfig.shared.maxUploadSize
+
         // Ensure config is reset even if test fails
         defer {
-            // Use fire-and-forget task for async cleanup in defer block
-            Task { @MainActor in
-                await resetAsyncNetConfig()
+            // Synchronously schedule the reset for after the test
+            Task.detached(priority: .high) {
+                await AsyncNetConfig.shared.resetMaxUploadSize()
             }
         }
 
@@ -363,11 +374,14 @@ struct ImageServiceTests {
     }
 
     @Test func testUploadImageBase64PayloadTooLarge() async throws {
+        // Store original value to restore later
+        _ = await AsyncNetConfig.shared.maxUploadSize
+
         // Ensure config is reset even if test fails
         defer {
-            // Use fire-and-forget task for async cleanup in defer block
-            Task { @MainActor in
-                await resetAsyncNetConfig()
+            // Synchronously schedule the reset for after the test
+            Task.detached(priority: .high) {
+                await AsyncNetConfig.shared.resetMaxUploadSize()
             }
         }
         

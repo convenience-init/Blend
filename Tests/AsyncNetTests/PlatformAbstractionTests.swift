@@ -199,10 +199,10 @@ struct PlatformAbstractionTests {
                         let originalData = Data(bytes: bitmapData, count: totalBytes)
                         var corruptedData = originalData
 
-                        // Corrupt random bytes in the copy
-                        for _ in 0..<bytesToCorrupt {
-                            let randomIndex = Int.random(in: 0..<totalBytes)
-                            corruptedData[randomIndex] = UInt8.random(in: 0...255)
+                        // Corrupt bytes deterministically in the copy
+                        for i in 0..<bytesToCorrupt {
+                            let index = i * (totalBytes / bytesToCorrupt)
+                            corruptedData[index] = 0xFF  // Use a fixed corruption value
                         }
 
                         // Create a new bitmap rep with the corrupted data

@@ -53,8 +53,27 @@ public class AsyncImageModel {
     // Store the current task in a box to allow nonisolated access from deinit
     private let taskBox = TaskBox()
 
-    private final class TaskBox: @unchecked Sendable {
+    private actor TaskBox {
         var task: Task<Void, Never>?
+        
+        func setTask(_ newTask: Task<Void, Never>?) async {
+            // Cancel existing task if present
+            if let existingTask = task {
+                existingTask.cancel()
+            }
+            task = newTask
+        }
+
+        func cancelTask() async {
+            if let currentTask = task {
+                currentTask.cancel()
+            }
+            task = nil
+        }
+
+        func clearTask() async {
+            task = nil
+        }
     }
 
     public init(imageService: ImageService) {
@@ -62,8 +81,11 @@ public class AsyncImageModel {
     }
 
     deinit {
-        // Cancel any in-flight load task synchronously to prevent task leaks
-        taskBox.task?.cancel()
+        // Cancel any in-flight load task asynchronously to prevent task leaks
+        // Use a detached task to avoid capturing self in the closure
+        Task.detached { [taskBox] in
+            await taskBox.cancelTask()
+        }
     }
 
     public func loadImage(from url: String?) async {
@@ -129,12 +151,11 @@ public class AsyncImageModel {
         }
 
         // Store the new task (this will cancel any existing task)
-        taskBox.task?.cancel()
-        taskBox.task = task
+        await taskBox.setTask(task)
         await task.value
 
         // Clear the task when done
-        taskBox.task = nil
+        await taskBox.clearTask()
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -143,21 +164,25 @@ public class AsyncImageModel {
         configuration: ImageService.UploadConfiguration, onSuccess: ((Data) -> Void)? = nil,
         onError: ((NetworkError) -> Void)? = nil
     ) async {
+        isUploading = true
+        defer { isUploading = false }
+
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
             self.error = error
+            self.isUploading = false
             onError?(error)
             return
         }
-        isUploading = true
-        defer { isUploading = false }
 
         guard
             let imageData = ImageService.platformImageToData(
                 image, compressionQuality: configuration.compressionQuality)
         else {
-            self.error = NetworkError.imageProcessingFailed
-            onError?(NetworkError.imageProcessingFailed)
+            let error = NetworkError.imageProcessingFailed
+            self.error = error
+            self.isUploading = false
+            onError?(error)
             return
         }
 
@@ -177,6 +202,7 @@ public class AsyncImageModel {
                     configuration: configuration
                 )
             }
+            self.error = nil  // Clear any previous error on successful upload
             onSuccess?(responseData)
         } catch {
             let netError: NetworkError
@@ -311,22 +337,13 @@ public struct AsyncNetImageView: View {
             }
         }
         .task(id: url) {
-            let currentUrl = url
             await model.loadImage(from: url)
             // Perform auto-upload immediately after successful load
-            // Capture all relevant state to prevent race conditions
-            let loadedImage = model.loadedImage
-            let shouldAutoUpload = autoUpload
-            let currentUploadURL = uploadURL
-            let hasAlreadyAttempted = hasAttemptedAutoUpload
-            let currentURL = url
-
-            if loadedImage != nil && shouldAutoUpload && currentUploadURL != nil
-                && !hasAlreadyAttempted
-                && currentUrl == currentURL
+            if model.loadedImage != nil && autoUpload && uploadURL != nil
+                && !hasAttemptedAutoUpload
             {
                 hasAttemptedAutoUpload = true
-                await performUpload(expectedUrl: currentUrl)
+                await performUpload(expectedUrl: url)
             }
         }
         .onChange(of: url) { _, _ in

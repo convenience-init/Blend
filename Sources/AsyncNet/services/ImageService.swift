@@ -809,28 +809,10 @@ public actor ImageService {
                 if let backoff = config.backoff {
                     delay = backoff(attempt)
                 } else {
-                    // Safe exponential backoff calculation to prevent overflow
-                    // Compute the maximum exponent that won't exceed config.maxDelay
-                    let maxExponent = log2(config.maxDelay / config.baseDelay)
-                    let safeExponent = min(Double(attempt), maxExponent)
-
-                    // Use safe multiplication with early exit to avoid overflow
-                    var exponential: Double = 1.0
-                    for _ in 0..<Int(safeExponent) {
-                        exponential *= 2.0
-                        // Early exit if we've reached the cap
-                        if exponential * config.baseDelay >= config.maxDelay {
-                            exponential = config.maxDelay / config.baseDelay
-                            break
-                        }
-                    }
-
-                    delay = config.baseDelay * exponential
-
-                    // Additional safety check for finite values
-                    if !delay.isFinite || delay.isNaN {
-                        delay = config.maxDelay
-                    }
+                    // Simplified exponential backoff with safe overflow handling
+                    let exponent = min(Double(attempt), 10.0)  // Cap exponent to prevent overflow
+                    let exponential = pow(2.0, exponent)
+                    delay = min(config.baseDelay * exponential, config.maxDelay)
                 }
                 
                 // Cap the delay to prevent unbounded exponential growth
@@ -946,9 +928,6 @@ public actor ImageService {
             return try await existingTask.value
         }
 
-        // Set up in-flight task tracking before creating the task
-        inFlightImageTasks[urlString] = nil  // Placeholder to ensure the key exists
-
         // Create new task for this request, with retry/backoff
         let fetchTask = Task<Data, Error> {
             () async throws -> Data in
@@ -1014,7 +993,11 @@ public actor ImageService {
             return data
         }
 
-        // Now set the actual task in the dictionary
+        // Deduplication: Check for in-flight task or set new task atomically
+        if let existingTask = inFlightImageTasks[urlString] {
+            fetchTask.cancel()  // Cancel the task we just created
+            return try await existingTask.value
+        }
         inFlightImageTasks[urlString] = fetchTask
 
         let data = try await fetchTask.value
@@ -1932,12 +1915,12 @@ private struct UploadPayload: Encodable {
     }
 #endif
 
-/// A Swift 6 compatible actor-based cache implementation
+/// A Swift 6 compatible actor-based LRU cache implementation
 /// Provides thread-safe storage with cost and count limits using structured concurrency
 public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
     private var storage: [Key: CacheEntry] = [:]
     private var _totalCost: Int = 0
-    private var insertionOrder: [Key] = []  // Track insertion order for FIFO eviction
+    private var insertionOrder: [Key] = []  // Track access order for LRU eviction
     public let countLimit: Int?
     public let totalCostLimit: Int?
 
@@ -1968,7 +1951,13 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
 
     /// Retrieve an object from the cache
     public func object(forKey key: Key) -> Value? {
-        storage[key]?.value
+        if let entry = storage[key] {
+            // Move to most recent position (LRU: recently accessed items are most recent)
+            insertionOrder.removeAll { $0 == key }
+            insertionOrder.append(key)
+            return entry.value
+        }
+        return nil
     }
 
     /// Store an object in the cache with limit enforcement

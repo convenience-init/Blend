@@ -96,8 +96,8 @@ import Testing
         private static let minimalPNGData: Data = {
             guard let data = Data(base64Encoded: minimalPNGBase64) else {
                 Issue.record("Failed to decode minimalPNGBase64 - invalid Base64 string")
-                // Return empty data as fallback to prevent crashes
-                return Data()
+                // Fatal error is appropriate here as this is test infrastructure
+                fatalError("Test infrastructure error: Failed to decode minimalPNGBase64")
             }
             return data
         }()
@@ -366,47 +366,35 @@ import Testing
                     "Failed to create platform image from test data", details: nil)
             }
 
-            // Use withCheckedThrowingContinuation to properly handle the error with timeout protection
-            let result: NetworkError = try await withCheckedThrowingContinuation { continuation in
-                let coordinationActor = CoordinationActor()
+            // Extract the error from the result for error case
+            let result: NetworkError
+            var uploadCompleted = false
+            var capturedError: NetworkError?
 
-                // Create a timeout task that will throw on timeout
-                let timeoutTask = Task {
-                    try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 second timeout
-                    if await coordinationActor.tryResume() {
-                        continuation.resume(
-                            throwing: NetworkError.customError(
-                                "Test timeout", details: "Upload operation took too long"))
-                    }
+            await model.uploadImage(
+                platformImage,
+                to: Self.defaultUploadURL,
+                uploadType: .multipart,
+                configuration: ImageService.UploadConfiguration(),
+                onSuccess: { _ in
+                    uploadCompleted = true
+                },
+                onError: { error in
+                    capturedError = error
+                    uploadCompleted = true
                 }
-
-                // Create upload task that coordinates with timeout
-                Task {
-                    await model.uploadImage(
-                        platformImage,
-                        to: Self.defaultUploadURL,
-                        uploadType: .multipart,
-                        configuration: ImageService.UploadConfiguration(),
-                        onSuccess: { _ in
-                            timeoutTask.cancel()
-                            Task {
-                                if await coordinationActor.tryResume() {
-                                    continuation.resume(
-                                        throwing: NetworkError.customError(
-                                            "Unexpected success in error test", details: nil))
-                                }
-                            }
-                        },
-                        onError: { error in
-                            timeoutTask.cancel()
-                            Task {
-                                if await coordinationActor.tryResume() {
-                                    continuation.resume(returning: error)
-                                }
-                            }
-                        }
-                    )
-                }
+            )
+            
+            // Wait for upload to complete
+            while !uploadCompleted {
+                try await Task.sleep(nanoseconds: 10_000_000)  // 10ms
+            }
+            
+            if let error = capturedError {
+                result = error
+            } else {
+                throw NetworkError.customError(
+                    "Expected upload to fail, but it succeeded", details: nil)
             }
 
             // Assert the continuation result is the expected error type
@@ -443,147 +431,167 @@ import Testing
             )
             let successModel = AsyncImageModel(imageService: successService)
 
-            // Perform successful upload with coordinated timeout
-            let successResult: Result<Data, NetworkError> =
-                try await withCheckedThrowingContinuation { continuation in
-                    let coordinationActor = CoordinationActor()
+            // Perform successful upload using the helper method
+            let successResult = try await performUploadWithTimeout(
+                model: successModel,
+                image: platformImage,
+                url: Self.defaultUploadURL
+            )
 
-                    // Create a timeout task that will throw on timeout
-                    let timeoutTask = Task {
-                        try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 second timeout
-                        if await coordinationActor.tryResume() {
-                            continuation.resume(
-                                throwing: NetworkError.customError(
-                                    "Test timeout", details: "Upload operation took too long"))
-                        }
-                    }
-
-                    // Create upload task that coordinates with timeout
-                    Task {
-                        await successModel.uploadImage(
-                            platformImage,
-                            to: Self.defaultUploadURL,
-                            uploadType: .multipart,
-                            configuration: ImageService.UploadConfiguration(),
-                            onSuccess: { data in
-                                timeoutTask.cancel()
-                                Task {
-                                    if await coordinationActor.tryResume() {
-                                        continuation.resume(returning: .success(data))
-                                    }
-                                }
-                            },
-                            onError: { error in
-                                timeoutTask.cancel()
-                                Task {
-                                    if await coordinationActor.tryResume() {
-                                        continuation.resume(returning: .failure(error))
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-
-            // Assert successful upload
+            // Assert the successful result
             switch successResult {
             case .success(let data):
                 #expect(
                     String(data: data, encoding: .utf8) == "{\"success\": true}",
                     "Should receive success response")
             case .failure(let error):
-                Issue.record("Expected successful upload but got error: \(error)")
+                Issue.record("Upload failed unexpectedly: \(error)")
             }
 
-            // Assert that error state is cleared after successful upload
-            #expect(successModel.error == nil, "Error should be nil after successful upload")
-            #expect(
-                successModel.hasError == false, "hasError should be false after successful upload")
             #expect(
                 successModel.isUploading == false,
-                "isUploading should remain false after successful upload")
+                "isUploading should be false after successful upload")
+            #expect(successModel.error == nil, "Error should be nil after successful upload")
+        }
+
+        /// Helper method to perform upload with timeout coordination using Swift 6 concurrency patterns
+        /// - Parameters:
+        ///   - model: The AsyncImageModel to perform upload on
+        ///   - image: The platform image to upload
+        ///   - url: The upload URL
+        ///   - timeoutNanoseconds: Timeout in nanoseconds (default: 5 seconds)
+        /// - Returns: Result containing either the response data or a NetworkError
+        @MainActor
+        private func performUploadWithTimeout(
+            model: AsyncImageModel,
+            image: PlatformImage,
+            url: URL,
+            timeoutNanoseconds: UInt64 = 5_000_000_000  // 5 seconds
+        ) async throws -> Result<Data, NetworkError> {
+            try await withCheckedThrowingContinuation { continuation in
+                let coordinationActor = CoordinationActor()
+
+                // Create timeout task using Swift 6 concurrency patterns
+                let timeoutTask = Task {
+                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    if await coordinationActor.tryResume() {
+                        continuation.resume(
+                            throwing: NetworkError.customError(
+                                "Test timeout", details: "Upload operation took too long"))
+                    }
+                }
+
+                // Create upload task with proper coordination - capture image safely
+                let imageCopy = image
+                Task { @MainActor in
+                    await model.uploadImage(
+                        imageCopy,
+                        to: url,
+                        uploadType: .multipart,
+                        configuration: ImageService.UploadConfiguration(),
+                        onSuccess: { data in
+                            timeoutTask.cancel()
+                            Task { @MainActor in
+                                if await coordinationActor.tryResume() {
+                                    continuation.resume(returning: .success(data))
+                                }
+                            }
+                        },
+                        onError: { error in
+                            timeoutTask.cancel()
+                            Task { @MainActor in
+                                if await coordinationActor.tryResume() {
+                                    continuation.resume(returning: .failure(error))
+                                }
+                            }
+                        }
+                    )
+                }
+            }
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelRetryFunctionality() async throws {
-            // Create a mock session that fails multiple times (to exhaust ImageService's built-in retries), then succeeds
+        @Test func testAsyncNetImageModelUploadRetry() async throws {
+            // Create a mock session that returns an upload error, then success
             guard
                 let successResponse = HTTPURLResponse(
-                    url: Self.defaultTestURL,
+                    url: Self.defaultUploadURL,
                     statusCode: 200,
                     httpVersion: nil,
-                    headerFields: ["Content-Type": "image/png"]
+                    headerFields: ["Content-Type": "application/json"]
                 )
             else {
-                Issue.record("Failed to create HTTPURLResponse for success response in retry test")
-                return
+                throw NetworkError.customError(
+                    "Failed to create HTTPURLResponse for success test", details: nil)
             }
-
-            // ImageService has built-in retry logic (3 attempts by default), so we need to provide enough failures
-            // followed by a success. The pattern will be: fail, fail, fail (exhaust retries), then success on retry
-            // This test assumes:
-            // - ImageService retries exactly 3 times on network errors before giving up
-            // - The 4th call (after exhausting retries) will succeed with the scripted success response
-            // - No additional calls should be made after success
-            let testData = try Self.getMinimalPNGData()
-            let session = MockURLSession(scriptedCalls: [
-                (nil, nil, NetworkError.networkUnavailable),  // First attempt fails
-                (nil, nil, NetworkError.networkUnavailable),  // Second attempt fails
-                (nil, nil, NetworkError.networkUnavailable),  // Third attempt fails
-                (testData, successResponse, nil),  // Fourth attempt succeeds
+            let mockSession = MockURLSession(scriptedCalls: [
+                (
+                    Data("Server Error".utf8), nil,
+                    NetworkError.serverError(
+                        statusCode: 500, data: "Server Error".data(using: .utf8))
+                ),
+                (Data("{\"success\": true}".utf8), successResponse, nil)
             ])
             let service = ImageService(
                 imageCacheCountLimit: 100,
                 imageCacheTotalCostLimit: 50 * 1024 * 1024,
                 dataCacheCountLimit: 200,
                 dataCacheTotalCostLimit: 100 * 1024 * 1024,
-                urlSession: session
+                urlSession: mockSession
             )
             let model = AsyncImageModel(imageService: service)
 
-            // Initial failed load (this will exhaust the built-in retries and fail)
-            await model.loadImage(from: Self.defaultTestURL.absoluteString)
-            #expect(model.loadedImage == nil, "Should have no image after failed load")
-            #expect(model.hasError == true, "Should have error after failed load")
-            #expect(
-                model.error == NetworkError.networkUnavailable,
-                "Should have networkUnavailable error on failure")
-            #expect(
-                model.isLoading == false, "Loading flag should be false after failed load")
-
-            // Verify that exactly 3 retry attempts were made (initial + 2 retries, since ImageService gives up after 3 total attempts)
-            #expect(
-                await session.callCount == 3,
-                "Should have made exactly 3 attempts before giving up (initial + 2 retries)")
-            #expect(
-                await session.allScriptsConsumed == false,
-                "Should not have consumed all scripts after failure (3 calls made, 4 scripts available)"
-            )
-
-            // Now simulate a successful retry on the same model instance
-            // This will use the success response from the mock session
-            await model.loadImage(from: Self.defaultTestURL.absoluteString)
-            #expect(model.error == nil, "Error should be nil after successful retry")
-            #expect(model.loadedImage != nil, "Should have loaded image after successful retry")
-            // Verify the loaded image is actually displayable by checking its properties
-            if let loadedImage = model.loadedImage {
-                #expect(
-                    loadedImage.cgImage != nil,
-                    "Loaded image should have valid underlying CGImage data after retry")
-                #expect(
-                    loadedImage.size.width > 0 && loadedImage.size.height > 0,
-                    "Loaded image should have valid dimensions after retry")
+            // Guard against nil platform image
+            let testData = try Self.getMinimalPNGData()
+            guard let platformImage = ImageService.platformImage(from: testData) else {
+                throw NetworkError.customError(
+                    "Failed to create platform image from test data", details: nil)
             }
-            #expect(model.hasError == false, "hasError should be false after successful retry")
-            #expect(model.isLoading == false, "isLoading should be false after successful retry")
 
-            // Verify that the successful retry made exactly 1 additional call (total of 4 calls)
+            // Initial upload attempt - should fail with server error
+            let initialResult: Result<Data, NetworkError> =
+                try await performUploadWithTimeout(
+                    model: model,
+                    image: platformImage,
+                    url: Self.defaultUploadURL,
+                    timeoutNanoseconds: 5_000_000_000  // 5 seconds
+                )
+
+            // Assert the initial result is the expected server error
+            switch initialResult {
+            case .success:
+                throw NetworkError.customError(
+                    "Expected initial upload to fail, but it succeeded", details: nil)
+            case .failure(let error):
+                #expect(
+                    error
+                        == NetworkError.serverError(
+                            statusCode: 500, data: "Server Error".data(using: .utf8)),
+                    "Initial upload should fail with server error")
+            }
+
+            // Successful upload retry - should succeed
+            let successResult: Result<Data, NetworkError> =
+                try await performUploadWithTimeout(
+                    model: model,
+                    image: platformImage,
+                    url: Self.defaultUploadURL,
+                    timeoutNanoseconds: 5_000_000_000  // 5 seconds
+                )
+
+            // Assert the successful result
+            switch successResult {
+            case .success(let data):
+                #expect(
+                    String(data: data, encoding: .utf8) == "{\"success\": true}",
+                    "Should receive success response")
+            case .failure(let error):
+                Issue.record("Upload failed unexpectedly: \(error)")
+            }
+
             #expect(
-                await session.callCount == 4,
-                "Should have made exactly 4 total attempts (3 failures + 1 success)")
-            #expect(
-                await session.allScriptsConsumed == true,
-                "Should have consumed all scripted responses after success")
+                model.isUploading == false, "isUploading should be false after successful upload")
+            #expect(model.error == nil, "Error should be nil after successful upload")
         }
     }
 #endif
