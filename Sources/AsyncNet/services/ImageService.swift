@@ -156,7 +156,7 @@ public actor ImageService {
         if finalPayloadSize > effectiveMaxUploadSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: JSON payload size \(finalPayloadSize, privacy: .public) bytes exceeds limit of \(effectiveMaxUploadSize, privacy: .public) bytes (base64 image: \(imageData.count, privacy: .public) bytes, encoded: \(((imageData.count + 2) / 3) * 4), privacy: .public) bytes)"
+                    "Upload rejected: JSON payload size \(finalPayloadSize, privacy: .public) bytes exceeds limit of \(effectiveMaxUploadSize, privacy: .public) bytes (base64 image: \(imageData.count, privacy: .public) bytes, encoded: \(((imageData.count + 2) / 3) * 4, privacy: .public) bytes)"
                 )
             #else
                 print(
