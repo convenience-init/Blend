@@ -111,17 +111,41 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          # Find available iOS simulator
-          SIMULATOR=$(xcrun simctl list devices available | grep 'iPhone' | grep -v unavailable | head -n 1)
+          echo "=== iOS Simulator Discovery ==="
+          
+          # List all available devices for debugging
+          echo "Available devices:"
+          xcrun simctl list devices available
+          
+          # Try to find an existing iOS simulator
+          SIMULATOR=$(xcrun simctl list devices available | grep 'iPhone' | grep -v unavailable | head -n 1 || true)
+          
           if [ -z "$SIMULATOR" ]; then
-            echo "ERROR: No iOS simulators found"
-            exit 1
+            echo "No existing iOS simulators found. Creating one..."
+            
+            # Create a new iOS simulator
+            SIM_NAME="iPhone 15"
+            SIM_RUNTIME=$(xcrun simctl list runtimes | grep 'iOS' | grep -v unavailable | tail -n 1 | awk '{print $1}' || echo "com.apple.CoreSimulator.SimRuntime.iOS-17-5")
+            
+            echo "Creating simulator: $SIM_NAME with runtime: $SIM_RUNTIME"
+            SIM_UDID=$(xcrun simctl create "$SIM_NAME" "com.apple.CoreSimulator.SimDeviceType.iPhone-15" "$SIM_RUNTIME")
+            
+            echo "Created simulator with UDID: $SIM_UDID"
+          else
+            echo "Found existing simulator: $SIMULATOR"
+            
+            # Parse the existing simulator info more reliably
+            SIM_NAME=$(echo "$SIMULATOR" | sed 's/ (.*//')
+            SIM_UDID=$(echo "$SIMULATOR" | sed 's/.*(\([^)]*\)).*/\1/')
           fi
           
-          SIM_NAME=$(echo "$SIMULATOR" | awk -F '(' '{print $1}' | xargs)
-          SIM_UDID=$(echo "$SIMULATOR" | awk -F '(' '{print $2}' | tr -d ')')
+          # Boot the simulator if it's not already booted
+          if xcrun simctl list devices | grep "$SIM_UDID" | grep -q "Shutdown"; then
+            echo "Booting simulator..."
+            xcrun simctl boot "$SIM_UDID"
+          fi
           
-          echo "Found iOS simulator: $SIM_NAME ($SIM_UDID)"
+          echo "Using iOS simulator: $SIM_NAME ($SIM_UDID)"
           echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
           echo "SIM_UDID=$SIM_UDID" >> $GITHUB_ENV
 
@@ -184,17 +208,41 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          # Find available tvOS simulator
-          SIMULATOR=$(xcrun simctl list devices available | grep 'Apple TV' | grep -v unavailable | head -n 1)
+          echo "=== tvOS Simulator Discovery ==="
+          
+          # List all available devices for debugging
+          echo "Available devices:"
+          xcrun simctl list devices available
+          
+          # Try to find an existing tvOS simulator
+          SIMULATOR=$(xcrun simctl list devices available | grep 'Apple TV' | grep -v unavailable | head -n 1 || true)
+          
           if [ -z "$SIMULATOR" ]; then
-            echo "ERROR: No tvOS simulators found"
-            exit 1
+            echo "No existing tvOS simulators found. Creating one..."
+            
+            # Create a new tvOS simulator
+            SIM_NAME="Apple TV"
+            SIM_RUNTIME=$(xcrun simctl list runtimes | grep 'tvOS' | grep -v unavailable | tail -n 1 | awk '{print $1}' || echo "com.apple.CoreSimulator.SimRuntime.tvOS-17-5")
+            
+            echo "Creating simulator: $SIM_NAME with runtime: $SIM_RUNTIME"
+            SIM_UDID=$(xcrun simctl create "$SIM_NAME" "com.apple.CoreSimulator.SimDeviceType.Apple-TV-4K" "$SIM_RUNTIME")
+            
+            echo "Created simulator with UDID: $SIM_UDID"
+          else
+            echo "Found existing simulator: $SIMULATOR"
+            
+            # Parse the existing simulator info more reliably
+            SIM_NAME=$(echo "$SIMULATOR" | sed 's/ (.*//')
+            SIM_UDID=$(echo "$SIMULATOR" | sed 's/.*(\([^)]*\)).*/\1/')
           fi
           
-          SIM_NAME=$(echo "$SIMULATOR" | awk -F '(' '{print $1}' | xargs)
-          SIM_UDID=$(echo "$SIMULATOR" | awk -F '(' '{print $2}' | tr -d ')')
+          # Boot the simulator if it's not already booted
+          if xcrun simctl list devices | grep "$SIM_UDID" | grep -q "Shutdown"; then
+            echo "Booting simulator..."
+            xcrun simctl boot "$SIM_UDID"
+          fi
           
-          echo "Found tvOS simulator: $SIM_NAME ($SIM_UDID)"
+          echo "Using tvOS simulator: $SIM_NAME ($SIM_UDID)"
           echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
           echo "SIM_UDID=$SIM_UDID" >> $GITHUB_ENV
 
