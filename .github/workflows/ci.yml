@@ -96,11 +96,68 @@ jobs:
       - name: Build (macOS SPM)
         if: matrix.target == 'macos' && matrix.build == 'spm'
         run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "=== Building Universal macOS Binaries ==="
+          
+          # Clean any previous builds
+          swift package clean
+          
+          # Build for ARM64 (Apple Silicon)
+          echo "Building for ARM64..."
           swift build --configuration debug \
+            --arch arm64 \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
-            --arch x86_64
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
+          
+          # Move ARM64 build to temporary location
+          mkdir -p .build/arm64
+          cp -r .build/debug .build/arm64/
+          
+          # Clean and build for x86_64 (Intel)
+          echo "Building for x86_64..."
+          swift package clean
+          swift build --configuration debug \
+            --arch x86_64 \
+            -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
+          
+          # Move x86_64 build to temporary location
+          mkdir -p .build/x86_64
+          cp -r .build/debug .build/x86_64/
+          
+          # Create universal binaries using lipo
+          echo "Creating universal binaries..."
+          mkdir -p .build/universal
+          
+          # Find all executable binaries and libraries
+          find .build/x86_64/debug -type f \( -name "*.o" -o -name "*.a" -o -perm +111 \) | while read -r file; do
+            # Get relative path from build directory
+            rel_path="${file#.build/x86_64/debug/}"
+            arm64_file=".build/arm64/debug/$rel_path"
+            universal_file=".build/universal/$rel_path"
+            
+            # Create directory structure
+            mkdir -p "$(dirname "$universal_file")"
+            
+            # Check if corresponding ARM64 file exists
+            if [ -f "$arm64_file" ]; then
+              echo "Creating universal binary: $rel_path"
+              lipo -create "$file" "$arm64_file" -output "$universal_file"
+            else
+              echo "ARM64 version missing for $rel_path, copying x86_64 version"
+              cp "$file" "$universal_file"
+            fi
+          done
+          
+          # Replace the debug build with universal binaries
+          rm -rf .build/debug
+          cp -r .build/universal .build/debug
+          
+          echo "Universal binary creation completed"
 
       - name: Build (macOS Xcode)
         if: matrix.target == 'macos' && matrix.build == 'xcode'
@@ -294,12 +351,12 @@ jobs:
       - name: Test macOS SPM
         if: matrix.target == 'macos' && matrix.build == 'spm'
         run: |
+          # Test with universal binaries
           swift test --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
             -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
-            --enable-code-coverage \
-            --arch x86_64
+            --enable-code-coverage
 
       - name: Test macOS Xcode
         if: matrix.target == 'macos' && matrix.build == 'xcode'
