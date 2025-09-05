@@ -83,8 +83,10 @@ import Testing
         static let minimalPNGBase64 =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
 
-        /// Test-friendly version that throws instead of crashing
-        static func getMinimalPNGData() throws -> Data {
+        /// Decode the minimal PNG Base64 string into Data
+        /// - Returns: The decoded Data
+        /// - Throws: NetworkError if decoding fails
+        private static func decodeMinimalPNGBase64() throws -> Data {
             guard let data = Data(base64Encoded: minimalPNGBase64) else {
                 throw NetworkError.customError(
                     "Failed to decode minimalPNGBase64 - invalid Base64 string", details: nil)
@@ -92,14 +94,20 @@ import Testing
             return data
         }
 
+        /// Test-friendly version that throws instead of crashing
+        static func getMinimalPNGData() throws -> Data {
+            try decodeMinimalPNGBase64()
+        }
+
         /// Static property that decodes the Base64 data, using Issue.record if decoding fails
         private static let minimalPNGData: Data = {
-            guard let data = Data(base64Encoded: minimalPNGBase64) else {
+            do {
+                return try decodeMinimalPNGBase64()
+            } catch {
                 Issue.record("Failed to decode minimalPNGBase64 - invalid Base64 string")
                 // Fatal error is appropriate here as this is test infrastructure
                 fatalError("Test infrastructure error: Failed to decode minimalPNGBase64")
             }
-            return data
         }()
 
         private static let defaultTestURL = URL(string: "https://mock.api/test")!

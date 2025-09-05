@@ -1362,8 +1362,13 @@ public actor ImageService {
         private func detectMimeTypeUsingImageSource(from data: Data) -> String? {
             #if canImport(UIKit) || canImport(AppKit)
                 // Create CFData from Data for CoreGraphics compatibility
-                guard let cfData = CFDataCreate(kCFAllocatorDefault, [UInt8](data), data.count)
-                else {
+                let cfData: CFData? = data.withUnsafeBytes { buffer in
+                    guard let baseAddress = buffer.baseAddress else { return nil }
+                    return CFDataCreate(
+                        kCFAllocatorDefault, baseAddress.assumingMemoryBound(to: UInt8.self),
+                        data.count)
+                }
+                guard let cfData = cfData else {
                     return nil
                 }
 

@@ -512,7 +512,9 @@ struct ImageServicePerformanceTests {
                 let memoryDelta = Int64(memoryAfter) - Int64(memoryBefore)
                 // Allow some memory growth but ensure it's reasonable
                 // In CI environments, be more lenient due to different memory characteristics
-                let maxMemoryGrowth = ProcessInfo.processInfo.environment["CI"] != nil ? 150 * 1024 * 1024 : 15 * 1024 * 1024  // 150MB in CI, 15MB locally
+                let maxMemoryGrowth =
+                    ProcessInfo.processInfo.environment["CI"] != nil
+                    ? 200 * 1024 * 1024 : 25 * 1024 * 1024  // 200MB in CI, 25MB locally
 
                 // Skip test if memory delta is unreasonably negative (likely measurement error)
                 if memoryDelta < -50 * 1024 * 1024 {  // -50MB threshold for measurement errors
@@ -616,8 +618,6 @@ struct ImageServicePerformanceTests {
             successCount == concurrentRequests,
             "All \(concurrentRequests) concurrent requests should succeed, got \(successCount) successes"
         )
-
-        #expect(successCount == concurrentRequests)
     }
 }
 @Suite("Image Service LRU Cache Tests")

@@ -305,7 +305,6 @@ find_simulator() {
         echo "  macOS: brew install jq" >&2
         echo "  Linux: sudo apt-get install jq" >&2
         echo "  Windows: choco install jq" >&2
-        "" >&2
         echo "Available devices list:" >&2
         xcrun simctl list devices available || true
         exit 1

@@ -76,15 +76,6 @@ public class AsyncImageModel {
         func clearTask() async {
             task = nil
         }
-        
-        func clearTaskIfEqual(to otherTask: Task<Void, Never>?) async {
-            // Tasks are not reference types, so we can't use === comparison
-            // Instead, we'll use a simpler approach: only clear if we have a task
-            // The race condition is handled by the fact that setTask cancels previous tasks
-            if task != nil {
-                task = nil
-            }
-        }
     }
 
     public init(imageService: ImageService) {
@@ -169,9 +160,6 @@ public class AsyncImageModel {
 
         // Await the local task (not the taskBox's current task)
         await task.value
-
-        // Only clear if taskBox still holds our task (prevent clearing a newer task)
-        await taskBox.clearTaskIfEqual(to: task)
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
