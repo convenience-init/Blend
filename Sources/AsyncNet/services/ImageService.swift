@@ -703,12 +703,12 @@ public actor ImageService {
                     let exponential = pow(2.0, exponent)
                     delay = min(config.baseDelay * exponential, config.maxDelay)
                 }
-                
+
                 // Cap the delay to prevent unbounded exponential growth
                 let cappedDelay = min(delay, config.maxDelay)
                 let jitter = Double.random(in: 0...config.jitter)
                 let totalDelay = cappedDelay + jitter
-                
+
                 // Check for cancellation before sleeping
                 try Task.checkCancellation()
 
@@ -716,7 +716,7 @@ public actor ImageService {
                 // Clamp to a reasonable maximum (24 hours) to prevent overflow
                 let maxReasonableDelay: TimeInterval = 24 * 60 * 60  // 24 hours
                 let safeDelay = min(max(totalDelay, 0.0), maxReasonableDelay)
-                
+
                 // Additional validation before nanosecond conversion
                 guard safeDelay.isFinite && !safeDelay.isNaN else {
                     throw NetworkError.customError(
@@ -728,7 +728,7 @@ public actor ImageService {
                 let nanoseconds = UInt64(safeDelay * 1_000_000_000)
 
                 try await Task.sleep(nanoseconds: nanoseconds)
-                
+
                 // Check for cancellation before next attempt
                 try Task.checkCancellation()
 
@@ -1812,7 +1812,6 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
         // Validate limits are non-negative
         self.countLimit = countLimit.map { max(0, $0) }
         self.totalCostLimit = totalCostLimit.map { max(0, $0) }
-
     }
 
     /// Get the current count of items
