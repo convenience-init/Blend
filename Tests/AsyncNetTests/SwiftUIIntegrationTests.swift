@@ -368,31 +368,18 @@ import Testing
 
             // Extract the error from the result for error case
             let result: NetworkError
-            var uploadCompleted = false
-            var capturedError: NetworkError?
+            var capturedResult: Result<Data, NetworkError>?
 
-            await model.uploadImage(
-                platformImage,
-                to: Self.defaultUploadURL,
-                uploadType: .multipart,
-                configuration: ImageService.UploadConfiguration(),
-                onSuccess: { _ in
-                    uploadCompleted = true
-                },
-                onError: { error in
-                    capturedError = error
-                    uploadCompleted = true
-                }
+            capturedResult = try await performUploadWithTimeout(
+                model: model,
+                image: platformImage,
+                url: Self.defaultUploadURL
             )
             
-            // Wait for upload to complete
-            while !uploadCompleted {
-                try await Task.sleep(nanoseconds: 10_000_000)  // 10ms
-            }
-            
-            if let error = capturedError {
+            switch capturedResult {
+            case .failure(let error):
                 result = error
-            } else {
+            case .success, .none:
                 throw NetworkError.customError(
                     "Expected upload to fail, but it succeeded", details: nil)
             }

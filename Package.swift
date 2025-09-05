@@ -13,7 +13,7 @@ let package = Package(
     products: [
         .library(
             name: "AsyncNet",
-            targets: ["AsyncNet"]),
+            targets: ["AsyncNet"])
     ],
     dependencies: [],
     targets: [
@@ -22,9 +22,6 @@ let package = Package(
             dependencies: [],
             resources: [
                 .process("Resources")
-            ],
-            swiftSettings: [
-                // Removed unsafe suppress-warnings flag - fixing underlying issues instead
             ]
         ),
         .testTarget(

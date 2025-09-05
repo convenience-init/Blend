@@ -207,7 +207,7 @@ public extension AdvancedAsyncRequestable {
 	/// let users: [UserSummary] = try await fetchList(from: UsersEndpoint())
 	/// ```
 	@discardableResult
-	func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
+	public func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 
@@ -225,7 +225,7 @@ public extension AdvancedAsyncRequestable {
 	/// let userDetails: UserDetails = try await fetchDetails(from: UserDetailsEndpoint(id: "123"))
 	/// ```
 	@discardableResult
-	func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
+	public func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
 		return try await sendRequest(to: endpoint)
 	}
 }

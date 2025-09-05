@@ -42,6 +42,10 @@ public actor MockURLSession: URLSessionProtocol {
     /// Initialize with multiple scripted results for testing multi-call scenarios
     init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
         precondition(
+            !scriptedData.isEmpty,
+            "MockURLSession arrays must not be empty"
+        )
+        precondition(
             scriptedData.count == scriptedResponses.count
                 && scriptedData.count == scriptedErrors.count,
             "MockURLSession arrays must have equal length. Got data: \(scriptedData.count), responses: \(scriptedResponses.count), errors: \(scriptedErrors.count)"
@@ -55,6 +59,10 @@ public actor MockURLSession: URLSessionProtocol {
     /// Initialize with an array of tuples to keep scripted triples aligned
     /// Each tuple contains (data, response, error) for one mock call
     init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
+        precondition(
+            !scriptedCalls.isEmpty,
+            "MockURLSession scriptedCalls must not be empty"
+        )
         self.artificialDelay = 0
         self.scriptedScripts = scriptedCalls
     }
@@ -93,6 +101,10 @@ public actor MockURLSession: URLSessionProtocol {
     func loadScript(
         data: [Data?], responses: [URLResponse?], errors: [Error?], keepPosition: Bool = false
     ) {
+        precondition(
+            !data.isEmpty,
+            "MockURLSession arrays must not be empty"
+        )
         precondition(
             data.count == responses.count && data.count == errors.count,
             "MockURLSession arrays must have equal length. Got data: \(data.count), responses: \(responses.count), errors: \(errors.count)"

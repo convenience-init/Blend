@@ -550,7 +550,10 @@ public actor AdvancedNetworkManager {
             guard body.count <= CC_LONG.max else {
                 // Handle large buffers by hashing incrementally to avoid overflow
                 var context = CC_SHA256_CTX()
-                CC_SHA256_Init(&context)
+                guard CC_SHA256_Init(&context) == 1 else {
+                    // Fallback to simple hash on init failure
+                    return "error:sha256-init-failed:\(body.count)"
+                }
 
                 // Process body in chunks to avoid CC_LONG overflow
                 let chunkSize = Int(CC_LONG.max)
@@ -560,20 +563,42 @@ public actor AdvancedNetworkManager {
                     let chunk = remainingData.prefix(chunkSize)
                     remainingData = remainingData.dropFirst(chunkSize)
 
-                    chunk.withUnsafeBytes { buffer in
-                        _ = CC_SHA256_Update(&context, buffer.baseAddress, CC_LONG(chunk.count))
+                    let updateResult = chunk.withUnsafeBytes { buffer in
+                        CC_SHA256_Update(&context, buffer.baseAddress, CC_LONG(chunk.count))
                     }
+                    guard updateResult == 1 else {
+                        // Log error but continue processing to avoid data loss
+                        // Note: This may produce incorrect hashes, but prevents complete failure
+                        #if canImport(OSLog)
+                            asyncNetLogger.warning(
+                                "CC_SHA256_Update failed for chunk of size \(chunk.count), continuing with potentially incorrect hash"
+                            )
+                        #else
+                            print(
+                                "Warning: CC_SHA256_Update failed for chunk of size \(chunk.count), continuing with potentially incorrect hash"
+                            )
+                        #endif
+                        // Continue processing despite the error to avoid complete data loss
+                    }
+
                 }
 
                 var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-                CC_SHA256_Final(&hash, &context)
+                guard CC_SHA256_Final(&hash, &context) == 1 else {
+                    // Fallback on final failure
+                    return "error:sha256-final-failed:\(body.count)"
+                }
 
                 return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
             }
 
             var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-            body.withUnsafeBytes { buffer in
-                _ = CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &hash)
+            let result = body.withUnsafeBytes { buffer in
+                CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &hash)
+            }
+            guard result != nil else {
+                // Fallback on direct hash failure
+                return "error:sha256-direct-failed:\(body.count)"
             }
             return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
         #else

@@ -115,22 +115,6 @@ public actor ImageService {
         to url: URL,
         configuration: UploadConfiguration
     ) async throws -> Data {
-        // Warn if encoded image is large (base64 adds ~33% overhead)
-        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
-        let encodedSize = ((imageData.count + 2) / 3) * 4
-        let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
-        if encodedSize > maxRecommendedSize {
-            #if canImport(OSLog)
-                asyncNetLogger.info(
-                    "Warning: Large base64-encoded image (\(encodedSize, privacy: .public) bytes, raw: \(imageData.count, privacy: .public) bytes) approaches upload limit. Consider using multipart upload."
-                )
-            #else
-                print(
-                    "Warning: Large base64-encoded image (\(encodedSize) bytes, raw: \(imageData.count) bytes) approaches upload limit. Consider using multipart upload."
-                )
-            #endif
-        }
-
         // Encode image data as base64 string
         let base64String = imageData.base64EncodedString()
 
@@ -143,6 +127,38 @@ public actor ImageService {
             additionalFields: configuration.additionalFields
         )
 
+        // Validate the final JSON payload size against upload limits
+        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        let jsonPayload = try JSONEncoder().encode(payload)
+        let finalPayloadSize = jsonPayload.count
+
+        if finalPayloadSize > maxUploadSize {
+            #if canImport(OSLog)
+                asyncNetLogger.warning(
+                    "Upload rejected: JSON payload size \(finalPayloadSize, privacy: .public) bytes exceeds limit of \(maxUploadSize, privacy: .public) bytes (base64 image: \(imageData.count, privacy: .public) bytes, encoded: \(((imageData.count + 2) / 3) * 4), privacy: .public) bytes)"
+                )
+            #else
+                print(
+                    "Upload rejected: JSON payload size \(finalPayloadSize) bytes exceeds limit of \(maxUploadSize) bytes (base64 image: \(imageData.count) bytes, encoded: \(((imageData.count + 2) / 3) * 4) bytes)"
+                )
+            #endif
+            throw NetworkError.payloadTooLarge(size: finalPayloadSize, limit: maxUploadSize)
+        }
+
+        // Warn if payload is large (accounts for JSON overhead + base64 encoding)
+        let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for JSON + base64 overhead
+        if finalPayloadSize > maxRecommendedSize {
+            #if canImport(OSLog)
+                asyncNetLogger.info(
+                    "Warning: Large JSON payload (\(finalPayloadSize, privacy: .public) bytes, base64 image: \(imageData.count, privacy: .public) bytes) approaches upload limit. Consider using multipart upload."
+                )
+            #else
+                print(
+                    "Warning: Large JSON payload (\(finalPayloadSize) bytes, base64 image: \(imageData.count) bytes) approaches upload limit. Consider using multipart upload."
+                )
+            #endif
+        }
+
         // Create JSON request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -154,7 +170,7 @@ public actor ImageService {
             request = await interceptor.willSend(request: request)
         }
 
-        request.httpBody = try JSONEncoder().encode(payload)
+        request.httpBody = jsonPayload
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -297,12 +313,13 @@ public actor ImageService {
             let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
             let valueString = "\(value)\r\n"
 
-            guard let boundaryData = boundaryString.data(using: .utf8),
-                let dispositionData = dispositionString.data(using: .utf8),
-                let valueData = valueString.data(using: .utf8)
-            else {
-                throw NetworkError.invalidEndpoint(reason: "Failed to encode multipart data")
-            }
+            // Validate UTF-8 encoding for each component with specific error messages
+            let boundaryData = try encodeMultipartComponent(
+                boundaryString, componentName: "multipart boundary for field '\(key)'")
+            let dispositionData = try encodeMultipartComponent(
+                dispositionString, componentName: "Content-Disposition header for field '\(key)'")
+            let valueData = try encodeMultipartComponent(
+                valueString, componentName: "value for field '\(key)' with value '\(value)'")
 
             body.append(boundaryData)
             body.append(dispositionData)
@@ -316,13 +333,15 @@ public actor ImageService {
         let imageTypeString = "Content-Type: \(mimeType)\r\n\r\n"
         let closingBoundaryString = "\r\n--\(boundary)--\r\n"
 
-        guard let imageBoundaryData = imageBoundaryString.data(using: .utf8),
-            let imageDispositionData = imageDispositionString.data(using: .utf8),
-            let imageTypeData = imageTypeString.data(using: .utf8),
-            let closingBoundaryData = closingBoundaryString.data(using: .utf8)
-        else {
-            throw NetworkError.invalidEndpoint(reason: "Failed to encode image multipart data")
-        }
+        // Validate UTF-8 encoding for image multipart components with specific error messages
+        let imageBoundaryData = try encodeMultipartComponent(
+            imageBoundaryString, componentName: "image boundary")
+        let imageDispositionData = try encodeMultipartComponent(
+            imageDispositionString, componentName: "image Content-Disposition header")
+        let imageTypeData = try encodeMultipartComponent(
+            imageTypeString, componentName: "image Content-Type header")
+        let closingBoundaryData = try encodeMultipartComponent(
+            closingBoundaryString, componentName: "closing boundary")
 
         body.append(imageBoundaryData)
         body.append(imageDispositionData)
@@ -1119,28 +1138,12 @@ public actor ImageService {
             let valueString = "\(value)\r\n"
 
             // Validate UTF-8 encoding for each component with specific error messages
-            guard let boundaryData = boundaryString.data(using: .utf8, allowLossyConversion: false)
-            else {
-                throw NetworkError.invalidEndpoint(
-                    reason:
-                        "Failed to encode multipart boundary for form field '\(key)' - contains invalid UTF-8 characters"
-                )
-            }
-            guard
-                let dispositionData = dispositionString.data(
-                    using: .utf8, allowLossyConversion: false)
-            else {
-                throw NetworkError.invalidEndpoint(
-                    reason:
-                        "Failed to encode Content-Disposition header for form field '\(key)' - contains invalid UTF-8 characters"
-                )
-            }
-            guard let valueData = valueString.data(using: .utf8, allowLossyConversion: false) else {
-                throw NetworkError.invalidEndpoint(
-                    reason:
-                        "Failed to encode value for form field '\(key)' with value '\(value)' - contains invalid UTF-8 characters"
-                )
-            }
+            let boundaryData = try encodeMultipartComponent(
+                boundaryString, componentName: "multipart boundary for field '\(key)'")
+            let dispositionData = try encodeMultipartComponent(
+                dispositionString, componentName: "Content-Disposition header for field '\(key)'")
+            let valueData = try encodeMultipartComponent(
+                valueString, componentName: "value for field '\(key)' with value '\(value)'")
             
             body.append(boundaryData)
             body.append(dispositionData)
@@ -1165,40 +1168,14 @@ public actor ImageService {
         let closingBoundaryString = "\r\n--\(boundary)--\r\n"
 
         // Validate UTF-8 encoding for image multipart components with specific error messages
-        guard
-            let imageBoundaryData = imageBoundaryString.data(
-                using: .utf8, allowLossyConversion: false)
-        else {
-            throw NetworkError.invalidEndpoint(
-                reason:
-                    "Failed to encode image boundary - contains invalid UTF-8 characters (boundary: '\(boundary)')"
-            )
-        }
-        guard
-            let imageDispositionData = imageDispositionString.data(
-                using: .utf8, allowLossyConversion: false)
-        else {
-            throw NetworkError.invalidEndpoint(
-                reason:
-                    "Failed to encode image Content-Disposition header - contains invalid UTF-8 characters (fieldName: '\(configuration.fieldName)', fileName: '\(configuration.fileName)')"
-            )
-        }
-        guard let imageTypeData = imageTypeString.data(using: .utf8, allowLossyConversion: false)
-        else {
-            throw NetworkError.invalidEndpoint(
-                reason:
-                    "Failed to encode image Content-Type header - contains invalid UTF-8 characters (mimeType: '\(mimeType)')"
-            )
-        }
-        guard
-            let closingBoundaryData = closingBoundaryString.data(
-                using: .utf8, allowLossyConversion: false)
-        else {
-            throw NetworkError.invalidEndpoint(
-                reason:
-                    "Failed to encode closing boundary - contains invalid UTF-8 characters (boundary: '\(boundary)')"
-            )
-        }
+        let imageBoundaryData = try encodeMultipartComponent(
+            imageBoundaryString, componentName: "image boundary")
+        let imageDispositionData = try encodeMultipartComponent(
+            imageDispositionString, componentName: "image Content-Disposition header")
+        let imageTypeData = try encodeMultipartComponent(
+            imageTypeString, componentName: "image Content-Type header")
+        let closingBoundaryData = try encodeMultipartComponent(
+            closingBoundaryString, componentName: "closing boundary")
         
         body.append(imageBoundaryData)
         body.append(imageDispositionData)
@@ -1632,6 +1609,16 @@ public actor ImageService {
         }
 
     #endif
+
+    /// Helper to safely encode UTF-8 strings for multipart data
+    private func encodeMultipartComponent(_ string: String, componentName: String) throws -> Data {
+        guard let data = string.data(using: .utf8, allowLossyConversion: false) else {
+            throw NetworkError.invalidEndpoint(
+                reason: "Failed to encode \(componentName) - contains invalid UTF-8 characters"
+            )
+        }
+        return data
+    }
 }
 
 /// Wrapper for non-Sendable image types to make them usable in Swift 6 concurrency
