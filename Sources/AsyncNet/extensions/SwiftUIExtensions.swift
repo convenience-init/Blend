@@ -338,8 +338,12 @@ public struct AsyncNetImageView: View {
                     }
                 }
             } else if model.isLoading {
-                ProgressView("Loading...")
-                    .controlSize(.large)
+                #if os(tvOS)
+                    ProgressView("Loading...")
+                #else
+                    ProgressView("Loading...")
+                        .controlSize(.large)
+                #endif
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.tertiary)
