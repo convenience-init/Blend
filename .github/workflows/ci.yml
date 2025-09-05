@@ -121,8 +121,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}"
-          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_udid }}"
+          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_name }}"
           
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
@@ -158,14 +158,14 @@ jobs:
         run: |
           echo "Available iOS Simulators:"
           xcrun simctl list devices available | grep -A 5 -B 5 "iOS" || true
-          echo "Using simulator: ${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          echo "Using simulator: ${{ steps.find_ios_simulator.outputs.ios_name }}"
 
       - name: Verify tvOS Simulators
         if: matrix.target == 'tvos'
         run: |
           echo "Available tvOS Simulators:"
           xcrun simctl list devices available | grep -A 5 -B 5 "tvOS" || true
-          echo "Using simulator: ${{ steps.find_tvos_simulator.outputs.tvos_simulator_name }}"
+          echo "Using simulator: ${{ steps.find_tvos_simulator.outputs.tvos_name }}"
 
       - name: Test macOS SPM
         if: matrix.target == 'macos' && matrix.build == 'spm'
@@ -186,8 +186,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_simulator_udid }}"
-          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_simulator_name }}"
+          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_udid }}"
+          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_name }}"
           
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
@@ -214,8 +214,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          SIM_UDID="${{ steps.find_tvos_simulator.outputs.tvos_simulator_udid }}"
-          SIM_NAME="${{ steps.find_tvos_simulator.outputs.tvos_simulator_name }}"
+          SIM_UDID="${{ steps.find_tvos_simulator.outputs.tvos_udid }}"
+          SIM_NAME="${{ steps.find_tvos_simulator.outputs.tvos_name }}"
           
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
