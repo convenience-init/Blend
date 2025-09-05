@@ -168,7 +168,7 @@ public actor ImageService {
         }
 
         // Warn if payload is large (accounts for JSON overhead + base64 encoding)
-        let maxRecommendedSize = effectiveMaxUploadSize / 4 * 3  // ~75% of max to account for JSON + base64 overhead
+        let maxRecommendedSize = (effectiveMaxUploadSize * 3) / 4  // ~75% of max to account for JSON + base64 overhead
         if finalPayloadSize > maxRecommendedSize {
             #if canImport(OSLog)
                 asyncNetLogger.info(
@@ -242,16 +242,6 @@ public actor ImageService {
             )
         #endif
 
-        // Determine MIME type: prefer configured value, then detect from data, then fallback
-        let mimeType: String
-        let trimmedConfiguredMimeType = configuration.mimeType.trimmingCharacters(
-            in: .whitespacesAndNewlines)
-        if !trimmedConfiguredMimeType.isEmpty {
-            mimeType = trimmedConfiguredMimeType
-        } else {
-            mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
-        }
-
         // Create multipart request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -266,50 +256,8 @@ public actor ImageService {
         request.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        // Build multipart body data directly
-        var body = Data()
-
-        // Add additional fields
-        for (key, value) in configuration.additionalFields {
-            let boundaryString = "--\(boundary)\r\n"
-            let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
-            let valueString = "\(value)\r\n"
-
-            // Validate UTF-8 encoding for each component with specific error messages
-            let boundaryData = try encodeMultipartComponent(
-                boundaryString, componentName: "multipart boundary for field '\(key)'")
-            let dispositionData = try encodeMultipartComponent(
-                dispositionString, componentName: "Content-Disposition header for field '\(key)'")
-            let valueData = try encodeMultipartComponent(
-                valueString, componentName: "value for field '\(key)' with value '\(value)'")
-            
-            body.append(boundaryData)
-            body.append(dispositionData)
-            body.append(valueData)
-        }
-
-        // Add image data
-        let imageBoundaryString = "--\(boundary)\r\n"
-        let imageDispositionString =
-            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
-        let imageTypeString = "Content-Type: \(mimeType)\r\n\r\n"
-        let closingBoundaryString = "\r\n--\(boundary)--\r\n"
-
-        // Validate UTF-8 encoding for image multipart components with specific error messages
-        let imageBoundaryData = try encodeMultipartComponent(
-            imageBoundaryString, componentName: "image boundary")
-        let imageDispositionData = try encodeMultipartComponent(
-            imageDispositionString, componentName: "image Content-Disposition header")
-        let imageTypeData = try encodeMultipartComponent(
-            imageTypeString, componentName: "image Content-Type header")
-        let closingBoundaryData = try encodeMultipartComponent(
-            closingBoundaryString, componentName: "closing boundary")
-        
-        body.append(imageBoundaryData)
-        body.append(imageDispositionData)
-        body.append(imageTypeData)
-        body.append(imageData)
-        body.append(closingBoundaryData)
+        let body = try buildMultipartBody(
+            boundary: boundary, configuration: configuration, imageData: imageData)
 
         request.httpBody = body
 
@@ -511,10 +459,10 @@ public actor ImageService {
                 keyToIndex.removeValue(forKey: key)
                 operationCount += 1
 
-                // More aggressive pruning: trigger when invalid ratio >20% or >=100 invalid entries
+                // More aggressive pruning: trigger when invalid ratio >10% or >=50 invalid entries
                 let invalidCount = heap.count - validCount
                 if heap.count > 0
-                    && (Double(invalidCount) / Double(heap.count) > 0.20 || invalidCount >= 100)
+                    && (Double(invalidCount) / Double(heap.count) > 0.10 || invalidCount >= 50)
                 {
                     pruneInvalidEntries()
                 }
@@ -561,7 +509,7 @@ public actor ImageService {
 
                 // More aggressive cleanup thresholds for background cleanup
                 if heap.count > 0
-                    && (Double(invalidCount) / Double(heap.count) > 0.03 || invalidCount >= 10)
+                    && (Double(invalidCount) / Double(heap.count) > 0.05 || invalidCount >= 25)
                 {
                     pruneInvalidEntries()
                 } else {
@@ -869,79 +817,89 @@ public actor ImageService {
         }
         cacheMisses += 1
 
-        // Deduplication: Check for in-flight task
+        // Deduplication: Atomically check for existing task or store new task
+        // This prevents race conditions where multiple concurrent calls could create duplicate tasks
+        let fetchTask: Task<Data, Error>
         if let existingTask = inFlightImageTasks[urlString] {
+            // Existing task found, use it
             return try await existingTask.value
-        }
-
-        // Create new task for this request, with retry/backoff
-        let fetchTask = Task<Data, Error> {
-            () async throws -> Data in
-            // Capture strong reference to self for the entire task execution
-            defer {
-                // Always remove the task from inFlightImageTasks when it completes
-                // This ensures cleanup happens regardless of success, failure, or cancellation
-                self.removeInFlightTask(forKey: urlString)
-            }
-
-            let data = try await self.withRetry(config: effectiveRetryConfig) {
-                guard let url = URL(string: urlString),
-                    let scheme = url.scheme, !scheme.isEmpty,
-                    let host = url.host, !host.isEmpty
-                else {
-                    throw NetworkError.invalidEndpoint(reason: "Invalid image URL: \(urlString)")
+        } else {
+            // No existing task, create new one
+            fetchTask = Task<Data, Error> {
+                () async throws -> Data in
+                // Capture strong reference to self for the entire task execution
+                defer {
+                    // Always remove the task from inFlightImageTasks when it completes
+                    // This ensures cleanup happens regardless of success, failure, or cancellation
+                    self.removeInFlightTask(forKey: urlString)
                 }
 
-                var request = URLRequest(url: url)
-                // Apply request interceptors
-                let interceptors = await self.interceptors
-                for interceptor in interceptors {
-                    request = await interceptor.willSend(request: request)
-                }
-
-                let (data, response) = try await self.urlSession.data(for: request)
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw NetworkError.noResponse
-                }
-
-                switch httpResponse.statusCode {
-                case 200...299:
-                    guard let mimeType = httpResponse.mimeType else {
-                        throw NetworkError.badMimeType("no mimeType found")
+                let data = try await self.withRetry(config: effectiveRetryConfig) {
+                    guard let url = URL(string: urlString),
+                        let scheme = url.scheme, !scheme.isEmpty,
+                        let host = url.host, !host.isEmpty
+                    else {
+                        throw NetworkError.invalidEndpoint(
+                            reason: "Invalid image URL: \(urlString)")
                     }
 
-                    let validMimeTypes = [
-                        "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic",
-                    ]
-                    guard validMimeTypes.contains(mimeType) else {
-                        throw NetworkError.badMimeType(mimeType)
+                    var request = URLRequest(url: url)
+                    // Apply request interceptors
+                    let interceptors = await self.interceptors
+                    for interceptor in interceptors {
+                        request = await interceptor.willSend(request: request)
                     }
-                    return data
 
-                case 400:
-                    throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
-                case 401:
-                    throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
-                case 403:
-                    throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
-                case 404:
-                    throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
-                case 429:
-                    throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
-                case 500...599:
-                    throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
-                default:
-                    throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+                    let (data, response) = try await self.urlSession.data(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw NetworkError.noResponse
+                    }
+
+                    switch httpResponse.statusCode {
+                    case 200...299:
+                        guard let mimeType = httpResponse.mimeType else {
+                            throw NetworkError.badMimeType("no mimeType found")
+                        }
+
+                        let validMimeTypes = [
+                            "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic",
+                        ]
+                        guard validMimeTypes.contains(mimeType) else {
+                            throw NetworkError.badMimeType(mimeType)
+                        }
+                        return data
+
+                    case 400:
+                        throw NetworkError.badRequest(
+                            data: data, statusCode: httpResponse.statusCode)
+                    case 401:
+                        throw NetworkError.unauthorized(
+                            data: data, statusCode: httpResponse.statusCode)
+                    case 403:
+                        throw NetworkError.forbidden(
+                            data: data, statusCode: httpResponse.statusCode)
+                    case 404:
+                        throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+                    case 429:
+                        throw NetworkError.rateLimited(
+                            data: data, statusCode: httpResponse.statusCode)
+                    case 500...599:
+                        throw NetworkError.serverError(
+                            statusCode: httpResponse.statusCode, data: data)
+                    default:
+                        throw NetworkError.httpError(
+                            statusCode: httpResponse.statusCode, data: data)
+                    }
                 }
+                return data
             }
-            return data
-        }
 
-        // Deduplication: Store the task atomically before starting it
-        let existingTask = inFlightImageTasks.updateValue(fetchTask, forKey: urlString)
-        if let existingTask = existingTask {
-            fetchTask.cancel()  // Cancel the newly created task
-            return try await existingTask.value
+            // Atomically store the task - if another task was stored concurrently, use that instead
+            if let existingTask = inFlightImageTasks.updateValue(fetchTask, forKey: urlString) {
+                // Another task was stored concurrently, cancel our task and use the existing one
+                fetchTask.cancel()
+                return try await existingTask.value
+            }
         }
 
         let data = try await fetchTask.value
@@ -1059,60 +1017,8 @@ public actor ImageService {
         request.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        // Build multipart body data directly
-        var body = Data()
-
-        // Add additional fields
-        for (key, value) in configuration.additionalFields {
-            let boundaryString = "--\(boundary)\r\n"
-            let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
-            let valueString = "\(value)\r\n"
-
-            // Validate UTF-8 encoding for each component with specific error messages
-            let boundaryData = try encodeMultipartComponent(
-                boundaryString, componentName: "multipart boundary for field '\(key)'")
-            let dispositionData = try encodeMultipartComponent(
-                dispositionString, componentName: "Content-Disposition header for field '\(key)'")
-            let valueData = try encodeMultipartComponent(
-                valueString, componentName: "value for field '\(key)' with value '\(value)'")
-            
-            body.append(boundaryData)
-            body.append(dispositionData)
-            body.append(valueData)
-        }
-
-        // Determine MIME type: prefer configured value, then detect from data, then fallback
-        let mimeType: String
-        let trimmedConfiguredMimeType = configuration.mimeType.trimmingCharacters(
-            in: .whitespacesAndNewlines)
-        if !trimmedConfiguredMimeType.isEmpty {
-            mimeType = trimmedConfiguredMimeType
-        } else {
-            mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
-        }
-
-        // Add image data
-        let imageBoundaryString = "--\(boundary)\r\n"
-        let imageDispositionString =
-            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
-        let imageTypeString = "Content-Type: \(mimeType)\r\n\r\n"
-        let closingBoundaryString = "\r\n--\(boundary)--\r\n"
-
-        // Validate UTF-8 encoding for image multipart components with specific error messages
-        let imageBoundaryData = try encodeMultipartComponent(
-            imageBoundaryString, componentName: "image boundary")
-        let imageDispositionData = try encodeMultipartComponent(
-            imageDispositionString, componentName: "image Content-Disposition header")
-        let imageTypeData = try encodeMultipartComponent(
-            imageTypeString, componentName: "image Content-Type header")
-        let closingBoundaryData = try encodeMultipartComponent(
-            closingBoundaryString, componentName: "closing boundary")
-        
-        body.append(imageBoundaryData)
-        body.append(imageDispositionData)
-        body.append(imageTypeData)
-        body.append(imageData)
-        body.append(closingBoundaryData)
+        let body = try buildMultipartBody(
+            boundary: boundary, configuration: configuration, imageData: imageData)
 
         request.httpBody = body
 
@@ -1545,6 +1451,65 @@ public actor ImageService {
             )
         }
         return data
+    }
+
+    /// Builds multipart form-data body for image uploads
+    /// - Parameters:
+    ///   - boundary: The multipart boundary string
+    ///   - configuration: Upload configuration containing field names, additional fields, etc.
+    ///   - imageData: The image data to include in the multipart body
+    /// - Returns: Complete multipart form-data as Data
+    private func buildMultipartBody(
+        boundary: String,
+        configuration: UploadConfiguration,
+        imageData: Data
+    ) throws -> Data {
+        // Build multipart body data directly
+        var body = Data()
+
+        // Add additional fields
+        for (key, value) in configuration.additionalFields {
+            let boundaryString = "--\(boundary)\r\n"
+            let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
+            let valueString = "\(value)\r\n"
+
+            // Validate UTF-8 encoding for each component with specific error messages
+            let boundaryData = try encodeMultipartComponent(
+                boundaryString, componentName: "multipart boundary for field '\(key)'")
+            let dispositionData = try encodeMultipartComponent(
+                dispositionString, componentName: "Content-Disposition header for field '\(key)'")
+            let valueData = try encodeMultipartComponent(
+                valueString, componentName: "value for field '\(key)' with value '\(value)'")
+
+            body.append(boundaryData)
+            body.append(dispositionData)
+            body.append(valueData)
+        }
+
+        // Add image data
+        let imageBoundaryString = "--\(boundary)\r\n"
+        let imageDispositionString =
+            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
+        let imageTypeString = "Content-Type: \(configuration.mimeType)\r\n\r\n"
+        let closingBoundaryString = "\r\n--\(boundary)--\r\n"
+
+        // Validate UTF-8 encoding for image multipart components with specific error messages
+        let imageBoundaryData = try encodeMultipartComponent(
+            imageBoundaryString, componentName: "image boundary")
+        let imageDispositionData = try encodeMultipartComponent(
+            imageDispositionString, componentName: "image Content-Disposition header")
+        let imageTypeData = try encodeMultipartComponent(
+            imageTypeString, componentName: "image Content-Type header")
+        let closingBoundaryData = try encodeMultipartComponent(
+            closingBoundaryString, componentName: "closing boundary")
+
+        body.append(imageBoundaryData)
+        body.append(imageDispositionData)
+        body.append(imageTypeData)
+        body.append(imageData)
+        body.append(closingBoundaryData)
+
+        return body
     }
 }
 

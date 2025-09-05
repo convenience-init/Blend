@@ -770,4 +770,45 @@ struct ImageServiceLRUCacheTests {
 
         #expect(true, "Concurrent access test completed without crashes")
     }
+
+    @Test func testDeduplicationPreventsDuplicateRequests() async throws {
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        let response = HTTPURLResponse(
+            url: URL(string: "https://mock.api/test")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/jpeg"]
+        )!
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
+        let service = ImageService(
+            imageCacheCountLimit: 100,
+            imageCacheTotalCostLimit: 50 * 1024 * 1024,
+            dataCacheCountLimit: 200,
+            dataCacheTotalCostLimit: 100 * 1024 * 1024,
+            urlSession: mockSession
+        )
+
+        let url = "https://mock.api/test"
+
+        // Make concurrent requests to the same URL
+        async let first: Data = service.fetchImageData(from: url)
+        async let second: Data = service.fetchImageData(from: url)
+        async let third: Data = service.fetchImageData(from: url)
+
+        let result1 = try await first
+        let result2 = try await second
+        let result3 = try await third
+
+        // All results should be the same
+        #expect(result1 == imageData)
+        #expect(result2 == imageData)
+        #expect(result3 == imageData)
+
+        // Only one network request should have been made despite 3 concurrent calls
+        let callCount = await mockSession.callCount
+        #expect(callCount == 1, "Expected exactly one network request due to deduplication")
+
+        let recordedRequests = await mockSession.recordedRequests
+        #expect(recordedRequests.count == 1, "Only one network request should have been recorded")
+    }
 }

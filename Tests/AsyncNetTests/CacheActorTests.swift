@@ -1,12 +1,14 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import AsyncNet
 
-final class CacheActorTests: XCTestCase {
+@Suite("Cache Actor Tests")
+struct CacheActorTests {
 
     // MARK: - Cache Actor Tests
 
-    func testCacheActorBasicOperations() async {
+    @Test func testCacheActorBasicOperations() async {
         let cache = Cache<String, SendableData>(countLimit: 3, totalCostLimit: 1000)
 
         let data1 = SendableData(Data([1, 2, 3]))
@@ -21,25 +23,25 @@ final class CacheActorTests: XCTestCase {
 
         // Access key1 to make it most recently used
         let retrieved1 = await cache.object(forKey: "key1")
-        XCTAssertEqual(retrieved1?.data, data1.data)
+        #expect(retrieved1?.data == data1.data)
 
         // Add key4, should evict key2 (least recently used)
         await cache.setObject(data4, forKey: "key4", cost: 1)
 
         // key2 should be evicted
         let retrieved2 = await cache.object(forKey: "key2")
-        XCTAssertNil(retrieved2)
+        #expect(retrieved2 == nil)
 
         // Others should still be there
         let retrieved1Again = await cache.object(forKey: "key1")
         let retrieved3 = await cache.object(forKey: "key3")
         let retrieved4 = await cache.object(forKey: "key4")
-        XCTAssertEqual(retrieved1Again?.data, data1.data)
-        XCTAssertEqual(retrieved3?.data, data3.data)
-        XCTAssertEqual(retrieved4?.data, data4.data)
+        #expect(retrieved1Again?.data == data1.data)
+        #expect(retrieved3?.data == data3.data)
+        #expect(retrieved4?.data == data4.data)
     }
 
-    func testCacheActorRemoveOperations() async {
+    @Test func testCacheActorRemoveOperations() async {
         let cache = Cache<String, SendableData>(countLimit: 5, totalCostLimit: 1000)
 
         // Add multiple items
@@ -63,11 +65,11 @@ final class CacheActorTests: XCTestCase {
         let retrieved5 = await cache.object(forKey: "key5")
         let retrieved6 = await cache.object(forKey: "key6")
 
-        XCTAssertEqual(retrieved1?.data, Data([1]))
-        XCTAssertEqual(retrieved2?.data, Data([2]))
-        XCTAssertNil(retrieved3)  // Should be removed
-        XCTAssertEqual(retrieved4?.data, Data([4]))
-        XCTAssertEqual(retrieved5?.data, Data([5]))
-        XCTAssertEqual(retrieved6?.data, Data([6]))
+        #expect(retrieved1?.data == Data([1]))
+        #expect(retrieved2?.data == Data([2]))
+        #expect(retrieved3 == nil)  // Should be removed
+        #expect(retrieved4?.data == Data([4]))
+        #expect(retrieved5?.data == Data([5]))
+        #expect(retrieved6?.data == Data([6]))
     }
 }

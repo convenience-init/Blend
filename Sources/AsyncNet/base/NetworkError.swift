@@ -889,72 +889,17 @@ extension NetworkError {
     }
 }
 
-/// MARK: - Error Message Helper
-extension NetworkError {
-    /// Demonstrate modern Swift 6 string interpolation approaches with localization support
-    public var modernErrorDescription: String? {
-        switch self {
-        case .requestTimeout(let duration):
-            // Modern approach: Use LocalizedStringResource (iOS 16+)
-            #if canImport(Foundation) && swift(>=6.0)
-                if #available(iOS 16.0, macOS 13.0, *) {
-                    return String(localized: "Request timed out after \(duration) seconds.")
-                } else {
-                    // Fallback to traditional approach
-                    return String(
-                        format: NSLocalizedString(
-                            "Request timed out after %.2f seconds.", tableName: nil,
-                            bundle: NetworkError.l10nBundle,
-                            value: "Request timed out after %.2f seconds.",
-                            comment: "Error message for request timeouts with duration"), duration)
-                }
-            #else
-                return String(
-                    format: NSLocalizedString(
-                        "Request timed out after %.2f seconds.", tableName: nil,
-                        bundle: NetworkError.l10nBundle,
-                        value: "Request timed out after %.2f seconds.",
-                        comment: "Error message for request timeouts with duration"), duration)
-            #endif
-
-        case .invalidEndpoint(let reason):
-            #if canImport(Foundation) && swift(>=6.0)
-                if #available(iOS 16.0, macOS 13.0, *) {
-                    return String(localized: "Invalid endpoint: \(reason)")
-                } else {
-                    return String(
-                        format: NSLocalizedString(
-                            "Invalid endpoint: %@", tableName: nil, bundle: NetworkError.l10nBundle,
-                            value: "Invalid endpoint: %@",
-                            comment: "Error message for invalid endpoints with reason"), reason)
-                }
-            #else
-                return String(
-                    format: NSLocalizedString(
-                        "Invalid endpoint: %@", tableName: nil, bundle: NetworkError.l10nBundle,
-                        value: "Invalid endpoint: %@",
-                        comment: "Error message for invalid endpoints with reason"), reason)
-            #endif
-
-        default:
-            return errorDescription
-        }
-    }
-}
-
-/// MARK: - Modern Swift 6 string interpolation with localization support
-extension String {
+/// MARK: - Internal localization helper
+internal extension NetworkError {
     /// Creates a localized string using modern interpolation syntax
     /// - Parameter key: The localization key
     /// - Returns: A localized string with interpolated values
-    static func localized(
+    static func localizedString(
         _ key: String,
-        bundle: Bundle? = nil,
         tableName: String? = nil,
         comment: String = ""
     ) -> String {
-        let bundleToUse = bundle ?? NetworkError.l10nBundle
         return NSLocalizedString(
-            key, tableName: tableName, bundle: bundleToUse, value: key, comment: comment)
+            key, tableName: tableName, bundle: NetworkError.l10nBundle, value: key, comment: comment)
     }
 }

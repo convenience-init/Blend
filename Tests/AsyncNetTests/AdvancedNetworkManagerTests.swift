@@ -339,6 +339,37 @@ struct AdvancedNetworkManagerTests {
         // Allow some tolerance for execution time
         #expect(elapsed < 2.0, "Total elapsed time should respect maxBackoff capping")
     }
+
+    @Test func testRequestTimeoutDoesNotMutateOriginalRequest() async throws {
+        let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
+        let mockSession = MockURLSession(
+            nextData: Data([0x01, 0x02, 0x03]),
+            nextResponse: HTTPURLResponse(
+                url: URL(string: "https://mock.api/test")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+        let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
+
+        // Create original request with specific timeout
+        var originalRequest = URLRequest(url: URL(string: "https://mock.api/test")!)
+        originalRequest.timeoutInterval = 10.0  // Set original timeout
+
+        // Store the original timeout for comparison
+        let originalTimeout = originalRequest.timeoutInterval
+
+        // Use the request in fetchData with a different retry policy timeout
+        let retryPolicy = RetryPolicy(maxAttempts: 2, timeoutInterval: 30.0)
+        _ = try await manager.fetchData(
+            for: originalRequest, cacheKey: "test-key", retryPolicy: retryPolicy)
+
+        // Verify the original request object was not mutated
+        #expect(
+            originalRequest.timeoutInterval == originalTimeout,
+            "Original request timeout should not be mutated by retry policy")
+        #expect(originalRequest.timeoutInterval == 10.0, "Original timeout should remain 10.0")
+    }
 }
 
 @Suite("AsyncRequestable & Endpoint Tests")
@@ -370,7 +401,7 @@ struct AsyncRequestableTests {
             session: URLSessionProtocol = URLSession.shared
         ) async throws -> ResponseModel where ResponseModel: Decodable {
             let request = try buildURLRequest(from: endPoint)
-            let (data, response) = try await urlSession.data(for: request)  // Use self.urlSession instead of session parameter
+            let (data, response) = try await session.data(for: request)  // Use self.urlSession instead of session parameter
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw NetworkError.noResponse
             }
@@ -466,7 +497,7 @@ struct AsyncRequestableTests {
         let endpoint = MockEndpoint(body: Data("test body".utf8))  // Add body to GET request
 
         do {
-            _ = try await service.sendRequest(to: endpoint) as TestModel
+            _ = try await service.sendRequest(to: endpoint, session: mockSession) as TestModel
             #expect(Bool(false), "Expected invalidEndpoint error for GET with body")
         } catch let error as NetworkError {
             if case let .invalidEndpoint(reason) = error {
@@ -494,7 +525,7 @@ struct AsyncRequestableTests {
         let endpoint = MockEndpoint.withBothTimeouts  // Has timeoutDuration=15s, timeout=60s
 
         // Make the request
-        _ = try await service.sendRequest(to: endpoint) as TestModel
+        _ = try await service.sendRequest(to: endpoint, session: mockSession) as TestModel
 
         // Verify the recorded request has the correct timeout (15s from timeoutDuration, not 60s from legacy timeout)
         let recordedRequests = await mockSession.recordedRequests
@@ -617,7 +648,7 @@ struct AsyncRequestableTests {
         let endpoint = MockEndpoint()
 
         do {
-            _ = try await service.sendRequest(to: endpoint) as TestModel
+            _ = try await service.sendRequest(to: endpoint, session: mockSession) as TestModel
             #expect(Bool(false), "Expected HTTP error to be thrown for 500 status code")
         } catch let error as NetworkError {
             // Assert the error is NetworkError.customError

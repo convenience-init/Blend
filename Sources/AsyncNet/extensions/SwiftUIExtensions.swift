@@ -351,6 +351,7 @@ public struct AsyncNetImageView: View {
             }
         }
         .task(id: url) {
+            hasAttemptedAutoUpload = false
             await model.loadImage(from: url)
             // Perform auto-upload immediately after successful load
             if model.loadedImage != nil && autoUpload && uploadURL != nil
@@ -359,10 +360,6 @@ public struct AsyncNetImageView: View {
                 hasAttemptedAutoUpload = true
                 await performUpload(expectedUrl: url)
             }
-        }
-        .onChange(of: url) { _, _ in
-            // Reset flag when URL changes
-            hasAttemptedAutoUpload = false
         }
     }
 

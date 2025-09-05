@@ -236,7 +236,6 @@ public actor DefaultNetworkCache: NetworkCache {
         let strongPrev = node.prev  // Capture weak reference as strong local
         let strongNext = node.next  // Capture strong reference as local
         let currentTail = tail  // Capture current tail reference
-        let tailPrev = currentTail?.prev  // Capture tail's prev for validation
 
         // Handle prev reference using captured strong reference
         if let prevNode = strongPrev {
@@ -250,9 +249,8 @@ public actor DefaultNetworkCache: NetworkCache {
         if let nextNode = strongNext {
             nextNode.prev = strongPrev  // This creates a weak reference
         } else {
-            // Node is tail - only update if this node is actually the current tail
-            // Double-check with captured references to ensure consistency
-            if node === currentTail && strongPrev === tailPrev {
+            // Node is tail - update tail to the captured previous node
+            if node === currentTail {
                 tail = strongPrev
             }
         }
@@ -365,12 +363,16 @@ public actor AdvancedNetworkManager {
                 for interceptor in capturedInterceptors {
                     currentRequest = await interceptor.willSend(request: currentRequest)
                 }
-                // Set timeout from retry policy for this attempt on the final intercepted request
-                currentRequest.timeoutInterval = retryPolicy.timeoutInterval
+                // Create a new request with the retry policy timeout to avoid mutating the original
+                let requestWithTimeout = {
+                    var newRequest = currentRequest
+                    newRequest.timeoutInterval = retryPolicy.timeoutInterval
+                    return newRequest
+                }()
 
                 do {
                     let (data, response) = try await capturedURLSession.data(
-                        for: currentRequest)
+                        for: requestWithTimeout)
                     for interceptor in capturedInterceptors {
                         await interceptor.didReceive(response: response, data: data)
                     }
@@ -381,7 +383,7 @@ public actor AdvancedNetworkManager {
                         case 200...299:
                             // Only cache successful responses for safe/idempotent HTTP methods
                             let shouldCache = shouldCacheResponse(
-                                for: currentRequest, response: httpResponse)
+                                for: requestWithTimeout, response: httpResponse)
                             if shouldCache {
                                 await capturedCache.set(data, forKey: key)
                             }
