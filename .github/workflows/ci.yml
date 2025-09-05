@@ -107,13 +107,23 @@ jobs:
 
       - name: Find iOS Simulator
         if: matrix.target == 'ios'
-        id: find_ios_simulator
         run: |
           #!/bin/bash
           set -euo pipefail
-
-          # Call the shared simulator discovery script with explicit bash
-          bash scripts/ci/find_simulator.sh "iOS" "iPhone" "iPhone 14" "ios"
+          
+          # Find available iOS simulator
+          SIMULATOR=$(xcrun simctl list devices available | grep 'iPhone' | grep -v unavailable | head -n 1)
+          if [ -z "$SIMULATOR" ]; then
+            echo "ERROR: No iOS simulators found"
+            exit 1
+          fi
+          
+          SIM_NAME=$(echo "$SIMULATOR" | awk -F '(' '{print $1}' | xargs)
+          SIM_UDID=$(echo "$SIMULATOR" | awk -F '(' '{print $2}' | tr -d ')')
+          
+          echo "Found iOS simulator: $SIM_NAME ($SIM_UDID)"
+          echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
+          echo "SIM_UDID=$SIM_UDID" >> $GITHUB_ENV
 
       - name: Build (iOS)
         if: matrix.target == 'ios'
@@ -121,8 +131,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_udid }}"
-          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_name }}"
+          SIM_UDID="${{ env.SIM_UDID }}"
+          SIM_NAME="${{ env.SIM_NAME }}"
           
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
@@ -170,27 +180,37 @@ jobs:
 
       - name: Find tvOS Simulator
         if: matrix.target == 'tvos'
-        id: find_tvos_simulator
         run: |
           #!/bin/bash
           set -euo pipefail
-
-          # Call the shared simulator discovery script with explicit bash
-          bash scripts/ci/find_simulator.sh "tvOS" "Apple TV" "Apple TV 4K" "tvos"
+          
+          # Find available tvOS simulator
+          SIMULATOR=$(xcrun simctl list devices available | grep 'Apple TV' | grep -v unavailable | head -n 1)
+          if [ -z "$SIMULATOR" ]; then
+            echo "ERROR: No tvOS simulators found"
+            exit 1
+          fi
+          
+          SIM_NAME=$(echo "$SIMULATOR" | awk -F '(' '{print $1}' | xargs)
+          SIM_UDID=$(echo "$SIMULATOR" | awk -F '(' '{print $2}' | tr -d ')')
+          
+          echo "Found tvOS simulator: $SIM_NAME ($SIM_UDID)"
+          echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
+          echo "SIM_UDID=$SIM_UDID" >> $GITHUB_ENV
 
       - name: Verify iOS Simulators
         if: matrix.target == 'ios'
         run: |
           echo "Available iOS Simulators:"
           xcrun simctl list devices available | grep -A 5 -B 5 "iOS" || true
-          echo "Using simulator: ${{ steps.find_ios_simulator.outputs.ios_name }}"
+          echo "Using simulator: ${{ env.SIM_NAME }}"
 
       - name: Verify tvOS Simulators
         if: matrix.target == 'tvos'
         run: |
           echo "Available tvOS Simulators:"
           xcrun simctl list devices available | grep -A 5 -B 5 "tvOS" || true
-          echo "Using simulator: ${{ steps.find_tvos_simulator.outputs.tvos_name }}"
+          echo "Using simulator: ${{ env.SIM_NAME }}"
 
       - name: Test macOS SPM
         if: matrix.target == 'macos' && matrix.build == 'spm'
@@ -211,8 +231,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          SIM_UDID="${{ steps.find_ios_simulator.outputs.ios_udid }}"
-          SIM_NAME="${{ steps.find_ios_simulator.outputs.ios_name }}"
+          SIM_UDID="${{ env.SIM_UDID }}"
+          SIM_NAME="${{ env.SIM_NAME }}"
           
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
@@ -239,8 +259,8 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           
-          SIM_UDID="${{ steps.find_tvos_simulator.outputs.tvos_udid }}"
-          SIM_NAME="${{ steps.find_tvos_simulator.outputs.tvos_name }}"
+          SIM_UDID="${{ env.SIM_UDID }}"
+          SIM_NAME="${{ env.SIM_NAME }}"
           
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then

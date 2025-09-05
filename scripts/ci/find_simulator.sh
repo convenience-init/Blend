@@ -463,6 +463,13 @@ find_simulator() {
         } >> "$GITHUB_OUTPUT"
         echo "Wrote outputs to GITHUB_OUTPUT with prefix '${OUTPUT_PREFIX}_'."
     fi
+    if [ -n "${GITHUB_ENV:-}" ]; then
+        {
+            echo "SIM_NAME=${SIMULATOR_NAME}"
+            echo "SIM_UDID=${SIMULATOR_UDID}"
+        } >> "$GITHUB_ENV"
+        echo "Wrote environment variables to GITHUB_ENV."
+    fi
     export SIMULATOR_NAME SIMULATOR_UDID
     echo "You can now run your tests or build your app targeting this simulator."
     echo "For example, to run tests with xcodebuild:"
