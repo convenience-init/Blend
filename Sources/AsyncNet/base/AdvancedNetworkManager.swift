@@ -77,14 +77,20 @@ public actor DefaultNetworkCache: NetworkCache {
     private final class Node {
         let key: String
         var data: Data
-        var prev: Node?
-        var next: Node?
+        weak var prev: Node?  // Weak reference to prevent retain cycles
+        var next: Node?  // Strong reference for forward traversal integrity
         var timestamp: ContinuousClock.Instant
 
         init(key: String, data: Data, timestamp: ContinuousClock.Instant) {
             self.key = key
             self.data = data
             self.timestamp = timestamp
+        }
+
+        deinit {
+            // With weak prev references, nodes may be deallocated while still in the list
+            // The weak prev prevents retain cycles, but nodes may still have next references
+            // until the list cleanup happens. This is expected behavior.
         }
     }
 
@@ -225,20 +231,30 @@ public actor DefaultNetworkCache: NetworkCache {
     }
 
     private func removeNode(_ node: Node) {
-        if let prev = node.prev {
-            prev.next = node.next
+        // Capture strong local references upfront to avoid race conditions
+        // where weak references can become nil between checks
+        let strongPrev = node.prev  // Capture weak reference as strong local
+        let strongNext = node.next  // Capture strong reference as local
+
+        // Handle prev reference using captured strong reference
+        if let prevNode = strongPrev {
+            prevNode.next = strongNext
         } else {
             // Node is head
-            head = node.next
+            head = strongNext
         }
 
-        if let next = node.next {
-            next.prev = node.prev
+        // Handle next reference using captured strong reference
+        if let nextNode = strongNext {
+            nextNode.prev = strongPrev  // This creates a weak reference
         } else {
-            // Node is tail
-            tail = node.prev
+            // Node is tail - only update if this node is actually the current tail
+            if node === tail {
+                tail = strongPrev
+            }
         }
 
+        // Clear references to prevent any remaining links
         node.prev = nil
         node.next = nil
     }
@@ -246,11 +262,14 @@ public actor DefaultNetworkCache: NetworkCache {
     private func removeTail() {
         guard let tailNode = tail else { return }
 
-        if let prev = tailNode.prev {
-            prev.next = nil
-            tail = prev
+        // Capture strong reference to prev before it might become nil
+        let strongPrev = tailNode.prev
+
+        if let prevNode = strongPrev {
+            prevNode.next = nil
+            tail = prevNode
         } else {
-            // Only one node
+            // Only one node in list
             head = nil
             tail = nil
         }
@@ -264,18 +283,10 @@ public actor DefaultNetworkCache: NetworkCache {
         let initialCount = cache.count  // Capture stable count before cleanup
         let cleanupLimit = max(1, min(10, initialCount / 4))  // Check up to 25% or 10 entries, minimum 1
         var checked = 0
-        var visitedNodes = Set<ObjectIdentifier>()
 
         // Start from tail and work backwards, checking for expired entries
         var current = tail
         while let node = current, checked < cleanupLimit {
-            // Cycle detection: break if we've seen this node before
-            let nodeId = ObjectIdentifier(node)
-            if visitedNodes.contains(nodeId) {
-                break
-            }
-            visitedNodes.insert(nodeId)
-
             if now - node.timestamp >= expiration {
                 nodesToRemove.append(node)
             }
@@ -567,18 +578,8 @@ public actor AdvancedNetworkManager {
                         CC_SHA256_Update(&context, buffer.baseAddress, CC_LONG(chunk.count))
                     }
                     guard updateResult == 1 else {
-                        // Log error but continue processing to avoid data loss
-                        // Note: This may produce incorrect hashes, but prevents complete failure
-                        #if canImport(OSLog)
-                            asyncNetLogger.warning(
-                                "CC_SHA256_Update failed for chunk of size \(chunk.count), continuing with potentially incorrect hash"
-                            )
-                        #else
-                            print(
-                                "Warning: CC_SHA256_Update failed for chunk of size \(chunk.count), continuing with potentially incorrect hash"
-                            )
-                        #endif
-                        // Continue processing despite the error to avoid complete data loss
+                        // Return error indicator immediately - don't continue with bad state
+                        return "error:sha256-update-failed:\(body.count)"
                     }
 
                 }
@@ -647,8 +648,9 @@ public actor AdvancedNetworkManager {
             let hasNoCache = directiveList.contains { $0.hasPrefix("no-cache") }
             let hasPrivate = directiveList.contains { $0.hasPrefix("private") }
             let hasMaxAgeZero = directiveList.contains { directive in
-                directive.hasPrefix("max-age=")
-                    && directive.dropFirst(8).trimmingCharacters(in: .whitespaces) == "0"
+                let components = directive.split(separator: "=", maxSplits: 1)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                return components.count == 2 && components[0] == "max-age" && components[1] == "0"
             }
             if hasNoStore || hasNoCache || hasPrivate || hasMaxAgeZero {
                 return false

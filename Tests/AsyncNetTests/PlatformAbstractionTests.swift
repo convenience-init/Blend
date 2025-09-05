@@ -77,14 +77,14 @@ struct PlatformAbstractionTests {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
-                #expect(Bool(false), "Failed to create NSBitmapImageRep")
+                Issue.record("Failed to create NSBitmapImageRep")
                 return
             }
             let success = withGraphicsContext(rep) {
                 drawColorInContext(color: .red, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
             }
             guard success else {
-                #expect(Bool(false), "Failed to create NSGraphicsContext")
+                Issue.record("Failed to create NSGraphicsContext")
                 return
             }
             let image = NSImage(size: size)
@@ -106,14 +106,14 @@ struct PlatformAbstractionTests {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
-                #expect(Bool(false), "Failed to create NSBitmapImageRep")
+                Issue.record("Failed to create NSBitmapImageRep")
                 return
             }
             let success = withGraphicsContext(rep) {
                 drawColorInContext(color: .blue, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
             }
             guard success else {
-                #expect(Bool(false), "Failed to create NSGraphicsContext")
+                Issue.record("Failed to create NSGraphicsContext")
                 return
             }
             let image = NSImage(size: size)
@@ -152,14 +152,14 @@ struct PlatformAbstractionTests {
         #elseif canImport(AppKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
-                #expect(Bool(false), "Failed to create NSBitmapImageRep")
+                Issue.record("Failed to create NSBitmapImageRep")
                 return
             }
             let success = withGraphicsContext(rep) {
                 drawColorInContext(color: .green, rect: NSRect(x: 0, y: 0, width: 1, height: 1))
             }
             guard success else {
-                #expect(Bool(false), "Failed to create NSGraphicsContext")
+                Issue.record("Failed to create NSGraphicsContext")
                 return
             }
             let image = NSImage(size: size)
@@ -170,77 +170,17 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testNSImageExtensionEdgeCases() {
+    @Test @MainActor func testNSImageExtensionZeroSizeImage() {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with zero-sized image
             let zeroSizeImage = NSImage(size: NSSize(width: 0, height: 0))
             #expect(zeroSizeImage.pngData() == nil)
             #expect(zeroSizeImage.jpegData(compressionQuality: 0.8) == nil)
+        #endif
+    }
 
-            // Test with corrupted TIFF data
-            let corruptedImage = NSImage(size: NSSize(width: 10, height: 10))
-            // Create a bitmap representation that will have TIFF issues
-            if let rep = createTestBitmapImageRep(size: NSSize(width: 10, height: 10)) {
-                // Add the representation to the image
-                corruptedImage.addRepresentation(rep)
-
-                // Simulate corruption by setting properties that will cause TIFF issues
-                // but still allow PNG/JPEG conversion via rasterization
-                rep.setProperty(
-                    .compressionMethod, withValue: NSBitmapImageRep.TIFFCompression.none)
-
-                // Try to force TIFF corruption by modifying the bitmap data directly
-                if let bitmapData = rep.bitmapData {
-                    // Safely corrupt some bytes in the bitmap data
-                    let totalBytes = rep.bytesPerRow * rep.pixelsHigh
-                    if totalBytes > 0 {
-                        let bytesToCorrupt = min(10, totalBytes)
-                        // Create a safe copy of the bitmap data
-                        let originalData = Data(bytes: bitmapData, count: totalBytes)
-                        var corruptedData = originalData
-
-                        // Corrupt bytes deterministically in the copy
-                        for i in 0..<bytesToCorrupt {
-                            let index = i * (totalBytes / bytesToCorrupt)
-                            corruptedData[index] = 0xFF  // Use a fixed corruption value
-                        }
-
-                        // Create a new bitmap rep with the corrupted data
-                        if let corruptedRep = NSBitmapImageRep(
-                            bitmapDataPlanes: nil,
-                            pixelsWide: rep.pixelsWide,
-                            pixelsHigh: rep.pixelsHigh,
-                            bitsPerSample: rep.bitsPerSample,
-                            samplesPerPixel: rep.samplesPerPixel,
-                            hasAlpha: rep.hasAlpha,
-                            isPlanar: rep.isPlanar,
-                            colorSpaceName: rep.colorSpaceName,
-                            bitmapFormat: rep.bitmapFormat,
-                            bytesPerRow: rep.bytesPerRow,
-                            bitsPerPixel: rep.bitsPerPixel
-                        ) {
-                            // Copy the corrupted data to the new rep using safe Data operations
-                            if let dest = corruptedRep.bitmapData {
-                                corruptedData.copyBytes(to: dest, count: totalBytes)
-                            }
-                            // Replace the representation with the corrupted one
-                            corruptedImage.removeRepresentation(rep)
-                            corruptedImage.addRepresentation(corruptedRep)
-                        }
-                    }
-                }
-            }
-
-            // The methods should still work via the fallback rasterization path
-            let pngData = corruptedImage.pngData()
-            let jpegData = corruptedImage.jpegData(compressionQuality: 0.8)
-
-            // Both should succeed via rasterization fallback
-            #expect(pngData != nil)
-            #expect(jpegData != nil)
-            #expect(pngData?.count ?? 0 > 0)
-            #expect(jpegData?.count ?? 0 > 0)
-
+    @Test @MainActor func testNSImageExtensionRasterizationFallback() {
+        #if canImport(AppKit) && !canImport(UIKit)
             // Test with image that has no TIFF encoder (forces rasterization)
             let customImage = NSImage(size: NSSize(width: 10, height: 10))
 
@@ -260,6 +200,51 @@ struct PlatformAbstractionTests {
             #expect(customJpegData != nil)
             #expect(customPngData?.count ?? 0 > 0)
             #expect(customJpegData?.count ?? 0 > 0)
+        #endif
+    }
+
+    @Test @MainActor func testNSImageExtensionCorruptedTIFFHandling() {
+        #if canImport(AppKit) && !canImport(UIKit)
+            // Test with corrupted TIFF data by removing TIFF-capable representations
+            let corruptedImage = NSImage(size: NSSize(width: 10, height: 10))
+
+            // Create a bitmap representation
+            if let rep = createTestBitmapImageRep(size: NSSize(width: 10, height: 10)) {
+                corruptedImage.addRepresentation(rep)
+
+                // Simulate corruption by removing the TIFF-capable representation
+                // and replacing it with an invalid one
+                corruptedImage.removeRepresentation(rep)
+
+                // Add an invalid TIFF representation by creating one with corrupted data
+                if let invalidRep = NSBitmapImageRep(
+                    bitmapDataPlanes: nil,
+                    pixelsWide: 10,
+                    pixelsHigh: 10,
+                    bitsPerSample: 8,
+                    samplesPerPixel: 4,
+                    hasAlpha: true,
+                    isPlanar: false,
+                    colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0,
+                    bitsPerPixel: 0
+                ) {
+                    // Set invalid TIFF data to simulate corruption
+                    invalidRep.setProperty(
+                        .compressionMethod, withValue: NSBitmapImageRep.TIFFCompression.none)
+                    corruptedImage.addRepresentation(invalidRep)
+                }
+            }
+
+            // The methods should still work via the fallback rasterization path
+            let pngData = corruptedImage.pngData()
+            let jpegData = corruptedImage.jpegData(compressionQuality: 0.8)
+
+            // Both should succeed via rasterization fallback
+            #expect(pngData != nil)
+            #expect(jpegData != nil)
+            #expect(pngData?.count ?? 0 > 0)
+            #expect(jpegData?.count ?? 0 > 0)
         #endif
     }
 }

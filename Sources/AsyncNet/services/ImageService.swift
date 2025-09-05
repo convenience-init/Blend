@@ -75,10 +75,16 @@ public actor ImageService {
         }
 
         if imageData.count > maxSafeRawSize {
-            throw NetworkError.payloadTooLarge(
-                size: imageData.count,
-                limit: maxSafeRawSize
-            )
+            #if canImport(OSLog)
+                asyncNetLogger.warning(
+                    "Upload rejected: Image size \(imageData.count, privacy: .public) bytes exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes"
+                )
+            #else
+                print(
+                    "Upload rejected: Image size \(imageData.count) bytes exceeds raw size limit of \(maxSafeRawSize) bytes"
+                )
+            #endif
+            throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxSafeRawSize)
         }
 
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
@@ -244,67 +250,7 @@ public actor ImageService {
         request.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        // Check if we can use streaming upload with concrete URLSession
-        if let concreteSession = urlSession as? URLSession {
-            // Use streaming upload with concrete URLSession
-            let inputStream = MultipartInputStream(
-                boundary: boundary,
-                fieldName: configuration.fieldName,
-                fileName: configuration.fileName,
-                mimeType: mimeType,
-                additionalFields: configuration.additionalFields,
-                imageData: imageData
-            )
-
-            // Set the input stream on the request
-            request.httpBodyStream = inputStream
-
-            let (data, response) = try await concreteSession.data(for: request)
-
-            // Apply response interceptors
-            for interceptor in interceptors {
-                await interceptor.didReceive(response: response, data: data)
-            }
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw NetworkError.noResponse
-            }
-
-            switch httpResponse.statusCode {
-            case 200...299:
-                return data
-            case 400:
-                throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
-            case 401:
-                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
-            case 403:
-                throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
-            case 404:
-                throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
-            case 429:
-                throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
-            case 500...599:
-                throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
-            default:
-                throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
-            }
-        } else {
-            // Fallback: Use regular multipart upload for test/mock sessions
-            return try await uploadImageMultipartFallback(
-                imageData, to: url, configuration: configuration, boundary: boundary,
-                mimeType: mimeType)
-        }
-    }
-
-    /// Fallback multipart upload for test/mock URLSession implementations
-    private func uploadImageMultipartFallback(
-        _ imageData: Data,
-        to url: URL,
-        configuration: UploadConfiguration,
-        boundary: String,
-        mimeType: String
-    ) async throws -> Data {
-        // Create multipart body data (not streamed, but still avoids base64 encoding)
+        // Build multipart body data directly
         var body = Data()
 
         // Add additional fields
@@ -320,7 +266,7 @@ public actor ImageService {
                 dispositionString, componentName: "Content-Disposition header for field '\(key)'")
             let valueData = try encodeMultipartComponent(
                 valueString, componentName: "value for field '\(key)' with value '\(value)'")
-
+            
             body.append(boundaryData)
             body.append(dispositionData)
             body.append(valueData)
@@ -342,25 +288,14 @@ public actor ImageService {
             imageTypeString, componentName: "image Content-Type header")
         let closingBoundaryData = try encodeMultipartComponent(
             closingBoundaryString, componentName: "closing boundary")
-
+        
         body.append(imageBoundaryData)
         body.append(imageDispositionData)
         body.append(imageTypeData)
         body.append(imageData)
         body.append(closingBoundaryData)
 
-        // Create request with body data
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(
-            "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-
-        // Apply request interceptors
-        let interceptors = self.interceptors
-        for interceptor in interceptors {
-            request = await interceptor.willSend(request: request)
-        }
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -425,59 +360,30 @@ public actor ImageService {
     }
     /// Returns true if an image is cached for the given key (actor-isolated, Sendable)
     public func isImageCached(forKey key: String) async -> Bool {
-        // Capture initial LRU state to prevent race conditions
-        let initialNode = lruDict[key]
-        let initialTimestamp = Date().timeIntervalSince1970
+        let now = Date().timeIntervalSince1970
 
-        // If no node exists initially, definitely not cached
-        guard let node = initialNode else {
-            return false
-        }
-
-        // If node was expired initially, evict it and return false
-        if initialTimestamp - node.insertionTimestamp >= cacheConfig.maxAge {
-            // Node was expired - evict it completely from all caches
-            let cacheKey = key
-            await imageCache.removeObject(forKey: cacheKey)
-            await dataCache.removeObject(forKey: cacheKey)
-            lruDict.removeValue(forKey: key)
-            removeLRUNode(node)
-            // Invalidate heap entry to prevent it from being processed during expiration
-            expirationHeap.invalidate(key: key)
-            return false
-        }
-
-        // Node exists and was not expired initially - perform async cache checks
-        let cacheKey = key
-        async let inImageCache = imageCache.object(forKey: cacheKey) != nil
-        async let inDataCache = dataCache.object(forKey: cacheKey) != nil
-
-        // Await the results
-        let imageCached = await inImageCache
-        let dataCached = await inDataCache
-        let isCached = imageCached || dataCached
-
-        // Re-validate LRU state after async operations
-        let finalTimestamp = Date().timeIntervalSince1970
-        let currentNode = lruDict[key]
-
-        // Check if node still exists and is still valid
-        guard let finalNode = currentNode,
-            finalNode === node,  // Same node instance
-            finalTimestamp - finalNode.insertionTimestamp < cacheConfig.maxAge
+        // Check LRU node and expiration synchronously first
+        guard let node = lruDict[key],
+            now - node.insertionTimestamp < cacheConfig.maxAge
         else {
-            // Node was removed, replaced, or expired during async operations
-            // If we found cached data but node is invalid, clean up the stale cache entries
-            if isCached {
-                await imageCache.removeObject(forKey: cacheKey)
-                await dataCache.removeObject(forKey: cacheKey)
+            // Either no node or expired - evict if needed
+            if let expiredNode = lruDict[key] {
+                lruDict.removeValue(forKey: key)
+                removeLRUNode(expiredNode)
+                expirationHeap.invalidate(key: key)
+                await imageCache.removeObject(forKey: key)
+                await dataCache.removeObject(forKey: key)
             }
             return false
         }
-        
-        // Node is still valid and we have cached data - update LRU position
+
+        // Node is valid, check actual cache presence
+        let hasImage = await imageCache.object(forKey: key) != nil
+        let hasData = await dataCache.object(forKey: key) != nil
+        let isCached = hasImage || hasData
+
         if isCached {
-            moveLRUNodeToHead(finalNode)
+            moveLRUNodeToHead(node)
         }
 
         return isCached
@@ -954,9 +860,7 @@ public actor ImageService {
             defer {
                 // Always remove the task from inFlightImageTasks when it completes
                 // This ensures cleanup happens regardless of success, failure, or cancellation
-                Task {
-                    self.removeInFlightTask(forKey: urlString)
-                }
+                self.removeInFlightTask(forKey: urlString)
             }
 
             let data = try await self.withRetry(config: effectiveRetryConfig) {
@@ -1012,12 +916,12 @@ public actor ImageService {
             return data
         }
 
-        // Deduplication: Check for in-flight task or set new task atomically
-        if let existingTask = inFlightImageTasks[urlString] {
-            fetchTask.cancel()  // Cancel the task we just created
+        // Deduplication: Store the task atomically before starting it
+        let existingTask = inFlightImageTasks.updateValue(fetchTask, forKey: urlString)
+        if let existingTask = existingTask {
+            fetchTask.cancel()  // Cancel the newly created task
             return try await existingTask.value
         }
-        inFlightImageTasks[urlString] = fetchTask
 
         let data = try await fetchTask.value
 
@@ -1129,6 +1033,7 @@ public actor ImageService {
         request.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
+        // Build multipart body data directly
         var body = Data()
 
         // Add additional fields
@@ -1150,7 +1055,6 @@ public actor ImageService {
             body.append(valueData)
         }
 
-        // Add image data
         // Determine MIME type: prefer configured value, then detect from data, then fallback
         let mimeType: String
         let trimmedConfiguredMimeType = configuration.mimeType.trimmingCharacters(
@@ -1161,6 +1065,7 @@ public actor ImageService {
             mimeType = detectMimeType(from: imageData) ?? "application/octet-stream"
         }
 
+        // Add image data
         let imageBoundaryString = "--\(boundary)\r\n"
         let imageDispositionString =
             "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
@@ -1215,7 +1120,6 @@ public actor ImageService {
             throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
     }
-
     // MARK: - Cache Management
 
     /// Retrieves a cached image for the given key
@@ -1713,7 +1617,10 @@ extension ImageService {
             nextNode.prev = strongPrev  // This creates a weak reference
         } else {
             // If next is nil, this node was the tail
-            lruTail = strongPrev  // This is a weak reference, but that's okay
+            // Only update tail if this node is actually the current tail
+            if node === lruTail {
+                lruTail = strongPrev
+            }
         }
 
         // Clear our own references to break any remaining links
@@ -1727,17 +1634,9 @@ extension ImageService {
     private func validateLRUListIntegrity() -> Bool {
         var node = lruHead
         var count = 0
-        var visitedNodes = Set<ObjectIdentifier>()
 
         // Traverse forward and check for cycles
         while let current = node {
-            let id = ObjectIdentifier(current)
-            if visitedNodes.contains(id) {
-                // Cycle detected
-                return false
-            }
-            visitedNodes.insert(id)
-
             // Check bidirectional links (prev is weak, so it might be nil)
             if let prev = current.prev {
                 if prev.next !== current {
@@ -1772,7 +1671,7 @@ extension ImageService {
             if lruTail?.next != nil { return false }  // Tail should not have next
         }
 
-        return visitedNodes.count == lruDict.count
+        return count == lruDict.count
     }
 }
 
@@ -2002,203 +1901,5 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
         }
         _totalCost -= entry.cost
         insertionOrder.removeFirst()
-    }
-}
-
-/// Custom InputStream for streaming multipart/form-data uploads
-/// Generates multipart data on-the-fly to avoid memory spikes with large images
-private final class MultipartInputStream: InputStream {
-    /// Modern Swift error types for stream operations
-    private enum StreamError: Error, CustomStringConvertible {
-        case streamClosed
-        case streamInterrupted
-        case invalidState(String)
-
-        var description: String {
-            switch self {
-            case .streamClosed:
-                return "Stream is closed"
-            case .streamInterrupted:
-                return "Stream operation was interrupted"
-            case .invalidState(let reason):
-                return "Invalid stream state: \(reason)"
-            }
-        }
-    }
-
-    private let boundary: String
-    private let fieldName: String
-    private let fileName: String
-    private let mimeType: String
-    private let additionalFields: [String: String]
-    private let imageData: Data
-    private var currentPart: Int = 0
-    private var partOffset: Int = 0
-    private var parts: [Data] = []
-    private var isOpen: Bool = false
-    private var lastError: Error?
-
-    init(
-        boundary: String,
-        fieldName: String,
-        fileName: String,
-        mimeType: String,
-        additionalFields: [String: String],
-        imageData: Data
-    ) {
-        self.boundary = boundary
-        self.fieldName = fieldName
-        self.fileName = fileName
-        self.mimeType = mimeType
-        self.additionalFields = additionalFields
-        self.imageData = imageData
-        super.init(data: Data())  // Initialize with empty data, we'll override behavior
-
-        prepareParts()
-    }
-
-    private func prepareParts() {
-        // Part 1: Additional fields
-        for (key, value) in additionalFields {
-            let boundaryData = Data("--\(boundary)\r\n".utf8)
-            let dispositionData = Data(
-                "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".utf8)
-            let valueData = Data("\(value)\r\n".utf8)
-
-            parts.append(boundaryData)
-            parts.append(dispositionData)
-            parts.append(valueData)
-        }
-
-        // Part 2: Image data header
-        let imageBoundaryData = Data("--\(boundary)\r\n".utf8)
-        let imageDispositionData = Data(
-            "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(fileName)\"\r\n"
-                .utf8)
-        let imageTypeData = Data("Content-Type: \(mimeType)\r\n\r\n".utf8)
-
-        parts.append(imageBoundaryData)
-        parts.append(imageDispositionData)
-        parts.append(imageTypeData)
-
-        // Part 3: Image data (will be streamed in chunks)
-        // Part 4: Closing boundary
-        let closingBoundaryData = Data("\r\n--\(boundary)--\r\n".utf8)
-        parts.append(closingBoundaryData)
-    }
-
-    override var hasBytesAvailable: Bool {
-        return isOpen
-            && (currentPart < parts.count
-                || (currentPart == parts.count - 1 && partOffset < imageData.count))
-    }
-
-    override func open() {
-        guard !isOpen else {
-            lastError = StreamError.invalidState("Stream is already open")
-            return
-        }
-        isOpen = true
-        currentPart = 0
-        partOffset = 0
-        lastError = nil
-    }
-
-    override func close() {
-        isOpen = false
-        lastError = StreamError.streamClosed
-    }
-
-    override func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength len: Int) -> Int {
-        // Check if stream is open
-        guard isOpen else {
-            lastError = StreamError.streamClosed
-            return -1  // Return -1 to indicate error/closed stream
-        }
-
-        // Check for cancellation/interruption
-        if Thread.current.isCancelled {
-            lastError = StreamError.streamInterrupted
-            return -1
-        }
-
-        var bytesRead = 0
-        var remainingLength = len
-
-        while remainingLength > 0 && hasBytesAvailable {
-            // Check for cancellation during the loop
-            if Thread.current.isCancelled {
-                lastError = StreamError.streamInterrupted
-                return -1
-            }
-
-            if currentPart < parts.count {
-                // Reading from pre-built parts
-                let part = parts[currentPart]
-                let availableInPart = part.count - partOffset
-                let bytesToRead = min(remainingLength, availableInPart)
-
-                if bytesToRead > 0 {
-                    part.copyBytes(
-                        to: buffer.advanced(by: bytesRead),
-                        from: partOffset..<partOffset + bytesToRead)
-                    partOffset += bytesToRead
-                    bytesRead += bytesToRead
-                    remainingLength -= bytesToRead
-                }
-
-                // Move to next part if current part is exhausted
-                if partOffset >= part.count {
-                    currentPart += 1
-                    partOffset = 0
-
-                    // If we've moved to the image data part, break to handle it separately
-                    if currentPart == parts.count - 1 {
-                        break
-                    }
-                }
-            } else if currentPart == parts.count - 1 {
-                // Reading image data (the last part before closing boundary)
-                let availableInImage = imageData.count - partOffset
-                let bytesToRead = min(remainingLength, availableInImage)
-
-                if bytesToRead > 0 {
-                    imageData.copyBytes(
-                        to: buffer.advanced(by: bytesRead),
-                        from: partOffset..<partOffset + bytesToRead)
-                    partOffset += bytesToRead
-                    bytesRead += bytesToRead
-                    remainingLength -= bytesToRead
-                }
-
-                // If image data is exhausted, move to closing boundary
-                if partOffset >= imageData.count {
-                    currentPart += 1
-                    partOffset = 0
-                }
-            } else {
-                // All parts exhausted
-                break
-            }
-        }
-
-        return bytesRead
-    }
-
-    override var streamStatus: Stream.Status {
-        if !isOpen {
-            return .notOpen
-        } else if !hasBytesAvailable {
-            return .atEnd
-        } else {
-            return .open
-        }
-    }
-
-    override var streamError: Error? {
-        if !isOpen && currentPart < parts.count {
-            return StreamError.streamClosed
-        }
-        return lastError
     }
 }

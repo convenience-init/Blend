@@ -144,14 +144,20 @@ public protocol AsyncRequestable {
 	///
 	/// - Parameters:
 	///   - endPoint: The endpoint to send the request to.
+	///   - session: The URLSessionProtocol to use for the request. Defaults to URLSession.shared for production use.
 	/// - Returns: The decoded response model of type `ResponseModel`.
 	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
 	///
 	/// ### Example
 	/// ```swift
 	/// let users: [User] = try await sendRequest(to: UsersEndpoint())
+	/// // Or with custom session for testing:
+	/// let users: [User] = try await sendRequest(to: UsersEndpoint(), session: mockSession)
 	/// ```
-	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel where ResponseModel: Decodable
+	func sendRequest<ResponseModel>(
+		to endPoint: Endpoint,
+		session: URLSessionProtocol
+	) async throws -> ResponseModel where ResponseModel: Decodable
 	
 	/// A configurable JSONDecoder for consistent decoding across the AsyncNet module.
 	/// 
@@ -206,6 +212,56 @@ public protocol AsyncRequestable {
 	/// }
 	/// ```
 	var jsonDecoder: JSONDecoder { get }
+	
+	/// The AdvancedNetworkManager instance used for advanced networking features.
+	///
+	/// This property enables dependency injection of the network manager, ensuring consistent
+	/// caching and deduplication behavior across all service instances. Override this property
+	/// to provide custom network managers for testing or specific requirements.
+	///
+	/// ### Usage Examples
+	///
+	/// **Default Shared Manager:**
+	/// ```swift
+	/// class UserService: AsyncRequestable {
+	///     // Uses shared manager with default caching and deduplication
+	///     func getUsers() async throws -> [User] {
+	///         try await sendRequestAdvanced(to: UsersEndpoint())
+	///     }
+	/// }
+	/// ```
+	///
+	/// **Custom Manager for Testing:**
+	/// ```swift
+	/// class TestUserService: AsyncRequestable {
+	///     let testManager: AdvancedNetworkManager
+	///
+	///     init(testManager: AdvancedNetworkManager) {
+	///         self.testManager = testManager
+	///     }
+	///
+	///     var networkManager: AdvancedNetworkManager {
+	///         testManager
+	///     }
+	/// }
+	/// ```
+	///
+	/// **Custom Manager for Production:**
+	/// ```swift
+	/// class ProductionUserService: AsyncRequestable {
+	///     private let _networkManager: AdvancedNetworkManager
+	///
+	///     init() {
+	///         let cache = DefaultNetworkCache(maxSize: 500, expiration: 1800) // 30min
+	///         _networkManager = AdvancedNetworkManager(cache: cache)
+	///     }
+	///
+	///     var networkManager: AdvancedNetworkManager {
+	///         _networkManager
+	///     }
+	/// }
+	/// ```
+	var networkManager: AdvancedNetworkManager { get }
 }
 
 public extension AsyncRequestable {
@@ -244,10 +300,21 @@ public extension AsyncRequestable {
 		Self.defaultJSONDecoder
 	}
 	
-	func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
+	/// Default implementation of networkManager using the shared instance.
+	///
+	/// This ensures all services use the same AdvancedNetworkManager instance by default,
+	/// providing consistent caching and deduplication behavior across the application.
+	/// Override this property to provide custom network managers for testing or specific requirements.
+	var networkManager: AdvancedNetworkManager {
+		sharedNetworkManager
+	}
+
+	func sendRequest<ResponseModel>(
+		to endPoint: Endpoint,
+		session: URLSessionProtocol = URLSession.shared
+	) async throws -> ResponseModel
 	where ResponseModel: Decodable {
 		let request = try buildURLRequest(from: endPoint)
-		let session = URLSession.shared
 		let (data, response) = try await session.data(for: request)
 		guard let httpResponse = response as? HTTPURLResponse else {
 			throw NetworkError.noResponse
@@ -343,11 +410,6 @@ public extension AsyncRequestable {
 	///
 	/// - Parameters:
 	///   - endPoint: The endpoint to send the request to, containing URL components, HTTP method, headers, and optional body.
-	///   - networkManager: The `AdvancedNetworkManager` instance to use for the request. Supply a custom manager when you need:
-	///     - Custom caching behavior (different cache size/expiration)
-	///     - Request/response interceptors (logging, authentication, metrics)
-	///     - Custom URLSession (for testing or specific networking requirements)
-	///     - If not provided, uses default `AdvancedNetworkManager()` with standard caching and no interceptors.
 	///   - cacheKey: Optional string key for caching the response. When provided:
 	///     - Responses are cached using this key for future identical requests
 	///     - Subsequent requests with the same key return cached data instantly
@@ -369,18 +431,24 @@ public extension AsyncRequestable {
 	///
 	/// ### Usage Example
 	/// ```swift
-	/// // Custom network manager with larger cache and logging interceptor
-	/// let cache = DefaultNetworkCache(maxSize: 500, expiration: 1800) // 30min expiration
-	/// let interceptors: [NetworkInterceptor] = [LoggingInterceptor()]
-	/// let manager = AdvancedNetworkManager(cache: cache, interceptors: interceptors)
-	///
-	/// // Request with custom cache key and retry policy
+	/// // Using default shared network manager
 	/// let user: User = try await service.sendRequestAdvanced(
 	///     to: UsersEndpoint(),
-	///     networkManager: manager,
 	///     cacheKey: "user-profile-\(userId)",
 	///     retryPolicy: RetryPolicy(maxAttempts: 6, backoff: { attempt in pow(1.5, Double(attempt)) })
 	/// )
+	///
+	/// // Using custom network manager (injected via service property)
+	/// class CustomService: AsyncRequestable {
+	///     let customManager = AdvancedNetworkManager(
+	///         cache: DefaultNetworkCache(maxSize: 500, expiration: 1800),
+	///         interceptors: [LoggingInterceptor()]
+	///     )
+	///
+	///     var networkManager: AdvancedNetworkManager {
+	///         customManager
+	///     }
+	/// }
 	/// ```
 	///
 	/// ### Advanced Features
@@ -390,7 +458,6 @@ public extension AsyncRequestable {
 	/// - **Interceptors**: Clean separation of cross-cutting concerns
 	func sendRequestAdvanced<ResponseModel>(
 		to endPoint: Endpoint,
-		networkManager: AdvancedNetworkManager = AdvancedNetworkManager(),
 		cacheKey: String? = nil,
 		retryPolicy: RetryPolicy = .default
 	) async throws -> ResponseModel where ResponseModel: Decodable {
@@ -412,3 +479,10 @@ public protocol URLSessionProtocol: Sendable {
 }
 
 extension URLSession: URLSessionProtocol {}
+
+/// Shared AdvancedNetworkManager instance for default usage across all services.
+/// This ensures consistent caching and deduplication behavior when no custom manager is provided.
+private let sharedNetworkManager: AdvancedNetworkManager = {
+	let cache = DefaultNetworkCache(maxSize: 100, expiration: 600)  // 10 minutes default
+	return AdvancedNetworkManager(cache: cache, interceptors: [], urlSession: nil)
+}()

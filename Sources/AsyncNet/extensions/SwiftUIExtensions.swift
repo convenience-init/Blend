@@ -165,12 +165,10 @@ public class AsyncImageModel {
         onError: ((NetworkError) -> Void)? = nil
     ) async {
         isUploading = true
-        defer { isUploading = false }
 
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
             self.error = error
-            self.isUploading = false
             onError?(error)
             return
         }
@@ -181,7 +179,6 @@ public class AsyncImageModel {
         else {
             let error = NetworkError.imageProcessingFailed
             self.error = error
-            self.isUploading = false
             onError?(error)
             return
         }
@@ -214,6 +211,7 @@ public class AsyncImageModel {
             self.error = netError
             onError?(netError)
         }
+        isUploading = false
     }
 }
 

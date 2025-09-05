@@ -178,14 +178,14 @@ public protocol AdvancedAsyncRequestable: AsyncRequestable {
 	///
 	/// ## Implementation Example
 	/// ```swift
-	/// func sendRequest<T: Decodable>(to endpoint: Endpoint) async throws -> T {
+	/// func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T {
 	///     let request = try buildURLRequest(from: endpoint)
 	///     let (data, response) = try await urlSession.data(for: request)
 	///     // ... HTTP status validation ...
 	///     return try jsonDecoder.decode(T.self, from: data)
 	/// }
 	/// ```
-	func sendRequest<T: Decodable>(to endpoint: Endpoint) async throws -> T
+	func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T
 }
 
 /// Convenience methods for AdvancedAsyncRequestable services.
@@ -208,7 +208,7 @@ public extension AdvancedAsyncRequestable {
 	/// ```
 	@discardableResult
 	public func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
-		return try await sendRequest(to: endpoint)
+		return try await sendRequest(ResponseModel.self, to: endpoint)
 	}
 
 	/// Fetches a single item's details using the SecondaryResponseModel type.
@@ -226,6 +226,6 @@ public extension AdvancedAsyncRequestable {
 	/// ```
 	@discardableResult
 	public func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
-		return try await sendRequest(to: endpoint)
+		return try await sendRequest(SecondaryResponseModel.self, to: endpoint)
 	}
 }

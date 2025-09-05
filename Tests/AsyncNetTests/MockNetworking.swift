@@ -155,6 +155,15 @@ public actor MockURLSession: URLSessionProtocol {
         guard let data = script.data, let response = script.response else {
             let missingData = script.data == nil
             let missingResponse = script.response == nil
+            #if canImport(OSLog)
+                asyncNetLogger.warning(
+                    "Invalid mock configuration: Call \(currentCallIndex, privacy: .public) is missing \(missingData ? "data" : "")\(missingData && missingResponse ? " and " : "")\(missingResponse ? "response" : "")"
+                )
+            #else
+                print(
+                    "Invalid mock configuration: Call \(currentCallIndex) is missing \(missingData ? "data" : "")\(missingData && missingResponse ? " and " : "")\(missingResponse ? "response" : "")"
+                )
+            #endif
             throw NetworkError.invalidMockConfiguration(
                 callIndex: currentCallIndex,
                 missingData: missingData,

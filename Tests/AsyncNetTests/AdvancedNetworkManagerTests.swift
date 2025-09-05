@@ -348,9 +348,10 @@ struct AsyncRequestableTests {
         typealias ResponseModel = TestModel
         typealias SecondaryResponseModel = TestModel
         let urlSession: URLSessionProtocol
-        func sendRequest(to endPoint: Endpoint) async throws -> TestModel {
+        
+        func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T {
             // Use shared helper to build the request
-            let request = try buildURLRequest(from: endPoint)
+            let request = try buildURLRequest(from: endpoint)
 
             // Perform network call
             let (data, response) = try await urlSession.data(for: request)
@@ -361,7 +362,41 @@ struct AsyncRequestableTests {
                     "HTTP error", details: "Status code: \(httpResponse.statusCode)")
             }
             // Decode Data into ResponseModel
-            return try jsonDecoder.decode(ResponseModel.self, from: data)
+            return try jsonDecoder.decode(type, from: data)
+        }
+
+        func sendRequest<ResponseModel>(
+            to endPoint: Endpoint,
+            session: URLSessionProtocol = URLSession.shared
+        ) async throws -> ResponseModel where ResponseModel: Decodable {
+            let request = try buildURLRequest(from: endPoint)
+            let (data, response) = try await urlSession.data(for: request)  // Use self.urlSession instead of session parameter
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NetworkError.noResponse
+            }
+            switch httpResponse.statusCode {
+            case 200...299:
+                do {
+                    return try jsonDecoder.decode(ResponseModel.self, from: data)
+                } catch {
+                    throw NetworkError.decodingError(underlying: error, data: data)
+                }
+            case 400:
+                throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
+            case 401:
+                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+            case 403:
+                throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+            case 404:
+                throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+            case 429:
+                throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+            case 500...599:
+                throw NetworkError.customError(
+                    "HTTP error", details: "Status code: \(httpResponse.statusCode)")
+            default:
+                throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+            }
         }
     }
 
@@ -376,7 +411,7 @@ struct AsyncRequestableTests {
             ))
         let service = MockService(urlSession: mockSession)
         let endpoint = MockEndpoint()
-        let result = try await service.sendRequest(to: endpoint)
+        let result: TestModel = try await service.sendRequest(TestModel.self, to: endpoint)
         #expect(result == TestModel(value: 42))
     }
 
@@ -389,11 +424,28 @@ struct AsyncRequestableTests {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             ))
-        let service = MockService(urlSession: mockSession)
-        let endpoint = MockEndpoint()
+        
+        // Create a test service with custom network manager
+        struct TestService: AsyncRequestable {
+            typealias ResponseModel = TestModel
+            let testManager: AdvancedNetworkManager
+
+            var networkManager: AdvancedNetworkManager {
+                testManager
+            }
+
+            func sendRequest<ResponseModel>(
+                to endPoint: Endpoint, session: URLSessionProtocol = URLSession.shared
+            ) async throws -> ResponseModel
+            where ResponseModel: Decodable {
+                fatalError("TestService should not make actual network requests in tests")
+            }
+        }
+
         let manager = AdvancedNetworkManager(urlSession: mockSession)
-        let result: TestModel = try await service.sendRequestAdvanced(
-            to: endpoint, networkManager: manager)
+        let service = TestService(testManager: manager)
+        let endpoint = MockEndpoint()
+        let result: TestModel = try await service.sendRequestAdvanced(to: endpoint)
         #expect(result == TestModel(value: 42))
     }
 
@@ -410,7 +462,7 @@ struct AsyncRequestableTests {
         let endpoint = MockEndpoint(body: Data("test body".utf8))  // Add body to GET request
 
         do {
-            _ = try await service.sendRequest(to: endpoint)
+            _ = try await service.sendRequest(to: endpoint) as TestModel
             #expect(Bool(false), "Expected invalidEndpoint error for GET with body")
         } catch let error as NetworkError {
             if case let .invalidEndpoint(reason) = error {
@@ -438,7 +490,7 @@ struct AsyncRequestableTests {
         let endpoint = MockEndpoint.withBothTimeouts  // Has timeoutDuration=15s, timeout=60s
 
         // Make the request
-        _ = try await service.sendRequest(to: endpoint)
+        _ = try await service.sendRequest(to: endpoint) as TestModel
 
         // Verify the recorded request has the correct timeout (15s from timeoutDuration, not 60s from legacy timeout)
         let recordedRequests = await mockSession.recordedRequests
@@ -457,18 +509,37 @@ struct AsyncRequestableTests {
             typealias ResponseModel = Int
             typealias SecondaryResponseModel = String
 
-            func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
-            where ResponseModel: Decodable {
+            func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T
+            {
                 // Just test that jsonDecoder is accessible and returns a JSONDecoder
                 _ = jsonDecoder
                 // For testing purposes, return a dummy value that can be decoded
-                if ResponseModel.self == Int.self {
-                    guard let result = 42 as? ResponseModel else {
+                if type == Int.self {
+                    guard let result = 42 as? T else {
                         throw NetworkError.decodingError(
                             underlying: NSError(
                                 domain: "Test", code: -1,
                                 userInfo: [NSLocalizedDescriptionKey: "Type cast failed in test"]),
                             data: Data())
+                    }
+                    return result
+                } else {
+                    throw NetworkError.decodingError(
+                        underlying: NSError(domain: "Test", code: -1), data: Data())
+                }
+            }
+            
+            func sendRequest<ResponseModel>(
+                to endPoint: Endpoint,
+                session: URLSessionProtocol = URLSession.shared
+            ) async throws -> ResponseModel where ResponseModel: Decodable {
+                // Just test that jsonDecoder is accessible
+                _ = jsonDecoder
+                // Return dummy value for testing
+                if ResponseModel.self == Int.self {
+                    guard let result = 42 as? ResponseModel else {
+                        throw NetworkError.decodingError(
+                            underlying: NSError(domain: "Test", code: -1), data: Data())
                     }
                     return result
                 } else {
@@ -495,13 +566,13 @@ struct AsyncRequestableTests {
                 customDecoder
             }
 
-            func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
-            where ResponseModel: Decodable {
+            func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T
+            {
                 // Use the injected decoder
-                if ResponseModel.self == TestModel.self {
+                if type == TestModel.self {
                     let decodedValue = try customDecoder.decode(
                         TestModel.self, from: Data("{\"value\":99}".utf8))
-                    guard let result = decodedValue as? ResponseModel else {
+                    guard let result = decodedValue as? T else {
                         throw NetworkError.decodingError(
                             underlying: NSError(
                                 domain: "Test", code: -1,
@@ -542,7 +613,7 @@ struct AsyncRequestableTests {
         let endpoint = MockEndpoint()
 
         do {
-            _ = try await service.sendRequest(to: endpoint)
+            _ = try await service.sendRequest(to: endpoint) as TestModel
             #expect(Bool(false), "Expected HTTP error to be thrown for 500 status code")
         } catch let error as NetworkError {
             // Assert the error is NetworkError.customError
@@ -573,10 +644,9 @@ struct AdvancedAsyncRequestableTests {
         typealias SecondaryResponseModel = TestDetailModel
         let urlSession: URLSessionProtocol
 
-        func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
-        where ResponseModel: Decodable {
+        func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T {
             // Use shared helper to build the request
-            let request = try buildURLRequest(from: endPoint)
+            let request = try buildURLRequest(from: endpoint)
             
             let (data, response) = try await urlSession.data(for: request)
             if let httpResponse = response as? HTTPURLResponse,
@@ -585,7 +655,41 @@ struct AdvancedAsyncRequestableTests {
                 throw NetworkError.customError(
                     "HTTP error", details: "Status code: \(httpResponse.statusCode)")
             }
-            return try jsonDecoder.decode(ResponseModel.self, from: data)
+            return try jsonDecoder.decode(type, from: data)
+        }
+
+        func sendRequest<ResponseModel>(
+            to endPoint: Endpoint,
+            session: URLSessionProtocol = URLSession.shared
+        ) async throws -> ResponseModel where ResponseModel: Decodable {
+            let request = try buildURLRequest(from: endPoint)
+            let (data, response) = try await urlSession.data(for: request)  // Use self.urlSession instead of session parameter
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NetworkError.noResponse
+            }
+            switch httpResponse.statusCode {
+            case 200...299:
+                do {
+                    return try jsonDecoder.decode(ResponseModel.self, from: data)
+                } catch {
+                    throw NetworkError.decodingError(underlying: error, data: data)
+                }
+            case 400:
+                throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
+            case 401:
+                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+            case 403:
+                throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+            case 404:
+                throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+            case 429:
+                throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+            case 500...599:
+                throw NetworkError.customError(
+                    "HTTP error", details: "Status code: \(httpResponse.statusCode)")
+            default:
+                throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+            }
         }
     }
 
@@ -662,10 +766,10 @@ struct AdvancedAsyncRequestableTests {
 
             let urlSession: URLSessionProtocol
 
-            func sendRequest<ResponseModel>(to endPoint: Endpoint) async throws -> ResponseModel
-            where ResponseModel: Decodable {
+            func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T
+            {
                 // Use shared helper to build the request
-                let request = try buildURLRequest(from: endPoint)
+                let request = try buildURLRequest(from: endpoint)
 
                 let (data, response) = try await urlSession.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse,
@@ -674,7 +778,41 @@ struct AdvancedAsyncRequestableTests {
                     throw NetworkError.customError(
                         "HTTP error", details: "Status code: \(httpResponse.statusCode)")
                 }
-                return try jsonDecoder.decode(ResponseModel.self, from: data)
+                return try jsonDecoder.decode(type, from: data)
+            }
+
+            func sendRequest<ResponseModel>(
+                to endPoint: Endpoint,
+                session: URLSessionProtocol = URLSession.shared
+            ) async throws -> ResponseModel where ResponseModel: Decodable {
+                let request = try buildURLRequest(from: endPoint)
+                let (data, response) = try await urlSession.data(for: request)  // Use self.urlSession instead of session parameter
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw NetworkError.noResponse
+                }
+                switch httpResponse.statusCode {
+                case 200...299:
+                    do {
+                        return try jsonDecoder.decode(ResponseModel.self, from: data)
+                    } catch {
+                        throw NetworkError.decodingError(underlying: error, data: data)
+                    }
+                case 400:
+                    throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
+                case 401:
+                    throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
+                case 403:
+                    throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
+                case 404:
+                    throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
+                case 429:
+                    throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
+                case 500...599:
+                    throw NetworkError.customError(
+                        "HTTP error", details: "Status code: \(httpResponse.statusCode)")
+                default:
+                    throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+                }
             }
         }
 

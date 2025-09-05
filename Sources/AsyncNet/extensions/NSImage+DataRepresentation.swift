@@ -210,8 +210,9 @@
             // Draw the image into the bitmap context using the ceiled dimensions
             let destSize = NSSize(width: pixelsWide, height: pixelsHigh)
             let destRect = NSRect(origin: .zero, size: destSize)
-            // Use NSZeroRect to draw the entire source image content
-            draw(in: destRect, from: NSZeroRect, operation: .copy, fraction: 1.0)
+            // Compute explicit source rect from the image's actual bounds
+            let sourceRect = NSRect(origin: .zero, size: self.size)
+            draw(in: destRect, from: sourceRect, operation: .copy, fraction: 1.0)
 
             return bitmapRep
         }

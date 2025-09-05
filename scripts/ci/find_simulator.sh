@@ -478,106 +478,15 @@ find_simulator() {
         echo "Using fallback ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
 
         # Ensure fallback device is booted for stable UDID
-        echo "Ensuring fallback simulator is booted: $SIMULATOR_NAME ($SIMULATOR_UDID)"
-        XCRUN_PATH=$(command -v xcrun)
-        echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
-        
-        # Check current state first
-        echo "Checking current state of simulator: $SIMULATOR_NAME ($SIMULATOR_UDID)"
-        if ! CURRENT_STATE="$(xcrun simctl list --json devices 2>"$STDERR_TEMP" | jq -r --arg udid "$SIMULATOR_UDID" '.devices | to_entries[] | .value[] | select(.udid == $udid) | .state // empty' 2>>"$STDERR_TEMP")"; then
-            STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-            echo "WARNING: Failed to check simulator state, proceeding with boot attempt"
-            echo "xcrun simctl list stderr: $STDERR_OUTPUT"
-            CURRENT_STATE=""
-        fi
-        
-        if [ "$CURRENT_STATE" != "Booted" ]; then
-            echo "Fallback simulator not booted; attempting boot..."
-            echo "Running: xcrun simctl boot \"$SIMULATOR_UDID\""
-            if ! xcrun simctl boot "$SIMULATOR_UDID" >"$STDOUT_TEMP" 2>"$STDERR_TEMP"; then
-                EXIT_CODE=$?
-                STDOUT_OUTPUT=$(cat "$STDOUT_TEMP")
-                STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-                echo "ERROR: Failed to boot fallback simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
-                echo "Command run: xcrun simctl boot \"$SIMULATOR_UDID\""
-                echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
-                echo "Exit code: $EXIT_CODE"
-                echo ""
-                echo "=== Captured stdout output ==="
-                echo "$STDOUT_OUTPUT"
-                echo ""
-                echo "=== Captured stderr output ==="
-                echo "$STDERR_OUTPUT"
-                echo ""
-                echo "Available devices list:"
-                xcrun simctl list devices available || true
-                echo ""
-                echo "Device details from simctl list:"
-                xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$SIMULATOR_NAME" || true
-                # Cleanup will be handled by trap
-                exit $EXIT_CODE
-            fi
-            echo "Waiting for fallback simulator to be ready..."
-            if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Fallback simulator readiness check"; then
-                echo "ERROR: Failed to reach booted state for fallback simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
-                xcrun simctl list devices available || true
-                xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$SIMULATOR_NAME" || true
-                exit 1
-            fi
-            echo "Fallback simulator successfully booted"
-        else
-            echo "Fallback simulator already booted"
+        if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "fallback simulator"; then
+            exit $?
         fi
     fi
 
     # Note: Fallback device is already booted above, so we only need to handle the primary device here
     if [ -n "$SIMULATOR_UDID" ] && [ "$SIMULATOR_NAME" != "$FALLBACK_DEVICE" ]; then
-        echo "Ensuring simulator is booted: $SIMULATOR_NAME ($SIMULATOR_UDID)"
-        XCRUN_PATH=$(command -v xcrun)
-        echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
-        
-        # Check current state first
-        echo "Checking current state of simulator: $SIMULATOR_NAME ($SIMULATOR_UDID)"
-        if ! CURRENT_STATE="$(xcrun simctl list --json devices 2>"$STDERR_TEMP" | jq -r --arg udid "$SIMULATOR_UDID" '.devices | to_entries[] | .value[] | select(.udid == $udid) | .state // empty' 2>>"$STDERR_TEMP")"; then
-            STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-            echo "WARNING: Failed to check simulator state, proceeding with boot attempt"
-            echo "xcrun simctl list stderr: $STDERR_OUTPUT"
-            CURRENT_STATE=""
-        fi
-        
-        if [ "$CURRENT_STATE" != "Booted" ]; then
-            echo "Simulator not booted; attempting boot..."
-            echo "Running: xcrun simctl boot \"$SIMULATOR_UDID\""
-            if ! xcrun simctl boot "$SIMULATOR_UDID" >"$STDOUT_TEMP" 2>"$STDERR_TEMP"; then
-                EXIT_CODE=$?
-                STDOUT_OUTPUT=$(cat "$STDOUT_TEMP")
-                STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-                echo "ERROR: Failed to boot simulator '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
-                echo "Command run: xcrun simctl boot \"$SIMULATOR_UDID\""
-                echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
-                echo "Exit code: $EXIT_CODE"
-                echo ""
-                echo "=== Captured stdout output ==="
-                echo "$STDOUT_OUTPUT"
-                echo ""
-                echo "=== Captured stderr output ==="
-                echo "$STDERR_OUTPUT"
-                echo ""
-                echo "Available devices list:"
-                xcrun simctl list devices available || true
-                echo ""
-                echo "Device details from simctl list:"
-                xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$SIMULATOR_NAME" || true
-                # Cleanup will be handled by trap
-                exit $EXIT_CODE
-            fi
-            echo "Waiting for simulator to be ready..."
-            if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Primary simulator readiness check"; then
-                echo "ERROR: Failed to reach booted state for '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
-                xcrun simctl list devices available || true
-                xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$SIMULATOR_NAME" || true
-                exit 1
-            fi
+        if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "simulator"; then
+            exit $?
         fi
     fi
 
@@ -602,6 +511,64 @@ find_simulator() {
         printf '%s\n' "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID"
     fi
     echo "Successfully configured ${PLATFORM_KEY} Simulator: name='$SIMULATOR_NAME' udid='${SIMULATOR_UDID:-N/A}'"
+}
+
+# Helper function to boot simulator if needed
+boot_simulator_if_needed() {
+    local simulator_name="$1"
+    local simulator_udid="$2"
+    local context_message="$3"
+    
+    echo "Ensuring $context_message is booted: $simulator_name ($simulator_udid)"
+    XCRUN_PATH=$(command -v xcrun)
+    echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
+    
+    # Check current state first
+    echo "Checking current state of simulator: $simulator_name ($simulator_udid)"
+    if ! CURRENT_STATE="$(xcrun simctl list --json devices 2>"$STDERR_TEMP" | jq -r --arg udid "$simulator_udid" '.devices | to_entries[] | .value[] | select(.udid == $udid) | .state // empty' 2>>"$STDERR_TEMP")"; then
+        STDERR_OUTPUT=$(cat "$STDERR_TEMP")
+        echo "WARNING: Failed to check simulator state, proceeding with boot attempt"
+        echo "xcrun simctl list stderr: $STDERR_OUTPUT"
+        CURRENT_STATE=""
+    fi
+    
+    if [ "$CURRENT_STATE" != "Booted" ]; then
+        echo "$context_message not booted; attempting boot..."
+        echo "Running: xcrun simctl boot \"$simulator_udid\""
+        if ! xcrun simctl boot "$simulator_udid" >"$STDOUT_TEMP" 2>"$STDERR_TEMP"; then
+            EXIT_CODE=$?
+            STDOUT_OUTPUT=$(cat "$STDOUT_TEMP")
+            STDERR_OUTPUT=$(cat "$STDERR_TEMP")
+            echo "ERROR: Failed to boot $context_message '$simulator_name' (UDID: $simulator_udid)"
+            echo "Command run: xcrun simctl boot \"$simulator_udid\""
+            echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
+            echo "Exit code: $EXIT_CODE"
+            echo ""
+            echo "=== Captured stdout output ==="
+            echo "$STDOUT_OUTPUT"
+            echo ""
+            echo "=== Captured stderr output ==="
+            echo "$STDERR_OUTPUT"
+            echo ""
+            echo "Available devices list:"
+            xcrun simctl list devices available || true
+            echo ""
+            echo "Device details from simctl list:"
+            xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$simulator_name" || true
+            return $EXIT_CODE
+        fi
+        echo "Waiting for $context_message to be ready..."
+        if ! timeout_bootstatus "$simulator_name" "$simulator_udid" "$context_message readiness check"; then
+            echo "ERROR: Failed to reach booted state for $context_message '$simulator_name' (UDID: $simulator_udid)"
+            xcrun simctl list devices available || true
+            xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$simulator_name" || true
+            return 1
+        fi
+        echo "$context_message successfully booted"
+    else
+        echo "$context_message already booted"
+    fi
+    return 0
 }
 
 # Call the function with the provided arguments

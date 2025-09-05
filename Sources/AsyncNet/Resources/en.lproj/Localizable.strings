@@ -1,70 +1,70 @@
 /* Localized strings for AsyncNet */
 
 /* HTTP error messages */
-"HTTP error: Status code %ld" = "HTTP error: received status code %ld";
+"HTTP error: Status code %ld" = "HTTP error: received status code %1$ld";
 
 /* Decoding error messages */
-"Decoding error: %@" = "Decoding error: %@";
-"Decoding failed: %@" = "Decoding failed: %@";
+"Decoding error: %@" = "Decoding error: %1$@";
+"Decoding failed: %@" = "Decoding failed: %1$@";
 
 /* Network error messages */
 "Network unavailable." = "Network unavailable.";
-"Request timed out after %.2f seconds." = "Request timed out after %.2f seconds.";
-"Invalid endpoint: %@" = "Invalid endpoint: %@";
-"Not authorized (status %ld)." = "Not authorized (status %ld).";
+"Request timed out after %.2f seconds." = "Request timed out after %1$.2f seconds.";
+"Invalid endpoint: %@" = "Invalid endpoint: %1$@";
+"Not authorized (status %ld)." = "Not authorized (status %1$ld).";
 "No network response." = "No network response.";
-"Unsupported MIME type: %@" = "Unsupported MIME type: %@";
-"Upload failed: %@" = "Upload failed: %@";
+"Unsupported MIME type: %@" = "Unsupported MIME type: %1$@";
+"Upload failed: %@" = "Upload failed: %1$@";
 "Failed to process image data." = "Failed to process image data.";
-"Cache error: %@" = "Cache error: %@";
+"Cache operation failed." = "Cache operation failed.";
 "GET requests cannot have a body." = "GET requests cannot have a body.";
 "Request was canceled." = "Request was canceled.";
 "Authentication failed." = "Authentication failed.";
-"Transport error: %@ - %@" = "Transport error: %@ - %@";
-"Out of script bounds: Call %ld" = "Out of script bounds: Call %ld";
-"Payload too large: %1$llu bytes exceeds limit of %2$llu bytes" = "The payload size of %1$llu bytes exceeds the limit of %2$llu bytes.";
-"Invalid mock configuration: Call %ld is missing %@" = "Invalid mock configuration: Call %ld is missing %@";
+"Network connection error." = "Network connection error: %1$@ (%2$@).";
+"Out of script bounds: Call %ld" = "Out of script bounds: Call %1$ld.";
+"The data size exceeds the allowed limit." = "The data size (%1$ld bytes) exceeds the allowed limit (%2$ld bytes).";
+"Test configuration error." = "Test configuration error at call %1$ld: missing %2$@.";
 
 /* Transport error descriptions */
-"Not connected to the internet" = "Not connected to the internet";
-"The request timed out" = "The request timed out";
-"Cannot find the host" = "Cannot find the host";
-"Cannot connect to the host" = "Cannot connect to the host";
-"The network connection was lost" = "The network connection was lost";
-"DNS lookup failed" = "DNS lookup failed";
-"The request was canceled" = "The request was canceled";
-"The URL is invalid" = "The URL is invalid";
-"The URL is not supported" = "The URL is not supported";
-"User authentication is required" = "User authentication is required";
-"The secure connection failed" = "The secure connection failed";
-"The server certificate is not trusted" = "The server certificate is not trusted";
-"The server certificate has an invalid date" = "The server certificate has an invalid date";
-"The server certificate has an unknown root" = "The server certificate has an unknown root";
-"The server certificate is not yet valid" = "The server certificate is not yet valid";
-"The client certificate was rejected" = "The client certificate was rejected";
-"A client certificate is required" = "A client certificate is required";
-"Cannot load from the network" = "Cannot load from the network";
-"Cannot create the file" = "Cannot create the file";
-"Cannot open the file" = "Cannot open the file";
-"Cannot close the file" = "Cannot close the file";
-"Cannot write to the file" = "Cannot write to the file";
-"Cannot remove the file" = "Cannot remove the file";
-"Cannot move the file" = "Cannot move the file";
-"Download decoding failed" = "Download decoding failed";
-"Download decoding failed to complete" = "Download decoding failed to complete";
-"International roaming is off" = "International roaming is off";
-"A call is active" = "A call is active";
-"Data is not allowed" = "Data is not allowed";
-"The request body stream was exhausted" = "The request body stream was exhausted";
-"App Transport Security requires a secure connection" = "App Transport Security requires a secure connection";
-"The file does not exist" = "The file does not exist";
-"The file is a directory" = "The file is a directory";
-"You do not have permission to read the file" = "You do not have permission to read the file";
-"The data length exceeds the maximum" = "The data length exceeds the maximum";
-"The background session requires a shared container" = "The background session requires a shared container";
-"The background session is in use by another process" = "The background session is in use by another process";
-"The background session was disconnected" = "The background session was disconnected";
-"Transport error: %ld" = "Transport error: %ld";
+"Not connected to the internet" = "Not connected to the internet.";
+"The request timed out" = "The request timed out.";
+"Cannot find the host" = "Cannot find the host.";
+"Cannot connect to the host" = "Cannot connect to the host.";
+"The network connection was lost" = "The network connection was lost.";
+"DNS lookup failed" = "DNS lookup failed.";
+"The request was canceled" = "The request was canceled.";
+"The URL is invalid" = "The URL is invalid.";
+"The URL is not supported" = "The URL is not supported.";
+"User authentication is required" = "User authentication is required.";
+"The secure connection failed" = "The secure connection failed.";
+"The server certificate is not trusted" = "The server certificate is not trusted.";
+"The server certificate has an invalid date" = "The server certificate has an invalid date.";
+"The server certificate has an unknown root" = "The server certificate has an unknown root.";
+"The server certificate is not yet valid" = "The server certificate is not yet valid.";
+"The client certificate was rejected" = "The client certificate was rejected.";
+"A client certificate is required" = "A client certificate is required.";
+"Cannot load from the network" = "Cannot load from the network.";
+"Cannot create the file" = "Cannot create the file.";
+"Cannot open the file" = "Cannot open the file.";
+"Cannot close the file" = "Cannot close the file.";
+"Cannot write to the file" = "Cannot write to the file.";
+"Cannot remove the file" = "Cannot remove the file.";
+"Cannot move the file" = "Cannot move the file.";
+"Download decoding failed" = "Download decoding failed.";
+"Download decoding failed to complete" = "Download decoding failed to complete.";
+"International roaming is off" = "International roaming is off.";
+"A call is active" = "A call is active.";
+"Data is not allowed" = "Data is not allowed.";
+"The request body stream was exhausted" = "The request body stream was exhausted.";
+"App Transport Security requires a secure connection" = "App Transport Security requires a secure connection.";
+"The file does not exist" = "The file does not exist.";
+"The file is a directory" = "The file is a directory.";
+"You do not have permission to read the file" = "You do not have permission to read the file.";
+"The data length exceeds the maximum" = "The data length exceeds the maximum.";
+"The background session requires a shared container" = "The background session requires a shared container.";
+"The background session is in use by another process" = "The background session is in use by another process.";
+"The background session was disconnected" = "The background session was disconnected.";
+"Transport error: %ld" = "Transport error: %1$ld.";
 
 /* Recovery suggestions */
 "Please try again or contact support." = "Please try again or contact support.";

@@ -450,9 +450,9 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .cacheError(let message):
             return String(
                 format: NSLocalizedString(
-                    "Cache error: %@", tableName: nil, bundle: NetworkError.l10nBundle,
-                    value: "Cache error: %@",
-                    comment: "Error message for cache errors with details"),
+                    "Cache operation failed.", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Cache operation failed.",
+                    comment: "Error message for cache operation failures"),
                 message)
         case .invalidBodyForGET:
             return NSLocalizedString(
@@ -472,9 +472,9 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .transportError(let code, let underlying):
             return String(
                 format: NSLocalizedString(
-                    "Transport error: %@ - %@", tableName: nil, bundle: NetworkError.l10nBundle,
-                    value: "Transport error: %@ - %@",
-                    comment: "Error message for transport errors with code and description"),
+                    "Network connection error.", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Network connection error.",
+                    comment: "Error message for network connection errors"),
                 NetworkError.transportErrorDescription(code), underlying.localizedDescription)
         case .customError(let message, let details):
             if let details = details {
@@ -495,10 +495,10 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .payloadTooLarge(let size, let limit):
             return String(
                 format: NSLocalizedString(
-                    "Payload too large: %d bytes exceeds limit of %d bytes", tableName: nil,
+                    "The data size exceeds the allowed limit.", tableName: nil,
                     bundle: NetworkError.l10nBundle,
-                    value: "Payload too large: %d bytes exceeds limit of %d bytes",
-                    comment: "Error message for payload too large with size and limit"), size, limit
+                    value: "The data size exceeds the allowed limit.",
+                    comment: "Error message for payload too large"), size, limit
             )
         case .invalidMockConfiguration(let callIndex, let missingData, let missingResponse):
             var missingComponents: [String] = []
@@ -507,11 +507,10 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             let componentsString = missingComponents.joined(separator: " and ")
             return String(
                 format: NSLocalizedString(
-                    "Invalid mock configuration: Call %d is missing %@", tableName: nil,
+                    "Test configuration error.", tableName: nil,
                     bundle: NetworkError.l10nBundle,
-                    value: "Invalid mock configuration: Call %d is missing %@",
-                    comment:
-                        "Error message for invalid mock configuration with call index and missing components"
+                    value: "Test configuration error.",
+                    comment: "Error message for test configuration errors"
                 ),
                 callIndex, componentsString
             )
@@ -721,7 +720,7 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     }
 }
 
-// MARK: - Error Convenience Extensions
+/// MARK: - Error Convenience Extensions
 extension NetworkError {
     /// Creates a custom error with a formatted message and optional details
     public static func customError(_ message: String, details: String? = nil) -> NetworkError {
@@ -794,7 +793,7 @@ extension NetworkError {
     }
 }
 
-// MARK: - Equatable Conformance
+/// MARK: - Equatable Conformance
 extension NetworkError {
     public static func == (lhs: NetworkError, rhs: NetworkError) -> Bool {
         switch (lhs, rhs) {
@@ -886,5 +885,74 @@ extension NetworkError {
         default:
             return false
         }
+    }
+}
+
+/// MARK: - Error Message Helper
+extension NetworkError {
+    /// Demonstrate modern Swift 6 string interpolation approaches with localization support
+    public var modernErrorDescription: String? {
+        switch self {
+        case .requestTimeout(let duration):
+            // Modern approach: Use LocalizedStringResource (iOS 16+)
+            #if canImport(Foundation) && swift(>=6.0)
+                if #available(iOS 16.0, macOS 13.0, *) {
+                    return String(localized: "Request timed out after \(duration) seconds.")
+                } else {
+                    // Fallback to traditional approach
+                    return String(
+                        format: NSLocalizedString(
+                            "Request timed out after %.2f seconds.", tableName: nil,
+                            bundle: NetworkError.l10nBundle,
+                            value: "Request timed out after %.2f seconds.",
+                            comment: "Error message for request timeouts with duration"), duration)
+                }
+            #else
+                return String(
+                    format: NSLocalizedString(
+                        "Request timed out after %.2f seconds.", tableName: nil,
+                        bundle: NetworkError.l10nBundle,
+                        value: "Request timed out after %.2f seconds.",
+                        comment: "Error message for request timeouts with duration"), duration)
+            #endif
+
+        case .invalidEndpoint(let reason):
+            #if canImport(Foundation) && swift(>=6.0)
+                if #available(iOS 16.0, macOS 13.0, *) {
+                    return String(localized: "Invalid endpoint: \(reason)")
+                } else {
+                    return String(
+                        format: NSLocalizedString(
+                            "Invalid endpoint: %@", tableName: nil, bundle: NetworkError.l10nBundle,
+                            value: "Invalid endpoint: %@",
+                            comment: "Error message for invalid endpoints with reason"), reason)
+                }
+            #else
+                return String(
+                    format: NSLocalizedString(
+                        "Invalid endpoint: %@", tableName: nil, bundle: NetworkError.l10nBundle,
+                        value: "Invalid endpoint: %@",
+                        comment: "Error message for invalid endpoints with reason"), reason)
+            #endif
+
+        default:
+            return errorDescription
+        }
+    }
+}
+
+/// MARK: - Modern Swift 6 string interpolation with localization support
+extension String {
+    /// Creates a localized string using modern interpolation syntax
+    /// - Parameter key: The localization key
+    /// - Returns: A localized string with interpolated values
+    static func localized(
+        _ key: String,
+        bundle: Bundle = .main,
+        tableName: String? = nil,
+        comment: String = ""
+    ) -> String {
+        return NSLocalizedString(
+            key, tableName: tableName, bundle: bundle, value: key, comment: comment)
     }
 }
