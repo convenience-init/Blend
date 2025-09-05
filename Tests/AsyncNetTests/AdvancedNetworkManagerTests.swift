@@ -401,7 +401,7 @@ struct AsyncRequestableTests {
             session: URLSessionProtocol = URLSession.shared
         ) async throws -> ResponseModel where ResponseModel: Decodable {
             let request = try buildURLRequest(from: endPoint)
-            let (data, response) = try await session.data(for: request)  // Use self.urlSession instead of session parameter
+            let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw NetworkError.noResponse
             }
