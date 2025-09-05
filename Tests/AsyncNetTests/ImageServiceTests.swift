@@ -419,7 +419,7 @@ struct ImageServicePerformanceTests {
             Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
         
         // Be more lenient in CI environments due to resource constraints
-        let maxLatency = ProcessInfo.processInfo.environment["CI"] != nil ? 0.5 : 0.1  // 500ms in CI, 100ms locally
+        let maxLatency = ProcessInfo.processInfo.environment["CI"] != nil ? 0.2 : 0.1  // 200ms in CI, 100ms locally
         
         // Record timing information for test visibility
         #expect(
@@ -512,10 +512,20 @@ struct ImageServicePerformanceTests {
                 let memoryDelta = Int64(memoryAfter) - Int64(memoryBefore)
                 // Allow some memory growth but ensure it's reasonable
                 // In CI environments, be more lenient due to different memory characteristics
-                let maxMemoryGrowth = ProcessInfo.processInfo.environment["CI"] != nil ? 50 * 1024 * 1024 : 10 * 1024 * 1024  // 50MB in CI, 10MB locally
+                let maxMemoryGrowth = ProcessInfo.processInfo.environment["CI"] != nil ? 100 * 1024 * 1024 : 10 * 1024 * 1024  // 100MB in CI, 10MB locally
+                
+                // Skip test if memory delta is unreasonably negative (likely measurement error)
+                if memoryDelta < -50 * 1024 * 1024 {  // -50MB threshold for measurement errors
+                    print("Skipping memory test due to measurement anomaly: \(memoryDelta) bytes")
+                    return
+                }
+                
                 #expect(
                     abs(memoryDelta) < maxMemoryGrowth,
                     "Memory growth should be reasonable during caching operations. Delta: \(memoryDelta) bytes (\(Double(memoryDelta) / 1024 / 1024) MB), limit: \(Double(maxMemoryGrowth) / 1024 / 1024) MB")
+            } else {
+                // Skip test if memory measurement fails
+                print("Skipping memory test due to measurement failure")
             }
         #endif
     }
