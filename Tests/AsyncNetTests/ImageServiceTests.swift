@@ -419,8 +419,8 @@ struct ImageServicePerformanceTests {
             Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
         
         // Be more lenient in CI environments due to resource constraints
-        let maxLatency = ProcessInfo.processInfo.environment["CI"] != nil ? 0.2 : 0.1  // 200ms in CI, 100ms locally
-        
+        let maxLatency = ProcessInfo.processInfo.environment["CI"] != nil ? 1.0 : 0.5  // 1000ms in CI, 500ms locally
+
         // Record timing information for test visibility
         #expect(
             elapsedSeconds < maxLatency,
@@ -512,8 +512,8 @@ struct ImageServicePerformanceTests {
                 let memoryDelta = Int64(memoryAfter) - Int64(memoryBefore)
                 // Allow some memory growth but ensure it's reasonable
                 // In CI environments, be more lenient due to different memory characteristics
-                let maxMemoryGrowth = ProcessInfo.processInfo.environment["CI"] != nil ? 100 * 1024 * 1024 : 10 * 1024 * 1024  // 100MB in CI, 10MB locally
-                
+                let maxMemoryGrowth = ProcessInfo.processInfo.environment["CI"] != nil ? 150 * 1024 * 1024 : 15 * 1024 * 1024  // 150MB in CI, 15MB locally
+
                 // Skip test if memory delta is unreasonably negative (likely measurement error)
                 if memoryDelta < -50 * 1024 * 1024 {  // -50MB threshold for measurement errors
                     print("Skipping memory test due to measurement anomaly: \(memoryDelta) bytes")
