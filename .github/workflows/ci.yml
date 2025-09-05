@@ -99,7 +99,8 @@ jobs:
           swift build --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-            -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks
+            -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks \
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
 
       - name: Build (macOS Xcode)
         if: matrix.target == 'macos' && matrix.build == 'xcode'
@@ -136,7 +137,8 @@ jobs:
             
             # Parse the existing simulator info more reliably
             SIM_NAME=$(echo "$SIMULATOR" | sed 's/ (.*//')
-            SIM_UDID=$(echo "$SIMULATOR" | sed 's/.*(\([^)]*\)).*/\1/')
+            # Extract the UDID using a more robust method
+            SIM_UDID=$(echo "$SIMULATOR" | awk -F'[()]' '{print $(NF-3)}')
           fi
           
           # Boot the simulator if it's not already booted
@@ -261,7 +263,8 @@ jobs:
             
             # Parse the existing simulator info more reliably
             SIM_NAME=$(echo "$SIMULATOR" | sed 's/ (.*//')
-            SIM_UDID=$(echo "$SIMULATOR" | sed 's/.*(\([^)]*\)).*/\1/')
+            # Extract the UDID using a more robust method
+            SIM_UDID=$(echo "$SIMULATOR" | awk -F'[()]' '{print $(NF-3)}')
           fi
           
           # Boot the simulator if it's not already booted
@@ -295,6 +298,7 @@ jobs:
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
             -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks \
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
             --enable-code-coverage
 
       - name: Test macOS Xcode
