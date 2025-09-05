@@ -235,6 +235,8 @@ public actor DefaultNetworkCache: NetworkCache {
         // where weak references can become nil between checks
         let strongPrev = node.prev  // Capture weak reference as strong local
         let strongNext = node.next  // Capture strong reference as local
+        let currentTail = tail  // Capture current tail reference
+        let tailPrev = currentTail?.prev  // Capture tail's prev for validation
 
         // Handle prev reference using captured strong reference
         if let prevNode = strongPrev {
@@ -249,7 +251,8 @@ public actor DefaultNetworkCache: NetworkCache {
             nextNode.prev = strongPrev  // This creates a weak reference
         } else {
             // Node is tail - only update if this node is actually the current tail
-            if node === tail {
+            // Double-check with captured references to ensure consistency
+            if node === currentTail && strongPrev === tailPrev {
                 tail = strongPrev
             }
         }

@@ -20,10 +20,10 @@
 "GET requests cannot have a body." = "GET requests cannot have a body.";
 "Request was canceled." = "Request was canceled.";
 "Authentication failed." = "Authentication failed.";
-"Network connection error." = "Network connection error: %1$@ (%2$@).";
+"Network connection error: %1$@ (%2$@)." = "Network connection error: %1$@ (%2$@).";
 "Out of script bounds: Call %ld" = "Out of script bounds: Call %1$ld.";
-"The data size exceeds the allowed limit." = "The data size (%1$ld bytes) exceeds the allowed limit (%2$ld bytes).";
-"Test configuration error." = "Test configuration error at call %1$ld: missing %2$@.";
+"The data size (%1$ld bytes) exceeds the allowed limit (%2$ld bytes)." = "The data size (%1$ld bytes) exceeds the allowed limit (%2$ld bytes)."; 
+"Test configuration error at call %1$ld: missing %2$@." = "Test configuration error at call %1$ld: missing %2$@.";
 
 /* Transport error descriptions */
 "Not connected to the internet" = "Not connected to the internet.";

@@ -24,7 +24,21 @@ This codebase is a Swift networking library with comprehensive image handling, b
           .iOS(.v18),
           .macOS(.v15)
       ],
-      // ... rest of package configuration
+      targets: [
+          .target(
+              name: "YourTarget",
+              swiftSettings: [
+                  .swiftLanguageMode(.v6)  // Enforce Swift 6 language mode for strict concurrency
+              ]
+          ),
+          .testTarget(
+              name: "YourTargetTests",
+              dependencies: ["YourTarget"],
+              swiftSettings: [
+                  .swiftLanguageMode(.v6)  // Enforce Swift 6 language mode for tests
+              ]
+          )
+      ]
   )
   ```
 - **Build Settings**: Enable strict concurrency checking in Xcode project settings:
@@ -148,7 +162,7 @@ struct YourEndpoint: Endpoint {
     var headers: [String: String]? = ["Accept": "application/json"] // Accept header for expected response type
     var body: Data? = nil
     var queryItems: [URLQueryItem]? = nil
-    var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
+    var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request idle timeout (resets on data arrival)
 }
 
 // For POST/PUT requests with JSON bodies, use Encodable models:
@@ -165,7 +179,7 @@ struct CreateUserEndpoint: Endpoint {
     var path: String = "/users"
     var method: RequestMethod = .post
     var headers: [String: String]? = ["Content-Type": "application/json"] // Content-Type for request body
-    var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request timeout
+    var timeoutDuration: Duration? = .seconds(30) // Maps to URLRequest.timeoutInterval — per-request idle timeout (resets on data arrival)
     
     // Pre-encoded body stored as immutable Data - encoding happens once in init
     let body: Data?
@@ -187,10 +201,11 @@ struct CreateUserEndpoint: Endpoint {
 ```
 
 **Timeout Configuration Guidance:**
-- **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts)
-- **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent timeouts across all requests
-- **Resource Timeout** (`URLSessionConfiguration.timeoutIntervalForResource`): Controls the total time for the entire resource transfer (including redirects, authentication, and data transfer). This is crucial for long uploads/downloads where `timeoutIntervalForRequest` may timeout before the transfer completes.
-- **Zero Timeout Behavior**: A timeout value of `0` does NOT mean "no timeout" or infinite timeout. Instead, it causes `URLRequest`/`URLSession` to fall back to system default timeouts (typically 60 seconds for requests, 7 days for resources per Apple documentation). Avoid using `0` to express "infinite" timeout - use a clearly defined sentinel value (e.g., `Duration.seconds(86400)` for 24 hours) or explicit large timeout instead.
+- **Per-Request Timeout** (`timeoutDuration`): Use for request-specific timeouts (e.g., long uploads need longer timeouts). Maps to `URLRequest.timeoutInterval` which defaults to 60 seconds and is an **idle timeout** that resets whenever data arrives. Setting it to `0` disables the idle timeout entirely (no per-request idle timeout).
+- **Session-Wide Timeout** (`URLSessionConfiguration.timeoutIntervalForRequest`): Use for consistent idle timeouts across all requests. Defaults to 60 seconds (idle timeout that resets on data arrival).
+- **Resource Timeout** (`URLSessionConfiguration.timeoutIntervalForResource`): Controls the total time for the entire resource transfer (including redirects, authentication, and data transfer). Defaults to 7 days. This is crucial for long uploads/downloads where per-request idle timeouts may reset before the transfer completes.
+- **Zero Timeout Behavior**: Setting `URLRequest.timeoutInterval` to `0` disables the idle timeout (no per-request idle timeout), but the session's `timeoutIntervalForRequest` (default: 60s) still applies. Avoid using `0` to express "infinite" timeout - use explicit large values instead.
+- **Background Session Behavior**: Background sessions will retry and resume on transient errors or idle timeouts, and only fail once the resource timeout (`timeoutIntervalForResource`) expires. Long transfers are governed by the resource timeout, not idle timeouts.
 - **Duration Conversion**: Use this portable helper to convert Swift `Duration` to `TimeInterval`:
   ```swift
   /// Portable Duration to TimeInterval conversion
@@ -208,14 +223,14 @@ struct CreateUserEndpoint: Endpoint {
   if let timeoutDuration = endpoint.timeoutDuration {
       request.timeoutInterval = timeInterval(from: timeoutDuration)
   }
-  // Leave unset when nil so session's timeoutIntervalForRequest (default: 60s) applies
+  // Leave unset when nil so session's timeoutIntervalForRequest (default: 60s idle) applies
   ```
-- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds) is used as the fallback. Setting it to `0` causes fallback to system defaults, not infinite timeout.
+- **Nil Handling**: When `timeoutDuration` is `nil`, leave `URLRequest.timeoutInterval` unset so the session's `timeoutIntervalForRequest` (default: 60 seconds idle timeout) is used as the fallback. Setting it to `0` disables idle timeout but session defaults still apply.
 - **Session Configuration Example**: Configure both per-request and resource timeouts:
   ```swift
   let configuration = URLSessionConfiguration.default
-  configuration.timeoutIntervalForRequest = 30.0  // 30s per-request timeout
+  configuration.timeoutIntervalForRequest = 30.0  // 30s per-request idle timeout
   configuration.timeoutIntervalForResource = 300.0 // 5min total resource timeout (for large uploads)
   let session = URLSession(configuration: configuration)
   ```
-- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults. For large file uploads/downloads, ensure `timeoutIntervalForResource` is sufficiently long. Avoid using `0` for "infinite" timeouts - use explicit large values instead.
+- **Best Practice**: Prefer per-request timeouts for fine-grained control, use session timeouts for global defaults. For large file uploads/downloads, ensure `timeoutIntervalForResource` is sufficiently long. Background sessions provide resilience against transient failures but are ultimately bounded by the resource timeout.

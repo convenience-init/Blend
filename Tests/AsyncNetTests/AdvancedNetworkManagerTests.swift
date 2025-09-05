@@ -438,7 +438,11 @@ struct AsyncRequestableTests {
                 to endPoint: Endpoint, session: URLSessionProtocol = URLSession.shared
             ) async throws -> ResponseModel
             where ResponseModel: Decodable {
-                fatalError("TestService should not make actual network requests in tests")
+                // Build the request and fetch data using the test manager
+                let request = try buildURLRequest(from: endPoint)
+                let data = try await testManager.fetchData(for: request)
+                // Decode the response
+                return try jsonDecoder.decode(ResponseModel.self, from: data)
             }
         }
 
@@ -634,216 +638,164 @@ struct AsyncRequestableTests {
     }
 }
 
-@Suite("AdvancedAsyncRequestable Tests")
-struct AdvancedAsyncRequestableTests {
-    struct TestListModel: Decodable, Equatable { let items: [String] }
-    struct TestDetailModel: Decodable, Equatable { let id: Int; let name: String }
+@Suite("AdvancedNetworkManager LRU Cache Tests")
+struct AdvancedNetworkManagerLRUCacheTests {
 
-    struct AdvancedMockService: AdvancedAsyncRequestable {
-        typealias ResponseModel = TestListModel
-        typealias SecondaryResponseModel = TestDetailModel
-        let urlSession: URLSessionProtocol
+    @Test func testAdvancedNetworkManagerLRUBasicOperations() async {
+        let cache = DefaultNetworkCache(maxSize: 3, expiration: 3600.0)
 
-        func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T {
-            // Use shared helper to build the request
-            let request = try buildURLRequest(from: endpoint)
-            
-            let (data, response) = try await urlSession.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse,
-                !(200...299).contains(httpResponse.statusCode)
-            {
-                throw NetworkError.customError(
-                    "HTTP error", details: "Status code: \(httpResponse.statusCode)")
-            }
-            return try jsonDecoder.decode(type, from: data)
+        let data1 = Data([1, 2, 3])
+        let data2 = Data([4, 5, 6])
+        let data3 = Data([7, 8, 9])
+        let data4 = Data([10, 11, 12])
+
+        // Add items
+        await cache.set(data1, forKey: "key1")
+        await cache.set(data2, forKey: "key2")
+        await cache.set(data3, forKey: "key3")
+
+        // Access key1 to make it most recently used
+        let retrieved1 = await cache.get(forKey: "key1")
+        #expect(retrieved1 == data1)
+
+        // Add key4, should evict key2 (least recently used)
+        await cache.set(data4, forKey: "key4")
+
+        // key2 should be evicted
+        let retrieved2 = await cache.get(forKey: "key2")
+        #expect(retrieved2 == nil)
+
+        // Others should still be there
+        let retrieved1Again = await cache.get(forKey: "key1")
+        let retrieved3 = await cache.get(forKey: "key3")
+        let retrieved4 = await cache.get(forKey: "key4")
+        #expect(retrieved1Again == data1)
+        #expect(retrieved3 == data3)
+        #expect(retrieved4 == data4)
+    }
+
+    @Test func testAdvancedNetworkManagerLRUNodeRemoval() async {
+        let cache = DefaultNetworkCache(maxSize: 5, expiration: 3600.0)
+
+        // Add multiple items
+        for i in 1...5 {
+            let data = Data([UInt8(i)])
+            await cache.set(data, forKey: "key\(i)")
         }
 
-        func sendRequest<ResponseModel>(
-            to endPoint: Endpoint,
-            session: URLSessionProtocol = URLSession.shared
-        ) async throws -> ResponseModel where ResponseModel: Decodable {
-            let request = try buildURLRequest(from: endPoint)
-            let (data, response) = try await urlSession.data(for: request)  // Use self.urlSession instead of session parameter
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw NetworkError.noResponse
-            }
-            switch httpResponse.statusCode {
-            case 200...299:
-                do {
-                    return try jsonDecoder.decode(ResponseModel.self, from: data)
-                } catch {
-                    throw NetworkError.decodingError(underlying: error, data: data)
-                }
-            case 400:
-                throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
-            case 401:
-                throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
-            case 403:
-                throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
-            case 404:
-                throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
-            case 429:
-                throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
-            case 500...599:
-                throw NetworkError.customError(
-                    "HTTP error", details: "Status code: \(httpResponse.statusCode)")
-            default:
-                throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
-            }
+        // Remove middle item
+        await cache.remove(forKey: "key3")
+
+        // Should be able to add new item without issues
+        let data = Data([6])
+        await cache.set(data, forKey: "key6")
+
+        // Verify structure integrity
+        let retrieved1 = await cache.get(forKey: "key1")
+        let retrieved2 = await cache.get(forKey: "key2")
+        let retrieved3 = await cache.get(forKey: "key3")
+        let retrieved4 = await cache.get(forKey: "key4")
+        let retrieved5 = await cache.get(forKey: "key5")
+        let retrieved6 = await cache.get(forKey: "key6")
+
+        #expect(retrieved1 == Data([1]))
+        #expect(retrieved2 == Data([2]))
+        #expect(retrieved3 == nil)  // Should be removed
+        #expect(retrieved4 == Data([4]))
+        #expect(retrieved5 == Data([5]))
+        #expect(retrieved6 == Data([6]))
+    }
+
+    @Test func testAdvancedNetworkManagerLRUExpiration() async {
+        // Use a very short expiration for testing
+        let cache = DefaultNetworkCache(maxSize: 10, expiration: 0.1)
+
+        let data = Data([1, 2, 3])
+        await cache.set(data, forKey: "key1")
+
+        // Should be available immediately
+        let retrieved = await cache.get(forKey: "key1")
+        #expect(retrieved == data)
+
+        // Wait for expiration
+        try? await Task.sleep(nanoseconds: 200_000_000)  // 0.2 seconds
+
+        // Should be expired
+        let expired = await cache.get(forKey: "key1")
+        #expect(expired == nil)
+    }
+
+    @Test func testAdvancedNetworkManagerLRUClear() async {
+        let cache = DefaultNetworkCache(maxSize: 5, expiration: 3600.0)
+
+        // Add items
+        for i in 1...3 {
+            let data = Data([UInt8(i)])
+            await cache.set(data, forKey: "key\(i)")
+        }
+
+        // Clear cache
+        await cache.clear()
+
+        // All items should be gone
+        for i in 1...3 {
+            let retrieved = await cache.get(forKey: "key\(i)")
+            #expect(retrieved == nil)
         }
     }
 
-    @Test func testFetchListReturnsDecodedListModel() async throws {
-        let mockSession = MockURLSession(
-            nextData: Data("{\"items\":[\"item1\",\"item2\"]}".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-        let service = AdvancedMockService(urlSession: mockSession)
-        let endpoint = MockEndpoint()
-        let result = try await service.fetchList(from: endpoint)
-        #expect(result == TestListModel(items: ["item1", "item2"]))
+    @Test func testAdvancedNetworkManagerLRUStressTest() async {
+        let cache = DefaultNetworkCache(maxSize: 100, expiration: 3600.0)
+
+        // Add many items
+        for i in 1...50 {  // Reduced count to avoid timeout
+            let data = Data([UInt8(i % 256)])
+            await cache.set(data, forKey: "key\(i)")
+        }
+
+        // Random access pattern
+        for _ in 1...25 {  // Reduced count
+            let randomKey = "key\(Int.random(in: 1...50))"
+            _ = await cache.get(forKey: randomKey)
+        }
+
+        // Should still work without crashes
+        let testData = Data([255])
+        await cache.set(testData, forKey: "test")
+        let retrieved = await cache.get(forKey: "test")
+        #expect(retrieved == testData)
     }
 
-    @Test func testFetchDetailsReturnsDecodedDetailModel() async throws {
-        let mockSession = MockURLSession(
-            nextData: Data("{\"id\":123,\"name\":\"Test Item\"}".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-        let service = AdvancedMockService(urlSession: mockSession)
-        let endpoint = MockEndpoint()
-        let result = try await service.fetchDetails(from: endpoint)
-        #expect(result == TestDetailModel(id: 123, name: "Test Item"))
-    }
+    @Test func testAdvancedNetworkManagerLRUConcurrentAccess() async {
+        let cache = DefaultNetworkCache(maxSize: 50, expiration: 3600.0)
 
-    @Test func testFetchListWithNetworkManager() async throws {
-        let mockSession = MockURLSession(
-            nextData: Data("{\"items\":[\"item1\",\"item2\"]}".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-        let service = AdvancedMockService(urlSession: mockSession)
-        let endpoint = MockEndpoint()
-        let result: TestListModel = try await service.fetchList(from: endpoint)
-        #expect(result == TestListModel(items: ["item1", "item2"]))
-    }
-
-    @Test func testFetchDetailsWithNetworkManager() async throws {
-        let mockSession = MockURLSession(
-            nextData: Data("{\"id\":456,\"name\":\"Detail Item\"}".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-        let service = AdvancedMockService(urlSession: mockSession)
-        let endpoint = MockEndpoint()
-        let result: TestDetailModel = try await service.fetchDetails(from: endpoint)
-        #expect(result == TestDetailModel(id: 456, name: "Detail Item"))
-    }
-
-    @Test func testAdvancedServiceWithDifferentResponseTypes() async throws {
-        struct UserListService: AdvancedAsyncRequestable {
-            typealias ResponseModel = [String]  // List of user names
-            typealias SecondaryResponseModel = UserDetail  // Detailed user info
-
-            struct UserDetail: Decodable, Equatable {
-                let id: Int
-                let name: String
-                let email: String
+        // Concurrent operations
+        await withTaskGroup(of: Void.self) { group in
+            for i in 1...10 {
+                group.addTask {
+                    let data = Data([UInt8(i)])
+                    await cache.set(data, forKey: "key\(i)")
+                }
             }
 
-            let urlSession: URLSessionProtocol
-
-            func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T
-            {
-                // Use shared helper to build the request
-                let request = try buildURLRequest(from: endpoint)
-
-                let (data, response) = try await urlSession.data(for: request)
-                if let httpResponse = response as? HTTPURLResponse,
-                    !(200...299).contains(httpResponse.statusCode)
-                {
-                    throw NetworkError.customError(
-                        "HTTP error", details: "Status code: \(httpResponse.statusCode)")
+            for i in 1...10 {
+                group.addTask {
+                    _ = await cache.get(forKey: "key\(i)")
                 }
-                return try jsonDecoder.decode(type, from: data)
             }
 
-            func sendRequest<ResponseModel>(
-                to endPoint: Endpoint,
-                session: URLSessionProtocol = URLSession.shared
-            ) async throws -> ResponseModel where ResponseModel: Decodable {
-                let request = try buildURLRequest(from: endPoint)
-                let (data, response) = try await urlSession.data(for: request)  // Use self.urlSession instead of session parameter
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw NetworkError.noResponse
-                }
-                switch httpResponse.statusCode {
-                case 200...299:
-                    do {
-                        return try jsonDecoder.decode(ResponseModel.self, from: data)
-                    } catch {
-                        throw NetworkError.decodingError(underlying: error, data: data)
-                    }
-                case 400:
-                    throw NetworkError.badRequest(data: data, statusCode: httpResponse.statusCode)
-                case 401:
-                    throw NetworkError.unauthorized(data: data, statusCode: httpResponse.statusCode)
-                case 403:
-                    throw NetworkError.forbidden(data: data, statusCode: httpResponse.statusCode)
-                case 404:
-                    throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
-                case 429:
-                    throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
-                case 500...599:
-                    throw NetworkError.customError(
-                        "HTTP error", details: "Status code: \(httpResponse.statusCode)")
-                default:
-                    throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
+            for i in 11...20 {
+                group.addTask {
+                    let data = Data([UInt8(i)])
+                    await cache.set(data, forKey: "key\(i)")
                 }
             }
         }
 
-        // Test list endpoint
-        let listSession = MockURLSession(
-            nextData: Data("[\"Alice\",\"Bob\",\"Charlie\"]".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-        let listService = UserListService(urlSession: listSession)
-        let listEndpoint = MockEndpoint()
-        let listResult = try await listService.fetchList(from: listEndpoint)
-        #expect(listResult == ["Alice", "Bob", "Charlie"])
-
-        // Test detail endpoint
-        let detailSession = MockURLSession(
-            nextData: Data("{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}".utf8),
-            nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            ))
-        let detailService = UserListService(urlSession: detailSession)
-        let detailEndpoint = MockEndpoint()
-        let detailResult = try await detailService.fetchDetails(from: detailEndpoint)
-        #expect(
-            detailResult
-                == UserListService.UserDetail(id: 1, name: "Alice", email: "alice@example.com"))
+        // Should not have crashed and basic operations should work
+        let testData = Data([100])
+        await cache.set(testData, forKey: "final")
+        let retrieved = await cache.get(forKey: "final")
+        #expect(retrieved == testData)
     }
 }

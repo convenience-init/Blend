@@ -66,7 +66,7 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     // MARK: - Private Helper Methods
     private final class BundleHelper {}
 
-    private static let l10nBundle: Bundle = {
+    internal static let l10nBundle: Bundle = {
         #if SWIFT_PACKAGE
             return Bundle.module
         #else
@@ -450,9 +450,9 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .cacheError(let message):
             return String(
                 format: NSLocalizedString(
-                    "Cache operation failed.", tableName: nil, bundle: NetworkError.l10nBundle,
-                    value: "Cache operation failed.",
-                    comment: "Error message for cache operation failures"),
+                    "Cache operation failed: %@", tableName: nil, bundle: NetworkError.l10nBundle,
+                    value: "Cache operation failed: %@",
+                    comment: "Error message for cache operation failures with details"),
                 message)
         case .invalidBodyForGET:
             return NSLocalizedString(
@@ -472,9 +472,10 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .transportError(let code, let underlying):
             return String(
                 format: NSLocalizedString(
-                    "Network connection error.", tableName: nil, bundle: NetworkError.l10nBundle,
-                    value: "Network connection error.",
-                    comment: "Error message for network connection errors"),
+                    "Network connection error: %@ (%@)", tableName: nil,
+                    bundle: NetworkError.l10nBundle,
+                    value: "Network connection error: %@ (%@)",
+                    comment: "Error message for network connection errors with details"),
                 NetworkError.transportErrorDescription(code), underlying.localizedDescription)
         case .customError(let message, let details):
             if let details = details {
@@ -495,11 +496,11 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         case .payloadTooLarge(let size, let limit):
             return String(
                 format: NSLocalizedString(
-                    "The data size exceeds the allowed limit.", tableName: nil,
+                    "Payload too large: %d B exceeds %d B limit.", tableName: nil,
                     bundle: NetworkError.l10nBundle,
-                    value: "The data size exceeds the allowed limit.",
-                    comment: "Error message for payload too large"), size, limit
-            )
+                    value: "Payload too large: %d B exceeds %d B limit.",
+                    comment: "Error message for payload too large"),
+                size, limit)
         case .invalidMockConfiguration(let callIndex, let missingData, let missingResponse):
             var missingComponents: [String] = []
             if missingData { missingComponents.append("data") }
@@ -507,10 +508,10 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             let componentsString = missingComponents.joined(separator: " and ")
             return String(
                 format: NSLocalizedString(
-                    "Test configuration error.", tableName: nil,
+                    "Test configuration error at call %d: missing %@.", tableName: nil,
                     bundle: NetworkError.l10nBundle,
-                    value: "Test configuration error.",
-                    comment: "Error message for test configuration errors"
+                    value: "Test configuration error at call %d: missing %@.",
+                    comment: "Error message for test configuration errors with details"
                 ),
                 callIndex, componentsString
             )
@@ -866,10 +867,10 @@ extension NetworkError {
         case (.authenticationFailed, .authenticationFailed):
             return true
         case (
-            .transportError(let lhsCode, let lhsUnderlying),
-            .transportError(let rhsCode, let rhsUnderlying)
+            .transportError(let lhsCode, _),
+            .transportError(let rhsCode, _)
         ):
-            return lhsCode == rhsCode && lhsUnderlying == rhsUnderlying
+            return lhsCode == rhsCode
         case (.outOfScriptBounds(let lhsCall), .outOfScriptBounds(let rhsCall)):
             return lhsCall == rhsCall
         case (
@@ -948,11 +949,12 @@ extension String {
     /// - Returns: A localized string with interpolated values
     static func localized(
         _ key: String,
-        bundle: Bundle = .main,
+        bundle: Bundle? = nil,
         tableName: String? = nil,
         comment: String = ""
     ) -> String {
+        let bundleToUse = bundle ?? NetworkError.l10nBundle
         return NSLocalizedString(
-            key, tableName: tableName, bundle: bundle, value: key, comment: comment)
+            key, tableName: tableName, bundle: bundleToUse, value: key, comment: comment)
     }
 }

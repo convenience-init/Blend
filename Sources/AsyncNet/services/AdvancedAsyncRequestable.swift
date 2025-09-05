@@ -41,7 +41,7 @@ import Foundation
 ///     }
 ///
 ///     func createProduct(_ input: ProductInput) async throws -> ProductDetails {
-///         return try await sendRequest(to: CreateProductEndpoint(input: input))
+///         return try await sendRequest(ProductDetails.self, to: CreateProductEndpoint(input: input))
 ///     }
 /// }
 /// ```
@@ -163,7 +163,7 @@ public protocol AdvancedAsyncRequestable: AsyncRequestable {
 	///     typealias ResponseModel = [UserSummary]
 	///     typealias SecondaryResponseModel = T.Details
 	///
-	///     func sendRequest<T: Decodable>(to endpoint: Endpoint) async throws -> T {
+	///     func sendRequest<U: Decodable>(_ type: U.Type, to endpoint: Endpoint) async throws -> U {
 	///         // Implementation here
 	///     }
 	/// }

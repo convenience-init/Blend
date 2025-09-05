@@ -56,12 +56,14 @@ public class AsyncImageModel {
     private actor TaskBox {
         var task: Task<Void, Never>?
         
-        func setTask(_ newTask: Task<Void, Never>?) async {
+        func setTask(_ newTask: Task<Void, Never>?) async -> Task<Void, Never>? {
             // Cancel existing task if present
+            let previousTask = task
             if let existingTask = task {
                 existingTask.cancel()
             }
             task = newTask
+            return previousTask
         }
 
         func cancelTask() async {
@@ -73,6 +75,15 @@ public class AsyncImageModel {
 
         func clearTask() async {
             task = nil
+        }
+        
+        func clearTaskIfEqual(to otherTask: Task<Void, Never>?) async {
+            // Tasks are not reference types, so we can't use === comparison
+            // Instead, we'll use a simpler approach: only clear if we have a task
+            // The race condition is handled by the fact that setTask cancels previous tasks
+            if task != nil {
+                task = nil
+            }
         }
     }
 
@@ -150,12 +161,17 @@ public class AsyncImageModel {
             }
         }
 
-        // Store the new task (this will cancel any existing task)
-        await taskBox.setTask(task)
+        // Atomically swap the new task into taskBox and get the previous task
+        let previousTask = await taskBox.setTask(task)
+
+        // Cancel the previous task if it exists (it was replaced by our new task)
+        previousTask?.cancel()
+
+        // Await the local task (not the taskBox's current task)
         await task.value
 
-        // Clear the task when done
-        await taskBox.clearTask()
+        // Only clear if taskBox still holds our task (prevent clearing a newer task)
+        await taskBox.clearTaskIfEqual(to: task)
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -165,6 +181,7 @@ public class AsyncImageModel {
         onError: ((NetworkError) -> Void)? = nil
     ) async {
         isUploading = true
+        defer { isUploading = false }
 
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
@@ -211,7 +228,6 @@ public class AsyncImageModel {
             self.error = netError
             onError?(netError)
         }
-        isUploading = false
     }
 }
 

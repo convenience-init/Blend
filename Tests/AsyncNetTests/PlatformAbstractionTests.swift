@@ -205,34 +205,38 @@ struct PlatformAbstractionTests {
 
     @Test @MainActor func testNSImageExtensionCorruptedTIFFHandling() {
         #if canImport(AppKit) && !canImport(UIKit)
-            // Test with corrupted TIFF data by removing TIFF-capable representations
+            // Test with actually corrupted TIFF data
             let corruptedImage = NSImage(size: NSSize(width: 10, height: 10))
 
-            // Create a bitmap representation
+            // Create a valid bitmap representation
             if let rep = createTestBitmapImageRep(size: NSSize(width: 10, height: 10)) {
                 corruptedImage.addRepresentation(rep)
 
-                // Simulate corruption by removing the TIFF-capable representation
-                // and replacing it with an invalid one
+                // Get valid TIFF data from the original representation
+                guard let validTiffData = rep.tiffRepresentation else {
+                    Issue.record("Failed to get TIFF representation from valid bitmap")
+                    return
+                }
+
+                // Corrupt the TIFF data by mutating a few bytes
+                var corruptedTiffData = validTiffData
+                if corruptedTiffData.count > 10 {
+                    // Corrupt bytes in the TIFF header area (bytes 8-10)
+                    corruptedTiffData[8] = 0xFF  // Corrupt version field
+                    corruptedTiffData[9] = 0xFF  // Corrupt version field
+                    corruptedTiffData[10] = 0x00  // Corrupt byte order marker
+                }
+
+                // Remove the original valid representation
                 corruptedImage.removeRepresentation(rep)
 
-                // Add an invalid TIFF representation by creating one with corrupted data
-                if let invalidRep = NSBitmapImageRep(
-                    bitmapDataPlanes: nil,
-                    pixelsWide: 10,
-                    pixelsHigh: 10,
-                    bitsPerSample: 8,
-                    samplesPerPixel: 4,
-                    hasAlpha: true,
-                    isPlanar: false,
-                    colorSpaceName: .deviceRGB,
-                    bytesPerRow: 0,
-                    bitsPerPixel: 0
-                ) {
-                    // Set invalid TIFF data to simulate corruption
-                    invalidRep.setProperty(
-                        .compressionMethod, withValue: NSBitmapImageRep.TIFFCompression.none)
-                    corruptedImage.addRepresentation(invalidRep)
+                // Create a new bitmap representation from the corrupted TIFF data
+                if let corruptedRep = NSBitmapImageRep(data: corruptedTiffData) {
+                    // Add the corrupted TIFF representation to the image
+                    corruptedImage.addRepresentation(corruptedRep)
+                } else {
+                    Issue.record("Failed to create NSBitmapImageRep from corrupted TIFF data")
+                    return
                 }
             }
 

@@ -63,7 +63,12 @@ public actor ImageService {
     ) async throws -> Data {
         // Pre-check to avoid memory issues with very large images
         // Calculate raw data limit from configured max upload size, accounting for base64 expansion
-        let configMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        let configMaxUploadSize: Int
+        if let instanceMaxUploadSize = maxUploadSize {
+            configMaxUploadSize = instanceMaxUploadSize
+        } else {
+            configMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        }
         let maxSafeRawSize: Int
         if configMaxUploadSize > 0 {
             // Base64 encoding increases size by ~33%, so raw limit = configMax * 3/4
@@ -88,19 +93,24 @@ public actor ImageService {
         }
 
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
-        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        let effectiveMaxUploadSize: Int
+        if let instanceMaxUploadSize = maxUploadSize {
+            effectiveMaxUploadSize = instanceMaxUploadSize
+        } else {
+            effectiveMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        }
         let encodedSize = ((imageData.count + 2) / 3) * 4
-        if encodedSize > maxUploadSize {
+        if encodedSize > effectiveMaxUploadSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: Base64-encoded image size \(encodedSize, privacy: .public) bytes exceeds limit of \(maxUploadSize, privacy: .public) bytes (raw size: \(imageData.count, privacy: .public) bytes)"
+                    "Upload rejected: Base64-encoded image size \(encodedSize, privacy: .public) bytes exceeds limit of \(effectiveMaxUploadSize, privacy: .public) bytes (raw size: \(imageData.count, privacy: .public) bytes)"
                 )
             #else
                 print(
-                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes exceeds limit of \(maxUploadSize) bytes (raw size: \(imageData.count) bytes)"
+                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes (raw size: \(imageData.count) bytes)"
                 )
             #endif
-            throw NetworkError.payloadTooLarge(size: encodedSize, limit: maxUploadSize)
+            throw NetworkError.payloadTooLarge(size: encodedSize, limit: effectiveMaxUploadSize)
         }
 
         // Determine upload strategy based on encoded size
@@ -134,25 +144,31 @@ public actor ImageService {
         )
 
         // Validate the final JSON payload size against upload limits
-        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        let effectiveMaxUploadSize: Int
+        if let instanceMaxUploadSize = maxUploadSize {
+            effectiveMaxUploadSize = instanceMaxUploadSize
+        } else {
+            effectiveMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        }
         let jsonPayload = try JSONEncoder().encode(payload)
         let finalPayloadSize = jsonPayload.count
 
-        if finalPayloadSize > maxUploadSize {
+        if finalPayloadSize > effectiveMaxUploadSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: JSON payload size \(finalPayloadSize, privacy: .public) bytes exceeds limit of \(maxUploadSize, privacy: .public) bytes (base64 image: \(imageData.count, privacy: .public) bytes, encoded: \(((imageData.count + 2) / 3) * 4), privacy: .public) bytes)"
+                    "Upload rejected: JSON payload size \(finalPayloadSize, privacy: .public) bytes exceeds limit of \(effectiveMaxUploadSize, privacy: .public) bytes (base64 image: \(imageData.count, privacy: .public) bytes, encoded: \(((imageData.count + 2) / 3) * 4), privacy: .public) bytes)"
                 )
             #else
                 print(
-                    "Upload rejected: JSON payload size \(finalPayloadSize) bytes exceeds limit of \(maxUploadSize) bytes (base64 image: \(imageData.count) bytes, encoded: \(((imageData.count + 2) / 3) * 4) bytes)"
+                    "Upload rejected: JSON payload size \(finalPayloadSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes (base64 image: \(imageData.count) bytes, encoded: \(((imageData.count + 2) / 3) * 4) bytes)"
                 )
             #endif
-            throw NetworkError.payloadTooLarge(size: finalPayloadSize, limit: maxUploadSize)
+            throw NetworkError.payloadTooLarge(
+                size: finalPayloadSize, limit: effectiveMaxUploadSize)
         }
 
         // Warn if payload is large (accounts for JSON overhead + base64 encoding)
-        let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for JSON + base64 overhead
+        let maxRecommendedSize = effectiveMaxUploadSize / 4 * 3  // ~75% of max to account for JSON + base64 overhead
         if finalPayloadSize > maxRecommendedSize {
             #if canImport(OSLog)
                 asyncNetLogger.info(
@@ -786,12 +802,16 @@ public actor ImageService {
     // Deduplication: Track in-flight fetchImageData requests by URL string
     private var inFlightImageTasks: [String: Task<Data, Error>] = [:]
 
+    /// Per-instance maximum upload size override (nil means use global AsyncNetConfig.shared.maxUploadSize)
+    private let maxUploadSize: Int?
+
     public init(
         imageCacheCountLimit: Int = 100,
         imageCacheTotalCostLimit: Int = 50 * 1024 * 1024,
         dataCacheCountLimit: Int = 200,
         dataCacheTotalCostLimit: Int = 100 * 1024 * 1024,
-        urlSession: URLSessionProtocol? = nil
+        urlSession: URLSessionProtocol? = nil,
+        maxUploadSize: Int? = nil
     ) {
         imageCache = Cache<String, SendableImage>(
             countLimit: imageCacheCountLimit, totalCostLimit: imageCacheTotalCostLimit)
@@ -802,6 +822,7 @@ public actor ImageService {
         self.interceptors = []
 
         self.injectedURLSession = urlSession
+        self.maxUploadSize = maxUploadSize
     }
 
     // MARK: - Image Fetching
@@ -991,22 +1012,27 @@ public actor ImageService {
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
         // Check upload size limit
-        let maxUploadSize = await AsyncNetConfig.shared.maxUploadSize
-        if imageData.count > maxUploadSize {
+        let effectiveMaxUploadSize: Int
+        if let instanceMaxUploadSize = maxUploadSize {
+            effectiveMaxUploadSize = instanceMaxUploadSize
+        } else {
+            effectiveMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+        }
+        if imageData.count > effectiveMaxUploadSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: Image size \(imageData.count, privacy: .public) bytes exceeds limit of \(maxUploadSize, privacy: .public) bytes"
+                    "Upload rejected: Image size \(imageData.count, privacy: .public) bytes exceeds limit of \(effectiveMaxUploadSize, privacy: .public) bytes"
                 )
             #else
                 print(
-                    "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(maxUploadSize) bytes"
+                    "Upload rejected: Image size \(imageData.count) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
                 )
             #endif
-            throw NetworkError.payloadTooLarge(size: imageData.count, limit: maxUploadSize)
+            throw NetworkError.payloadTooLarge(size: imageData.count, limit: effectiveMaxUploadSize)
         }
 
         // Warn if image is large (base64 encoding will increase size by ~33%)
-        let maxRecommendedSize = maxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
+        let maxRecommendedSize = effectiveMaxUploadSize / 4 * 3  // ~75% of max to account for base64 overhead
         if imageData.count > maxRecommendedSize {
             #if canImport(OSLog)
                 asyncNetLogger.info(
@@ -1247,13 +1273,10 @@ public actor ImageService {
         var node = lruHead
         var count = 0
         var nodesToEvict: [LRUNode] = []
-        var retainedKeys: [String] = []
         // Traverse from head, keep first maxLRUCount nodes, collect nodes to evict
         while let current = node {
             count += 1
-            if count <= cacheConfig.maxLRUCount {
-                retainedKeys.append(current.key)
-            } else {
+            if count > cacheConfig.maxLRUCount {
                 nodesToEvict.append(current)
             }
             node = current.next
@@ -1815,15 +1838,21 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
         let cost: Int
 
         init(value: Value, cost: Int = 1) {
+            // Validate cost is non-negative
             self.value = value
-            self.cost = cost
+            self.cost = max(0, cost)
         }
     }
 
     public init(countLimit: Int? = nil, totalCostLimit: Int? = nil) {
-        self.countLimit = countLimit
-        self.totalCostLimit = totalCostLimit
+        // Validate limits are non-negative
+        self.countLimit = countLimit.map { max(0, $0) }
+        self.totalCostLimit = totalCostLimit.map { max(0, $0) }
+
     }
+
+   
+
 
     /// Get the current count of items
     public var count: Int {
@@ -1848,7 +1877,10 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
 
     /// Store an object in the cache with limit enforcement
     public func setObject(_ value: Value, forKey key: Key, cost: Int = 1) {
-        let entry = CacheEntry(value: value, cost: cost)
+        // Validate cost is non-negative
+        let safeCost = max(0, cost)
+
+        let entry = CacheEntry(value: value, cost: safeCost)
 
         // Remove existing entry if present to update cost
         if let existingEntry = storage[key] {
@@ -1866,14 +1898,14 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
 
         // Enforce cost limit by removing oldest items if necessary
         if let totalCostLimit = totalCostLimit {
-            while _totalCost + cost > totalCostLimit && !storage.isEmpty {
+            while _totalCost + safeCost > totalCostLimit && !storage.isEmpty {
                 evictOldestEntry()
             }
         }
 
         // Add the new entry
         storage[key] = entry
-        _totalCost += cost
+        _totalCost += safeCost
         insertionOrder.append(key)
     }
 

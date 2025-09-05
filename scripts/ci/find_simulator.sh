@@ -190,54 +190,16 @@ find_simulator() {
     # Find an available simulator and capture both name and UDID
     echo "Querying available ${PLATFORM_KEY} simulators..."
 
-    # Create secure temporary files for capturing command output
-    # Use traps to ensure cleanup on any exit or signal
-    STDOUT_TEMP=""
-    STDERR_TEMP=""
-    
-    # Function to clean up temp files
-    cleanup_temp_files() {
-        [ -n "$STDOUT_TEMP" ] && [ -f "$STDOUT_TEMP" ] && rm -f "$STDOUT_TEMP"
-        [ -n "$STDERR_TEMP" ] && [ -f "$STDERR_TEMP" ] && rm -f "$STDERR_TEMP"
-    }
-    
-    # Register cleanup function for all exit paths and signals
-    trap cleanup_temp_files EXIT INT TERM HUP
-    
-    # Create stdout temp file
-    STDOUT_TEMP=$(mktemp) || {
-        echo "ERROR: Failed to create temporary file for stdout capture"
-        echo "Command: mktemp"
-        echo "Exit code: $?"
-        echo "This may indicate disk space issues or permissions problems"
-        exit 1
-    }
-    
-    # Create stderr temp file
-    STDERR_TEMP=$(mktemp) || {
-        echo "ERROR: Failed to create temporary file for stderr capture"
-        echo "Command: mktemp"
-        echo "Exit code: $?"
-        echo "This may indicate disk space issues or permissions problems"
-        exit 1
-    }
-    
     # Run xcrun command once and capture both output and exit code
-    # Use separate temp files to avoid mixing stderr with JSON stdout
+    # Use command substitution to capture both stdout and stderr
     echo "Running: xcrun simctl list --json devices available"
     XCRUN_PATH=$(command -v xcrun)
     echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
     
-    # Run xcrun with stdout and stderr separated
-    xcrun simctl list --json devices available >"$STDOUT_TEMP" 2>"$STDERR_TEMP"
-    EXIT_CODE=$?
-    
-    # Read outputs from temp files
-    JSON_OUTPUT=$(cat "$STDOUT_TEMP")
-    ERR_OUTPUT=$(cat "$STDERR_TEMP")
-    
-    # Check if command failed
-    if [ $EXIT_CODE -ne 0 ]; then
+    # Run xcrun with stdout and stderr captured using command substitution
+    if ! JSON_OUTPUT=$(xcrun simctl list --json devices available 2>&1); then
+        EXIT_CODE=$?
+        ERR_OUTPUT="$JSON_OUTPUT"  # Since we captured both stdout and stderr
         echo "ERROR: xcrun simctl list failed with exit code $EXIT_CODE"
         echo "Command run: xcrun simctl list --json devices available"
         echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
@@ -262,13 +224,9 @@ find_simulator() {
         echo ""
         echo "Available devices list:"
         xcrun simctl list devices available || true
-        # Cleanup will be handled by trap
         exit $EXIT_CODE
     fi
     
-    # Cleanup temp files on success (trap will handle this, but explicit cleanup for clarity)
-    cleanup_temp_files
-
     # Extract stderr from mixed output if needed (JSON_OUTPUT contains both stdout and stderr)
     # For successful execution, JSON_OUTPUT should contain valid JSON
 
@@ -348,228 +306,93 @@ find_simulator() {
         exit 1
     fi
 
+    # Track if we used fallback
+    USED_FALLBACK=false
     if [ -n "${SIMULATOR_LINE:-}" ]; then
         SIMULATOR_NAME="$(echo "$SIMULATOR_LINE" | cut -f1)"
         SIMULATOR_UDID="$(echo "$SIMULATOR_LINE" | cut -f2)"
         echo "Found available ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
     else
+        USED_FALLBACK=true
         echo "No available ${PLATFORM_KEY} simulators found, attempting fallback to '$FALLBACK_DEVICE'..."
-
-        # Validate fallback device name before attempting resolution
-        if ! validate_device_name "$FALLBACK_DEVICE"; then
-            echo "ERROR: Invalid fallback device name format"
-            echo "Platform: $PLATFORM_KEY"
-            echo "Device: $FALLBACK_DEVICE"
-            echo ""
-            echo "Available devices from JSON:"
-            echo "$JSON_OUTPUT" | jq '.devices' 2>/dev/null || echo "JSON parsing failed"
-            echo ""
-            echo "Available devices from xcrun simctl:"
+        # Fallback logic - try to find a simulator that matches the fallback device name
+        if ! SIMULATOR_LINE=$(echo "$JSON_OUTPUT" | jq --arg device_match "$FALLBACK_DEVICE" -r "$JQ_QUERY" 2>/dev/null | head -1); then
+            echo "ERROR: jq parsing for fallback device failed"
+            echo "Available devices list:"
             xcrun simctl list devices available || true
             exit 1
         fi
-
-        # Resolve fallback UDID from JSON first
-        echo "Attempting JSON UDID resolution for device: $FALLBACK_DEVICE"
-        JQ_PATH=$(command -v jq)
-        echo "jq executable path: ${JQ_PATH:-<not found>}"
         
-        # Validate JSON structure first
-        if ! echo "$JSON_OUTPUT" | jq -e '.devices' >/dev/null 2>&1; then
-            echo "WARNING: Invalid JSON structure for UDID resolution - missing .devices key"
-            echo "Skipping JSON UDID resolution, will try xcrun simctl parsing as fallback"
-            raw_json_udid=""
-        else
-            # Store jq query in variable to avoid duplication
-            JQ_UDID_QUERY='.devices
-                | to_entries[]
-                | select(.key | contains($platform))
-                | .value[]
-                | select(.name == $device and .isAvailable == true)
-                | .udid'
-            
-            # Build the jq command for logging
-            JQ_COMMAND="jq -r --arg platform \"$PLATFORM_KEY\" --arg device \"$FALLBACK_DEVICE\" \"$JQ_UDID_QUERY\""
-            echo "Running: echo \"<JSON_OUTPUT>\" | $JQ_COMMAND | head -n 1"
-            
-            local raw_json_udid
-            if ! raw_json_udid=$(echo "$JSON_OUTPUT" | jq -r --arg platform "$PLATFORM_KEY" --arg device "$FALLBACK_DEVICE" "$JQ_UDID_QUERY" 2>"$STDERR_TEMP" | head -n 1); then
-                EXIT_CODE=$?
-                STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-                echo "WARNING: JSON UDID resolution jq command failed with exit code $EXIT_CODE"
-                echo "Command run: echo \"<JSON_OUTPUT>\" | $JQ_COMMAND | head -n 1"
-                echo "jq stderr output: $STDERR_OUTPUT"
-                echo "This is not fatal - will try xcrun simctl parsing as fallback"
-                raw_json_udid=""
-            fi
-        fi
-
-        # Validate JSON UDID resolution
-        if SIMULATOR_UDID=$(validate_and_clean_udid "$raw_json_udid" "JSON resolution"); then
-            echo "Successfully resolved UDID from JSON: $SIMULATOR_UDID"
-        else
-            echo "JSON UDID resolution failed or returned invalid UDID, trying xcrun simctl list parsing..."
-            
-            # Try parsing xcrun simctl list output
-            local raw_simctl_udid
-            raw_simctl_udid="$(
-                xcrun simctl list devices available 2>/dev/null | \
-                grep -F "$FALLBACK_DEVICE" | \
-                sed -n 's/.*(\([^)]*\)).*/\1/p' | \
-                head -n 1 | \
-                tr -d '[:space:]'
-            )"
-            
-            # Validate simctl UDID resolution
-            if ! SIMULATOR_UDID=$(validate_and_clean_udid "$raw_simctl_udid" "xcrun simctl parsing"); then
-                # Both resolution methods failed - provide comprehensive error information
-                echo "ERROR: Could not resolve valid UDID for fallback device"
-                echo "Platform: $PLATFORM_KEY"
-                echo "Attempted Device: $FALLBACK_DEVICE"
-                echo ""
-                echo "=== JSON Resolution Details ==="
-                echo "Raw JSON UDID result: '${raw_json_udid:-<empty>}'"
-                if [ -n "$raw_json_udid" ] && [ "$raw_json_udid" != "null" ]; then
-                    if ! echo "$raw_json_udid" | grep -q '^[0-9a-fA-F]\{8\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{12\}$'; then
-                        echo "JSON validation error: UDID does not match UUID format"
-                    else
-                        echo "JSON validation error: Unknown validation failure"
-                    fi
-                else
-                    echo "JSON validation error: Empty or null UDID"
-                fi
-                echo ""
-                echo "JSON devices matching platform '$PLATFORM_KEY':"
-                echo "$JSON_OUTPUT" | jq --arg platform "$PLATFORM_KEY" '
-                    .devices
-                    | to_entries[]
-                    | select(.key | contains($platform))
-                    | .key' 2>/dev/null || echo "JSON parsing failed"
-                echo ""
-                echo "All available devices from JSON:"
-                echo "$JSON_OUTPUT" | jq '.devices | to_entries[] | .key' 2>/dev/null || echo "JSON parsing failed"
-                echo ""
-                echo "=== xcrun simctl Resolution Details ==="
-                echo "Raw simctl UDID result: '${raw_simctl_udid:-<empty>}'"
-                if [ -n "$raw_simctl_udid" ] && [ "$raw_simctl_udid" != "null" ]; then
-                    if ! echo "$raw_simctl_udid" | grep -q '^[0-9a-fA-F]\{8\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{12\}$'; then
-                        echo "simctl validation error: UDID does not match UUID format"
-                    else
-                        echo "simctl validation error: Unknown validation failure"
-                    fi
-                else
-                    echo "simctl validation error: Empty or null UDID"
-                fi
-                echo ""
-                echo "xcrun simctl devices available output:"
-                xcrun simctl list devices available 2>/dev/null || echo "xcrun command failed"
-                echo ""
-                echo "Lines containing '$FALLBACK_DEVICE' from simctl output:"
-                xcrun simctl list devices available 2>/dev/null | grep -F "$FALLBACK_DEVICE" || echo "No matches found"
-                echo ""
-                echo "=== Resolution Summary ==="
-                echo "Both JSON and simctl resolution methods failed to provide a valid UUID-formatted UDID"
-                echo "Please verify that '$FALLBACK_DEVICE' exists and is available on this system"
-                exit 1
-            fi
-        fi
+        SIMULATOR_NAME="$(echo "$SIMULATOR_LINE" | cut -f1)"
+        SIMULATOR_UDID="$(echo "$SIMULATOR_LINE" | cut -f2)"
+        echo "Fallback to ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
         
-        SIMULATOR_NAME="$FALLBACK_DEVICE"
-        echo "Using fallback ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
-
-        # Ensure fallback device is booted for stable UDID
+        # Ensure fallback device is booted
         if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "fallback simulator"; then
             exit $?
         fi
     fi
 
     # Note: Fallback device is already booted above, so we only need to handle the primary device here
-    if [ -n "$SIMULATOR_UDID" ] && [ "$SIMULATOR_NAME" != "$FALLBACK_DEVICE" ]; then
+    if [ -n "$SIMULATOR_UDID" ] && [ "$USED_FALLBACK" = false ]; then
         if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "simulator"; then
             exit $?
         fi
     fi
 
-    if [ -n "${GITHUB_OUTPUT:-}" ]; then
-        # Validate that we have non-empty simulator information before writing outputs
-        if [ -z "$SIMULATOR_NAME" ]; then
-            echo "ERROR: Simulator name is empty or null - cannot proceed with CI"
-            exit 1
-        fi
-        if [ -z "$SIMULATOR_UDID" ]; then
-            echo "ERROR: Simulator UDID is empty or null - cannot proceed with CI"
-            exit 1
-        fi
-        
-        {
-            printf '%s\n' "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME"
-            printf '%s\n' "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID"
-        } >> "$GITHUB_OUTPUT"
-    else
-        echo "GITHUB_OUTPUT not set; printing outputs for local run:"
-        printf '%s\n' "${OUTPUT_PREFIX}_simulator_name=$SIMULATOR_NAME"
-        printf '%s\n' "${OUTPUT_PREFIX}_simulator_udid=$SIMULATOR_UDID"
-    fi
-    echo "Successfully configured ${PLATFORM_KEY} Simulator: name='$SIMULATOR_NAME' udid='${SIMULATOR_UDID:-N/A}'"
-}
-
-# Helper function to boot simulator if needed
-boot_simulator_if_needed() {
-    local simulator_name="$1"
-    local simulator_udid="$2"
-    local context_message="$3"
-    
-    echo "Ensuring $context_message is booted: $simulator_name ($simulator_udid)"
-    XCRUN_PATH=$(command -v xcrun)
-    echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
-    
-    # Check current state first
-    echo "Checking current state of simulator: $simulator_name ($simulator_udid)"
-    if ! CURRENT_STATE="$(xcrun simctl list --json devices 2>"$STDERR_TEMP" | jq -r --arg udid "$simulator_udid" '.devices | to_entries[] | .value[] | select(.udid == $udid) | .state // empty' 2>>"$STDERR_TEMP")"; then
-        STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-        echo "WARNING: Failed to check simulator state, proceeding with boot attempt"
-        echo "xcrun simctl list stderr: $STDERR_OUTPUT"
-        CURRENT_STATE=""
-    fi
-    
-    if [ "$CURRENT_STATE" != "Booted" ]; then
-        echo "$context_message not booted; attempting boot..."
-        echo "Running: xcrun simctl boot \"$simulator_udid\""
-        if ! xcrun simctl boot "$simulator_udid" >"$STDOUT_TEMP" 2>"$STDERR_TEMP"; then
-            EXIT_CODE=$?
-            STDOUT_OUTPUT=$(cat "$STDOUT_TEMP")
-            STDERR_OUTPUT=$(cat "$STDERR_TEMP")
-            echo "ERROR: Failed to boot $context_message '$simulator_name' (UDID: $simulator_udid)"
-            echo "Command run: xcrun simctl boot \"$simulator_udid\""
-            echo "xcrun executable path: ${XCRUN_PATH:-<not found>}"
-            echo "Exit code: $EXIT_CODE"
-            echo ""
-            echo "=== Captured stdout output ==="
-            echo "$STDOUT_OUTPUT"
-            echo ""
-            echo "=== Captured stderr output ==="
-            echo "$STDERR_OUTPUT"
-            echo ""
+    # Boot simulator if not already booted (fallback devices are already booted above)
+    if [ "$USED_FALLBACK" = false ]; then
+        echo ""
+        echo "Selected ${PLATFORM_KEY} simulator:"
+        echo "Name: $SIMULATOR_NAME"
+        echo "UDID: $SIMULATOR_UDID"
+        echo ""
+        echo "Booting simulator..."
+        if ! xcrun simctl boot "$SIMULATOR_UDID"; then
+            echo "ERROR: Failed to boot simulator with xcrun simctl boot"
+            echo "Simulator UDID: $SIMULATOR_UDID"
             echo "Available devices list:"
             xcrun simctl list devices available || true
-            echo ""
-            echo "Device details from simctl list:"
-            xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$simulator_name" || true
-            return $EXIT_CODE
+            exit 1
         fi
-        echo "Waiting for $context_message to be ready..."
-        if ! timeout_bootstatus "$simulator_name" "$simulator_udid" "$context_message readiness check"; then
-            echo "ERROR: Failed to reach booted state for $context_message '$simulator_name' (UDID: $simulator_udid)"
-            xcrun simctl list devices available || true
-            xcrun simctl list devices 2>/dev/null | grep -F -A 2 -B 2 "$simulator_name" || true
-            return 1
-        fi
-        echo "$context_message successfully booted"
-    else
-        echo "$context_message already booted"
-    fi
-    return 0
-}
 
-# Call the function with the provided arguments
-find_simulator "$PLATFORM_KEY" "$DEVICE_MATCH" "$FALLBACK_DEVICE" "$OUTPUT_PREFIX"
+        # Wait for the simulator to be fully booted
+        echo "Waiting for simulator to be fully booted..."
+        if ! timeout_bootstatus "$SIMULATOR_NAME" "$SIMULATOR_UDID" "Simulator booting"; then
+            echo "ERROR: Simulator did not reach booted state"
+            exit 1
+        fi
+
+        echo "✓ Simulator is booted and ready"
+    else
+        echo ""
+        echo "Using fallback ${PLATFORM_KEY} simulator (already booted):"
+        echo "Name: $SIMULATOR_NAME"
+        echo "UDID: $SIMULATOR_UDID"
+        echo ""
+        echo "✓ Fallback simulator is already booted and ready"
+    fi
+
+    # Print final selected simulator information
+    echo "Final selected ${PLATFORM_KEY} simulator:"
+    echo "Name: $SIMULATOR_NAME"
+    echo "UDID: $SIMULATOR_UDID"
+    echo ""
+    echo "You can now run your tests or build your app targeting this simulator."
+    echo "For example, to run tests with xcodebuild:"
+    echo "  xcodebuild test -destination 'id=$SIMULATOR_UDID'"
+    echo ""
+    echo "To open the simulator in Xcode, use the following menu:"
+    echo "  Window > Devices and Simulators > Select your simulator > Open Console"
+    echo ""
+    echo "To uninstall the app from the simulator:"
+    echo "  xcrun simctl uninstall $SIMULATOR_UDID <app_bundle_identifier>"
+    echo ""
+    echo "To shutdown the simulator:"
+    echo "  xcrun simctl shutdown $SIMULATOR_UDID"
+    echo ""
+    echo "To delete the simulator (if no longer needed):"
+    echo "  xcrun simctl delete $SIMULATOR_UDID"
+    echo ""
+    echo "=== Simulator Discovery Completed ==="
+}

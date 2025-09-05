@@ -95,7 +95,7 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 ///     var scheme: URLScheme = .https
 ///     var host: String = "api.example.com"
 ///     var path: String = "/users"
-///     var method: RequestMethod = .GET
+///     var method: RequestMethod = .get
 /// }
 ///
 /// class UserService: AsyncRequestable {
@@ -394,9 +394,17 @@ public extension AsyncRequestable {
 
 		// Resolve timeout: timeoutDuration takes precedence over legacy timeout
 		if let timeoutDuration = endPoint.timeoutDuration {
-			// Convert Duration to TimeInterval (seconds)
-			request.timeoutInterval = Double(timeoutDuration.components.seconds)
+			// Convert Duration to TimeInterval (seconds) with full precision
+			let components = timeoutDuration.components
+			let timeoutSeconds = TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+			guard timeoutSeconds > 0 else {
+				throw NetworkError.invalidEndpoint(reason: "Timeout duration must be positive")
+			}
+			request.timeoutInterval = timeoutSeconds
 		} else if let legacyTimeout = endPoint.timeout {
+			guard legacyTimeout > 0 else {
+				throw NetworkError.invalidEndpoint(reason: "Timeout must be positive")
+			}
 			request.timeoutInterval = legacyTimeout
 		}
 
@@ -480,9 +488,47 @@ public protocol URLSessionProtocol: Sendable {
 
 extension URLSession: URLSessionProtocol {}
 
+/// Configuration for the shared network cache
+private struct NetworkCacheConfig {
+	/// Maximum number of cache entries (default: 100)
+	let maxSize: Int
+	/// Cache expiration time in seconds (default: 600 = 10 minutes)
+	let expiration: TimeInterval
+
+	/// Initialize from environment variables with validation and defaults
+	static func fromEnvironment() -> NetworkCacheConfig {
+		let environment = ProcessInfo.processInfo.environment
+
+		// Parse maxSize from environment with validation
+		let maxSize: Int
+		if let maxSizeString = environment["ASYNCNET_CACHE_MAX_SIZE"],
+			let parsedSize = Int(maxSizeString),
+			parsedSize > 0
+		{
+			maxSize = parsedSize
+		} else {
+			maxSize = 100  // Default value
+		}
+
+		// Parse expiration from environment with validation
+		let expiration: TimeInterval
+		if let expirationString = environment["ASYNCNET_CACHE_EXPIRATION"],
+			let parsedExpiration = TimeInterval(expirationString),
+			parsedExpiration > 0
+		{
+			expiration = parsedExpiration
+		} else {
+			expiration = 600.0  // Default: 10 minutes
+		}
+
+		return NetworkCacheConfig(maxSize: maxSize, expiration: expiration)
+	}
+}
+
 /// Shared AdvancedNetworkManager instance for default usage across all services.
 /// This ensures consistent caching and deduplication behavior when no custom manager is provided.
 private let sharedNetworkManager: AdvancedNetworkManager = {
-	let cache = DefaultNetworkCache(maxSize: 100, expiration: 600)  // 10 minutes default
+	let config = NetworkCacheConfig.fromEnvironment()
+	let cache = DefaultNetworkCache(maxSize: config.maxSize, expiration: config.expiration)
 	return AdvancedNetworkManager(cache: cache, interceptors: [], urlSession: nil)
 }()
