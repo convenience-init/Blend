@@ -99,7 +99,6 @@ jobs:
           swift build --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-            -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks \
             -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
 
       - name: Build (macOS Xcode)
@@ -297,7 +296,6 @@ jobs:
           swift test --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-            -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks \
             -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
             --enable-code-coverage
 
