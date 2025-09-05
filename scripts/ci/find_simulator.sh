@@ -370,9 +370,63 @@ find_simulator() {
             exit 1
         fi
         
-        SIMULATOR_NAME="$(echo "$SIMULATOR_LINE" | cut -f1)"
-        SIMULATOR_UDID="$(echo "$SIMULATOR_LINE" | cut -f2)"
-        echo "Fallback to ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
+        if [ -n "${SIMULATOR_LINE:-}" ]; then
+            SIMULATOR_NAME="$(echo "$SIMULATOR_LINE" | cut -f1)"
+            SIMULATOR_UDID="$(echo "$SIMULATOR_LINE" | cut -f2)"
+            echo "Fallback to ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
+        else
+            # No simulators found at all, create one
+            echo "No ${PLATFORM_KEY} simulators found, creating a new one..."
+            
+            # Determine the device type and runtime based on platform
+            case "$PLATFORM_KEY" in
+                "iOS")
+                    DEVICE_TYPE="iPhone"
+                    RUNTIME=$(xcrun simctl list runtimes | grep "iOS" | grep "ready" | tail -1 | awk '{print $2}' | tr -d '()')
+                    ;;
+                "tvOS")
+                    DEVICE_TYPE="Apple TV"
+                    RUNTIME=$(xcrun simctl list runtimes | grep "tvOS" | grep "ready" | tail -1 | awk '{print $2}' | tr -d '()')
+                    ;;
+                *)
+                    echo "ERROR: Unsupported platform: $PLATFORM_KEY"
+                    exit 1
+                    ;;
+            esac
+            
+            if [ -z "$RUNTIME" ]; then
+                echo "ERROR: No suitable runtime found for $PLATFORM_KEY"
+                echo "Available runtimes:"
+                xcrun simctl list runtimes || true
+                echo ""
+                echo "For CI environments, you may need to install the $PLATFORM_KEY runtime:"
+                echo "  - GitHub Actions: Use 'xcodes' or 'simctl' to install runtimes"
+                echo "  - Local development: Install additional simulator runtimes in Xcode"
+                echo ""
+                echo "To install tvOS runtime in CI (example for GitHub Actions):"
+                echo "  - name: Install tvOS Runtime"
+                echo "    run: |"
+                echo "      xcrun simctl runtime add tvOS"
+                echo "      # or use xcodes: xcodes runtimes install tvOS"
+                exit 1
+            fi
+            
+            # Create simulator with a unique name
+            SIMULATOR_NAME="${DEVICE_TYPE} CI $(date +%s)"
+            echo "Creating ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' with runtime $RUNTIME"
+            
+            if ! SIMULATOR_UDID=$(xcrun simctl create "$SIMULATOR_NAME" "$DEVICE_TYPE" "$RUNTIME"); then
+                echo "ERROR: Failed to create ${PLATFORM_KEY} simulator"
+                echo "Available device types:"
+                xcrun simctl list devicetypes || true
+                echo "Available runtimes:"
+                xcrun simctl list runtimes || true
+                exit 1
+            fi
+            
+            echo "Created ${PLATFORM_KEY} simulator: '$SIMULATOR_NAME' (UDID: $SIMULATOR_UDID)"
+            USED_FALLBACK=false  # Reset since we created a new simulator
+        fi
         
         # Ensure fallback device is booted
         if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "fallback simulator"; then

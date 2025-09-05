@@ -143,6 +143,31 @@ jobs:
           echo "Building for iOS simulator: $DEST"
           xcodebuild -scheme AsyncNet -destination "$DEST" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
+      - name: Install tvOS Runtime
+        if: matrix.target == 'tvos'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "Installing tvOS runtime for Xcode ${{ matrix.xcode }}..."
+          
+          # Install xcodes if not available
+          if ! command -v xcodes &> /dev/null; then
+            echo "Installing xcodes..."
+            brew install xcodesorg/made/xcodes
+          fi
+          
+          # Install tvOS runtime
+          echo "Installing tvOS simulator runtime..."
+          xcodes runtimes install tvOS --latest
+          
+          # Verify installation
+          echo "Verifying tvOS runtime installation..."
+          xcrun simctl list runtimes | grep tvOS || {
+            echo "ERROR: tvOS runtime installation failed"
+            exit 1
+          }
+
       - name: Find tvOS Simulator
         if: matrix.target == 'tvos'
         id: find_tvos_simulator
