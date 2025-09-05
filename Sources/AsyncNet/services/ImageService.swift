@@ -1777,7 +1777,6 @@ private struct UploadPayload: Encodable {
 
     extension SwiftUI.Image {
         /// Creates a SwiftUI Image from a platform-specific image
-       
         /// - Parameter platformImage: The UIImage or NSImage to convert
         public init(platformImage: PlatformImage) {
             #if canImport(UIKit)
@@ -1815,9 +1814,6 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
         self.totalCostLimit = totalCostLimit.map { max(0, $0) }
 
     }
-
-   
-
 
     /// Get the current count of items
     public var count: Int {
