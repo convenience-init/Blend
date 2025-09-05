@@ -96,7 +96,7 @@ jobs:
       - name: Build (macOS SPM)
         if: matrix.target == 'macos' && matrix.build == 'spm'
         run: |
-          swift build --configuration Debug \
+          swift build --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
             -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks
@@ -215,7 +215,7 @@ jobs:
       - name: Test macOS SPM
         if: matrix.target == 'macos' && matrix.build == 'spm'
         run: |
-          swift test --configuration Debug \
+          swift test --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
             -Xswiftc -Xfrontend -Xswiftc -enable-actor-data-race-checks \
