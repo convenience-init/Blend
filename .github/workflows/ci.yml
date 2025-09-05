@@ -161,8 +161,10 @@ jobs:
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
             echo "ERROR: Both iOS simulator UDID and name outputs are empty or missing" >&2
+            echo "" >&2
             echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
             echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "" >&2
             echo "Cannot proceed with iOS build without valid simulator information." >&2
             exit 1
           fi
@@ -311,8 +313,10 @@ jobs:
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
             echo "ERROR: Both iOS simulator UDID and name outputs are empty or missing" >&2
+            echo "" >&2
             echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
             echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "" >&2
             echo "Cannot proceed with iOS tests without valid simulator information." >&2
             exit 1
           fi
@@ -339,8 +343,10 @@ jobs:
           # Validate that at least one simulator output is available
           if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
             echo "ERROR: Both tvOS simulator UDID and name outputs are empty or missing" >&2
+            echo "" >&2
             echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
             echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "" >&2
             echo "Cannot proceed with tvOS tests without valid simulator information." >&2
             exit 1
           fi
