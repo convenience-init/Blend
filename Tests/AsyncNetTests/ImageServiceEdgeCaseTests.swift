@@ -3,9 +3,8 @@ import Testing
 
 @testable import AsyncNet
 
-@Suite("Image Service Edge Case Tests")
-struct ImageServiceEdgeCaseTests {
-    @Test func testCacheEvictionMaxLRUCount() async throws {
+@Suite public struct ImageServiceEdgeCaseTests {
+    @Test public func testCacheEvictionMaxLRUCount() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         // Generate URLs for the test requests
         let requestUrls =
@@ -32,8 +31,8 @@ struct ImageServiceEdgeCaseTests {
             dataCacheTotalCostLimit: 1024 * 1024,
             urlSession: mockSession)
         // Fill cache
-        for i in 0..<5 {
-            let url = "https://mock.api/test\(i)"
+        for itemIndex in 0..<5 {
+            let url = "https://mock.api/test\(itemIndex)"
             _ = try await service.fetchImageData(from: url)
         }
         // Add one more to trigger eviction
@@ -55,7 +54,7 @@ struct ImageServiceEdgeCaseTests {
         #expect(await service.isImageCached(forKey: "https://mock.api/test4") == true)
     }
 
-    @Test func testCacheEvictionMaxAge() async throws {
+    @Test public func testCacheEvictionMaxAge() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -95,7 +94,7 @@ struct ImageServiceEdgeCaseTests {
         #expect(isCached == false, "Image should be evicted after maxAge expiry")
     }
 
-    @Test func testCacheMetricsHitsMisses() async throws {
+    @Test public func testCacheMetricsHitsMisses() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -117,7 +116,7 @@ struct ImageServiceEdgeCaseTests {
         #expect(await service.cacheHits == 1)
     }
 
-    @Test func testEvictionAfterCacheConfigUpdate() async throws {
+    @Test public func testEvictionAfterCacheConfigUpdate() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         // Generate URLs for the test requests
         let requestUrls = (0..<6).map { "https://mock.api/test\($0)" }
@@ -144,8 +143,8 @@ struct ImageServiceEdgeCaseTests {
             dataCacheTotalCostLimit: 1024 * 1024,
             urlSession: mockSession)
         // Fill cache to capacity
-        for i in 0..<6 {
-            let url = "https://mock.api/test\(i)"
+        for itemIndex in 0..<6 {
+            let url = "https://mock.api/test\(itemIndex)"
             _ = try await service.fetchImageData(from: url)
         }
         // Reduce limit to trigger eviction due to config update

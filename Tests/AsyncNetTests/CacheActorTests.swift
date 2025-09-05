@@ -4,11 +4,11 @@ import Testing
 @testable import AsyncNet
 
 @Suite("Cache Actor Tests")
-struct CacheActorTests {
+public struct CacheActorTests {
 
     // MARK: - Cache Actor Tests
 
-    @Test func testCacheActorBasicOperations() async {
+    @Test public func testCacheActorBasicOperations() async {
         let cache = Cache<String, SendableData>(countLimit: 3, totalCostLimit: 1000)
 
         let data1 = SendableData(Data([1, 2, 3]))
@@ -41,13 +41,13 @@ struct CacheActorTests {
         #expect(retrieved4?.data == data4.data)
     }
 
-    @Test func testCacheActorRemoveOperations() async {
+    @Test public func testCacheActorRemoveOperations() async {
         let cache = Cache<String, SendableData>(countLimit: 5, totalCostLimit: 1000)
 
         // Add multiple items
-        for i in 1...5 {
-            let data = SendableData(Data([UInt8(i)]))
-            await cache.setObject(data, forKey: "key\(i)", cost: 1)
+        for itemIndex in 1...5 {
+            let data = SendableData(Data([UInt8(itemIndex)]))
+            await cache.setObject(data, forKey: "key\(itemIndex)", cost: 1)
         }
 
         // Remove middle item

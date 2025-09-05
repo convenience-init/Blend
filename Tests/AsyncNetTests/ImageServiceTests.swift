@@ -8,7 +8,7 @@ import Testing
 @testable import AsyncNet
 
 /// Get current resident memory size in bytes using Mach task_info API
-func currentResidentSizeBytes() -> UInt64? {
+public func currentResidentSizeBytes() -> UInt64? {
     #if canImport(Darwin)
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(
@@ -28,10 +28,9 @@ func currentResidentSizeBytes() -> UInt64? {
     #endif
 }
 
-@Suite("Image Service Tests")
-struct ImageServiceTests {
+@Suite public struct ImageServiceTests {
 
-    @Test func testFetchImageDataSuccess() async throws {
+    @Test public func testFetchImageDataSuccess() async throws {
         // Prepare mock image data and response
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])  // JPEG header
         let response = HTTPURLResponse(
@@ -52,7 +51,7 @@ struct ImageServiceTests {
         #expect(result == imageData)
     }
 
-    @Test func testFetchImageDataInvalidURL() async throws {
+    @Test public func testFetchImageDataInvalidURL() async throws {
         let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
         let service = ImageService(
             imageCacheCountLimit: 100,
@@ -80,7 +79,7 @@ struct ImageServiceTests {
         }
     }
 
-    @Test func testFetchImageDataUnauthorized() async throws {
+    @Test public func testFetchImageDataUnauthorized() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -101,7 +100,7 @@ struct ImageServiceTests {
         }
     }
 
-    @Test func testFetchImageDataBadMimeType() async throws {
+    @Test public func testFetchImageDataBadMimeType() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -136,7 +135,7 @@ struct ImageServiceTests {
         }
     }
 
-    @Test func testUploadImageMultipartSuccess() async throws {
+    @Test public func testUploadImageMultipartSuccess() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/upload")!,
@@ -247,7 +246,7 @@ struct ImageServiceTests {
         #expect(bodyData.range(of: imageData) != nil, "Body should contain the original image data")
     }
 
-    @Test func testUploadImageBase64Success() async throws {
+    @Test public func testUploadImageBase64Success() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/upload")!,
@@ -325,7 +324,7 @@ struct ImageServiceTests {
         }
     }
 
-    @Test func testUploadImageMultipartPayloadTooLarge() async throws {
+    @Test public func testUploadImageMultipartPayloadTooLarge() async throws {
         let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
         let mockResponse = HTTPURLResponse(
             url: URL(string: "https://mock.api/upload")!,
@@ -359,7 +358,7 @@ struct ImageServiceTests {
             "No network requests should be recorded when payload size exceeds limit")
     }
 
-    @Test func testUploadImageBase64PayloadTooLarge() async throws {
+    @Test public func testUploadImageBase64PayloadTooLarge() async throws {
         let largeImageData = Data(repeating: 0xFF, count: 2048)  // 2KB, exceeds 1KB limit
         let mockResponse = HTTPURLResponse(
             url: URL(string: "https://mock.api/upload")!,
@@ -393,10 +392,9 @@ struct ImageServiceTests {
             "No network requests should be recorded when payload size exceeds limit")
     }
 }
-@Suite("Image Service Performance Benchmarks")
-struct ImageServicePerformanceTests {
+@Suite public struct ImageServicePerformanceTests {
 
-    @Test func testNetworkLatencyColdStart() async throws {
+    @Test public func testNetworkLatencyColdStart() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -429,7 +427,7 @@ struct ImageServicePerformanceTests {
         #expect(duration < .milliseconds(Int(maxLatency * 1000)))  // Adjust timeout based on environment
     }
 
-    @Test func testCachingAvoidsRepeatedNetworkCalls() async throws {
+    @Test public func testCachingAvoidsRepeatedNetworkCalls() async throws {
         let imageData = Data(repeating: 0xFF, count: 1024 * 1024)  // 1MB image
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -469,7 +467,7 @@ struct ImageServicePerformanceTests {
         #expect(recordedRequests.count == 1, "Only one network request should have been made")
     }
 
-    @Test func testCachingMemoryUsage() async throws {
+    @Test public func testCachingMemoryUsage() async throws {
         let imageData = Data(repeating: 0xFF, count: 1024 * 1024)  // 1MB image
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -532,7 +530,7 @@ struct ImageServicePerformanceTests {
         #endif
     }
 
-    @Test func testCacheHitRate() async throws {
+    @Test public func testCacheHitRate() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -559,7 +557,7 @@ struct ImageServicePerformanceTests {
         #expect(await mockSession.callCount == 1)
     }
 
-    @Test func testConcurrentRequestHandling() async throws {
+    @Test public func testConcurrentRequestHandling() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,
@@ -584,7 +582,7 @@ struct ImageServicePerformanceTests {
         try await withThrowingTaskGroup(of: (Int, Bool).self) { group in
             var activeTasks = 0
 
-            for i in 0..<concurrentRequests {
+            for requestIndex in 0..<concurrentRequests {
                 // If we've reached the concurrency limit, wait for a task to complete
                 while activeTasks >= maxConcurrentTasks {
                     if let completedResult = try await group.next() {
@@ -601,14 +599,14 @@ struct ImageServicePerformanceTests {
                 group.addTask {
                     let result = try await service.fetchImageData(from: url)
                     let success = result == imageData
-                    return (i, success)
+                    return (requestIndex, success)
                 }
                 activeTasks += 1
             }
 
             // Collect remaining results
-            for try await (i, success) in group {
-                results[i] = success
+            for try await (resultIndex, success) in group {
+                results[resultIndex] = success
             }
         }
         let successCount = results.filter { $0 }.count
@@ -621,9 +619,9 @@ struct ImageServicePerformanceTests {
     }
 }
 @Suite("Image Service LRU Cache Tests")
-struct ImageServiceLRUCacheTests {
+public struct ImageServiceLRUCacheTests {
 
-    @Test func testImageServiceLRUBasicOperations() async {
+    @Test public func testImageServiceLRUBasicOperations() async {
         let service = ImageService(
             imageCacheCountLimit: 3,
             imageCacheTotalCostLimit: 1000,
@@ -665,7 +663,7 @@ struct ImageServiceLRUCacheTests {
         #expect(true, "LRU operations completed without errors")
     }
 
-    @Test func testImageServiceLRUNodeRemoval() async {
+    @Test public func testImageServiceLRUNodeRemoval() async {
         let service = ImageService(
             imageCacheCountLimit: 5,
             imageCacheTotalCostLimit: 1000,
@@ -674,9 +672,9 @@ struct ImageServiceLRUCacheTests {
         )
 
         // Add multiple items
-        for i in 1...5 {
-            let data = Data([UInt8(i)])
-            await service.storeImageInCache(PlatformImage(), forKey: "key\(i)", data: data)
+        for itemIndex in 1...5 {
+            let data = Data([UInt8(itemIndex)])
+            await service.storeImageInCache(PlatformImage(), forKey: "key\(itemIndex)", data: data)
         }
 
         // Remove middle item
@@ -690,7 +688,7 @@ struct ImageServiceLRUCacheTests {
         #expect(true, "LRU removal operations completed without errors")
     }
 
-    @Test func testImageServiceLRUHeadTailConsistency() async {
+    @Test public func testImageServiceLRUHeadTailConsistency() async {
         let service = ImageService(
             imageCacheCountLimit: 3,
             imageCacheTotalCostLimit: 1000,
@@ -717,7 +715,7 @@ struct ImageServiceLRUCacheTests {
         #expect(true, "LRU consistency operations completed without errors")
     }
 
-    @Test func testImageServiceLRUStressTest() async {
+    @Test public func testImageServiceLRUStressTest() async {
         let service = ImageService(
             imageCacheCountLimit: 100,
             imageCacheTotalCostLimit: 10000,
@@ -726,9 +724,9 @@ struct ImageServiceLRUCacheTests {
         )
 
         // Add many items
-        for i in 1...50 {  // Reduced count to avoid timeout
-            let data = Data([UInt8(i % 256)])
-            await service.storeImageInCache(PlatformImage(), forKey: "key\(i)", data: data)
+        for itemIndex in 1...50 {  // Reduced count to avoid timeout
+            let data = Data([UInt8(itemIndex % 256)])
+            await service.storeImageInCache(PlatformImage(), forKey: "key\(itemIndex)", data: data)
         }
 
         // Random access pattern
@@ -746,7 +744,7 @@ struct ImageServiceLRUCacheTests {
         #expect(true, "Stress test completed without crashes")
     }
 
-    @Test func testImageServiceLRUConcurrentAccess() async {
+    @Test public func testImageServiceLRUConcurrentAccess() async {
         let service = ImageService(
             imageCacheCountLimit: 50,
             imageCacheTotalCostLimit: 5000,
@@ -756,23 +754,25 @@ struct ImageServiceLRUCacheTests {
 
         // Concurrent operations
         await withTaskGroup(of: Void.self) { group in
-            for i in 1...10 {
+            for itemIndex in 1...10 {
                 group.addTask {
-                    let data = Data([UInt8(i)])
-                    await service.storeImageInCache(PlatformImage(), forKey: "key\(i)", data: data)
+                    let data = Data([UInt8(itemIndex)])
+                    await service.storeImageInCache(
+                        PlatformImage(), forKey: "key\(itemIndex)", data: data)
                 }
             }
 
-            for i in 1...10 {
+            for itemIndex in 1...10 {
                 group.addTask {
-                    let _ = await service.isImageCached(forKey: "key\(i)")
+                    let _ = await service.isImageCached(forKey: "key\(itemIndex)")
                 }
             }
 
-            for i in 11...20 {
+            for itemIndex in 11...20 {
                 group.addTask {
-                    let data = Data([UInt8(i)])
-                    await service.storeImageInCache(PlatformImage(), forKey: "key\(i)", data: data)
+                    let data = Data([UInt8(itemIndex)])
+                    await service.storeImageInCache(
+                        PlatformImage(), forKey: "key\(itemIndex)", data: data)
                 }
             }
         }
@@ -786,7 +786,7 @@ struct ImageServiceLRUCacheTests {
         #expect(true, "Concurrent access test completed without crashes")
     }
 
-    @Test func testDeduplicationPreventsDuplicateRequests() async throws {
+    @Test public func testDeduplicationPreventsDuplicateRequests() async throws {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: URL(string: "https://mock.api/test")!,

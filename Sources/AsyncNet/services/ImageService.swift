@@ -487,8 +487,8 @@ public actor ImageService {
             }
 
             // Re-heapify the entire structure
-            for i in stride(from: heap.count / 2 - 1, through: 0, by: -1) {
-                siftDown(i)
+            for heapIndex in stride(from: heap.count / 2 - 1, through: 0, by: -1) {
+                siftDown(heapIndex)
             }
 
             // Update cached valid count (should match heap.count after pruning)
@@ -794,8 +794,7 @@ public actor ImageService {
     /// - Returns: Image data
     /// - Throws: NetworkError if the request fails
     public func fetchImageData(from urlString: String, retryConfig: RetryConfiguration?)
-        async throws
-        -> Data
+        async throws -> Data
     {
         // Determine which retry configuration to use:
         // 1. Explicitly passed configuration takes precedence
@@ -862,7 +861,7 @@ public actor ImageService {
                         }
 
                         let validMimeTypes = [
-                            "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic",
+                            "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic"
                         ]
                         guard validMimeTypes.contains(mimeType) else {
                             throw NetworkError.badMimeType(mimeType)
@@ -1227,114 +1226,49 @@ public actor ImageService {
         let bytes = [UInt8](data.prefix(min(32, data.count)))
         let dataCount = data.count
 
-        // Helper function to safely check byte sequences
-        func checkBytes(at indices: [Int], expected: [UInt8]) -> Bool {
-            guard indices.count == expected.count else { return false }
-            for (i, expectedByte) in expected.enumerated() {
-                let byteIndex = indices[i]
-                guard byteIndex < bytes.count && bytes[byteIndex] == expectedByte else {
-                    return false
-                }
+        // Define MIME type detectors as an array of (pattern, mimeType) tuples
+        let detectors: [(pattern: [Int: UInt8], minLength: Int, mimeType: String)] = [
+            // JPEG: FF D8 FF (SOI marker)
+            ([0: 0xFF, 1: 0xD8, 2: 0xFF], 3, "image/jpeg"),
+            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            (
+                [0: 0x89, 1: 0x50, 2: 0x4E, 3: 0x47, 4: 0x0D, 5: 0x0A, 6: 0x1A, 7: 0x0A], 8,
+                "image/png"
+            ),
+            // GIF87a: 47 49 46 38 37 61
+            ([0: 0x47, 1: 0x49, 2: 0x46, 3: 0x38, 4: 0x37, 5: 0x61], 6, "image/gif"),
+            // GIF89a: 47 49 46 38 39 61
+            ([0: 0x47, 1: 0x49, 2: 0x46, 3: 0x38, 4: 0x39, 5: 0x61], 6, "image/gif"),
+            // BMP: 42 4D (BM)
+            ([0: 0x42, 1: 0x4D], 2, "image/bmp"),
+            // TIFF Little Endian: 49 49 2A 00
+            ([0: 0x49, 1: 0x49, 2: 0x2A, 3: 0x00], 4, "image/tiff"),
+            // TIFF Big Endian: 4D 4D 00 2A
+            ([0: 0x4D, 1: 0x4D, 2: 0x00, 3: 0x2A], 4, "image/tiff"),
+        ]
+
+        // Check standard patterns
+        for (pattern, minLength, mimeType) in detectors {
+            guard dataCount >= minLength else { continue }
+            let matches = pattern.allSatisfy { offset, expectedByte in
+                bytes[offset] == expectedByte
             }
-            return true
+            if matches { return mimeType }
         }
 
-        // JPEG: FF D8 FF (SOI marker)
-        if dataCount >= 3 && checkBytes(at: [0, 1, 2], expected: [0xFF, 0xD8, 0xFF]) {
-            return "image/jpeg"
-        }
-
-        // PNG: 89 50 4E 47 0D 0A 1A 0A
-        if dataCount >= 8
-            && checkBytes(
-                at: [0, 1, 2, 3, 4, 5, 6, 7],
-                expected: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        // Check WebP: RIFF header + WEBP at offset 8
+        if dataCount >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46
+            && bytes[3] == 0x46
+            && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50
         {
-            return "image/png"
+            return "image/webp"
         }
 
-        // GIF87a: 47 49 46 38 37 61
-        if dataCount >= 6
-            && checkBytes(
-                at: [0, 1, 2, 3, 4, 5],
-                expected: [0x47, 0x49, 0x46, 0x38, 0x37, 0x61])
+        // Check HEIC/HEIF/AVIF: ISO Base Media File Format with 'ftyp' box
+        if dataCount >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79
+            && bytes[7] == 0x70
         {
-            return "image/gif"
-        }
-
-        // GIF89a: 47 49 46 38 39 61
-        if dataCount >= 6
-            && checkBytes(
-                at: [0, 1, 2, 3, 4, 5],
-                expected: [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
-        {
-            return "image/gif"
-        }
-
-        // WebP: RIFF header + WEBP at offset 8
-        if dataCount >= 12 && checkBytes(at: [0, 1, 2, 3], expected: [0x52, 0x49, 0x46, 0x46]) {
-            if checkBytes(at: [8, 9, 10, 11], expected: [0x57, 0x45, 0x42, 0x50]) {
-                return "image/webp"
-            }
-        }
-
-        // BMP: 42 4D (BM)
-        if dataCount >= 2 && checkBytes(at: [0, 1], expected: [0x42, 0x4D]) {
-            return "image/bmp"
-        }
-
-        // TIFF Little Endian: 49 49 2A 00
-        if dataCount >= 4 && checkBytes(at: [0, 1, 2, 3], expected: [0x49, 0x49, 0x2A, 0x00]) {
-            return "image/tiff"
-        }
-
-        // TIFF Big Endian: 4D 4D 00 2A
-        if dataCount >= 4 && checkBytes(at: [0, 1, 2, 3], expected: [0x4D, 0x4D, 0x00, 0x2A]) {
-            return "image/tiff"
-        }
-
-        // HEIC/HEIF/AVIF: ISO Base Media File Format with 'ftyp' box
-        if dataCount >= 12 && checkBytes(at: [4, 5, 6, 7], expected: [0x66, 0x74, 0x79, 0x70]) {
-            // Check major brand (bytes 8-11)
-            if dataCount >= 16 {
-                let brandBytes = (bytes[8], bytes[9], bytes[10], bytes[11])
-                switch brandBytes {
-                case (0x68, 0x65, 0x69, 0x63):  // "heic"
-                    return "image/heic"
-                case (0x68, 0x65, 0x69, 0x78):  // "heix"
-                    return "image/heic"
-                case (0x68, 0x65, 0x76, 0x63):  // "hevc"
-                    return "image/heic"
-                case (0x68, 0x65, 0x76, 0x78):  // "hevx"
-                    return "image/heic"
-                case (0x6d, 0x69, 0x66, 0x31):  // "mif1"
-                    return "image/heic"
-                case (0x6d, 0x73, 0x66, 0x31):  // "msf1"
-                    return "image/heic"
-                case (0x61, 0x76, 0x69, 0x66):  // "avif"
-                    return "image/avif"
-                case (0x61, 0x76, 0x69, 0x73):  // "avis"
-                    return "image/avif"
-                default:
-                    // Check compatible brands if available (bytes 12-15, 16-19, etc.)
-                    if dataCount >= 20 {
-                        let compatibleBrand1 = (bytes[12], bytes[13], bytes[14], bytes[15])
-                        let compatibleBrand2 = (bytes[16], bytes[17], bytes[18], bytes[19])
-
-                        // Check for HEIC/AVIF in compatible brands
-                        if compatibleBrand1 == (0x68, 0x65, 0x69, 0x63)
-                            || compatibleBrand1 == (0x61, 0x76, 0x69, 0x66)
-                            || compatibleBrand2 == (0x68, 0x65, 0x69, 0x63)
-                            || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66)
-                        {
-                            return brandBytes == (0x61, 0x76, 0x69, 0x66)
-                                || brandBytes == (0x61, 0x76, 0x69, 0x73)
-                                ? "image/avif" : "image/heic"
-                        }
-                    }
-                    break
-                }
-            }
+            return detectHEICVariant(from: bytes, dataCount: dataCount)
         }
 
         // Try platform-specific MIME detection as fallback
@@ -1345,174 +1279,191 @@ public actor ImageService {
         #endif
     }
 
-    #if canImport(UniformTypeIdentifiers)
+    /// Detects HEIC/AVIF variants from the ftyp box brand bytes
+    private func detectHEICVariant(from bytes: [UInt8], dataCount: Int) -> String? {
+        guard dataCount >= 16 else { return nil }
 
-        /// Fallback MIME detection using platform APIs with in-memory image source
-        private func detectMimeTypeUsingPlatformAPI(from data: Data) -> String? {
-            // First attempt: Use CGImageSource to detect image type in-memory
-            if let mimeType = detectMimeTypeUsingImageSource(from: data) {
-                return mimeType
+        let brandBytes = (bytes[8], bytes[9], bytes[10], bytes[11])
+        switch brandBytes {
+        case (0x68, 0x65, 0x69, 0x63), (0x68, 0x65, 0x69, 0x78), (0x68, 0x65, 0x76, 0x63),
+            (0x68, 0x65, 0x76, 0x78),
+            (0x6d, 0x69, 0x66, 0x31), (0x6d, 0x73, 0x66, 0x31):
+            return "image/heic"
+        case (0x61, 0x76, 0x69, 0x66), (0x61, 0x76, 0x69, 0x73):
+            return "image/avif"
+        default:
+            // Check compatible brands if available
+            if dataCount >= 20 {
+                let compatibleBrand1 = (bytes[12], bytes[13], bytes[14], bytes[15])
+                let compatibleBrand2 = (bytes[16], bytes[17], bytes[18], bytes[19])
+
+                if compatibleBrand1 == (0x68, 0x65, 0x69, 0x63)
+                    || compatibleBrand1 == (0x61, 0x76, 0x69, 0x66)
+                    || compatibleBrand2 == (0x68, 0x65, 0x69, 0x63)
+                    || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66)
+                {
+                    return compatibleBrand1 == (0x61, 0x76, 0x69, 0x66)
+                        || compatibleBrand1 == (0x61, 0x76, 0x69, 0x73)
+                        || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66)
+                        || compatibleBrand2 == (0x61, 0x76, 0x69, 0x73)
+                        ? "image/avif" : "image/heic"
+                }
             }
-
-            // Fallback: Use existing byte-pattern detection if image source fails
-            return detectMimeType(from: data)
+            return nil
         }
-
-        /// Detect MIME type using CGImageSource for in-memory processing
-        private func detectMimeTypeUsingImageSource(from data: Data) -> String? {
-            #if canImport(UIKit) || canImport(AppKit)
-                // Create CFData from Data for CoreGraphics compatibility
-                let cfData: CFData? = data.withUnsafeBytes { buffer in
-                    guard let baseAddress = buffer.baseAddress else { return nil }
-                    return CFDataCreate(
-                        kCFAllocatorDefault, baseAddress.assumingMemoryBound(to: UInt8.self),
-                        data.count)
-                }
-                guard let cfData = cfData else {
-                    return nil
-                }
-
-                // Create image source from data
-                guard let imageSource = CGImageSourceCreateWithData(cfData, nil) else {
-                    return nil
-                }
-
-                // Get the UTI type identifier from the image source
-                guard let uti = CGImageSourceGetType(imageSource) as String? else {
-                    return nil
-                }
-
-                // Convert UTI to MIME type using UTType
-                #if canImport(UniformTypeIdentifiers)
-                    if let type = UTType(uti) {
-                        // Map common image UTIs to MIME types
-                        if type.conforms(to: UTType.jpeg) {
-                            return "image/jpeg"
-                        } else if type.conforms(to: UTType.png) {
-                            return "image/png"
-                        } else if type.conforms(to: UTType.gif) {
-                            return "image/gif"
-                        } else if type.conforms(to: UTType.webP) {
-                            return "image/webp"
-                        } else if type.conforms(to: UTType.bmp) {
-                            return "image/bmp"
-                        } else if type.conforms(to: UTType.tiff) {
-                            return "image/tiff"
-                        } else if type.conforms(to: UTType.heic) || type.conforms(to: UTType.heif) {
-                            return "image/heic"
-                        }
-                    }
-                #endif
-
-                // Fallback: Direct UTI to MIME mapping for common types
-                switch uti {
-                case "public.jpeg", "public.jpg":
-                    return "image/jpeg"
-                case "public.png":
-                    return "image/png"
-                case "com.compuserve.gif":
-                    return "image/gif"
-                case "org.webmproject.webp":
-                    return "image/webp"
-                case "com.microsoft.bmp":
-                    return "image/bmp"
-                case "public.tiff":
-                    return "image/tiff"
-                case "public.heic", "public.heif":
-                    return "image/heic"
-                case "public.avif":
-                    return "image/avif"
-                default:
-                    // For unknown UTIs, try to extract MIME type if it looks like one
-                    if uti.hasPrefix("public.") && uti.contains("image") {
-                        // Some UTIs might be convertible to MIME types
-                        let mimeEquivalent = uti.replacingOccurrences(of: "public.", with: "image/")
-                        if mimeEquivalent != uti {
-                            return mimeEquivalent
-                        }
-                    }
-                    return nil
-                }
-            #else
-                return nil
-            #endif
-        }
-
-    #else
-
-        /// Fallback MIME detection for platforms without UniformTypeIdentifiers
-        private func detectMimeTypeUsingPlatformAPI(from data: Data) -> String? {
-            // Use existing byte-pattern detection as fallback
-            return detectMimeType(from: data)
-        }
-
-    #endif
-
-    /// Helper to safely encode UTF-8 strings for multipart data
-    private func encodeMultipartComponent(_ string: String, componentName: String) throws -> Data {
-        guard let data = string.data(using: .utf8, allowLossyConversion: false) else {
-            throw NetworkError.invalidEndpoint(
-                reason: "Failed to encode \(componentName) - contains invalid UTF-8 characters"
-            )
-        }
-        return data
     }
 
-    /// Builds multipart form-data body for image uploads
+    /// Detects MIME type using CGImageSource for in-memory processing
+    private func detectMimeTypeUsingImageSource(from data: Data) -> String? {
+        #if canImport(UIKit) || canImport(AppKit)
+            // Create CFData from Data for CoreGraphics compatibility
+            let cfData: CFData? = data.withUnsafeBytes { buffer in
+                guard let baseAddress = buffer.baseAddress else { return nil }
+                return CFDataCreate(
+                    kCFAllocatorDefault, baseAddress.assumingMemoryBound(to: UInt8.self),
+                    data.count)
+            }
+            guard let cfData = cfData else { return nil }
+
+            // Create image source from data
+            guard let imageSource = CGImageSourceCreateWithData(cfData, nil) else { return nil }
+
+            // Get the UTI type identifier from the image source
+            guard let uti = CGImageSourceGetType(imageSource) as String? else { return nil }
+
+            // Convert UTI to MIME type
+            return mapUTIToMIMEType(uti)
+        #else
+            return nil
+        #endif
+    }
+
+    /// Maps a UTI string to its corresponding MIME type
+    private func mapUTIToMIMEType(_ uti: String) -> String? {
+        // Direct UTI to MIME mapping for common types
+        let utiMappings: [String: String] = [
+            "public.jpeg": "image/jpeg",
+            "public.jpg": "image/jpeg",
+            "public.png": "image/png",
+            "com.compuserve.gif": "image/gif",
+            "org.webmproject.webp": "image/webp",
+            "com.microsoft.bmp": "image/bmp",
+            "public.tiff": "image/tiff",
+            "public.heic": "image/heic",
+            "public.heif": "image/heic",
+            "public.avif": "image/avif",
+        ]
+
+        // Check direct mappings first
+        if let mimeType = utiMappings[uti] {
+            return mimeType
+        }
+
+        // Try UTType-based mapping if available
+        #if canImport(UniformTypeIdentifiers)
+            if let type = UTType(uti) {
+                return mapUTTypeToMIMEType(type)
+            }
+        #endif
+
+        // For unknown UTIs, try to extract MIME type if it looks like one
+        if uti.hasPrefix("public.") && uti.contains("image") {
+            let mimeEquivalent = uti.replacingOccurrences(of: "public.", with: "image/")
+            if mimeEquivalent != uti {
+                return mimeEquivalent
+            }
+        }
+        return nil
+    }
+
+    /// Maps a UTType to its corresponding MIME type
+    private func mapUTTypeToMIMEType(_ type: UTType) -> String? {
+        if type.conforms(to: UTType.jpeg) {
+            return "image/jpeg"
+        } else if type.conforms(to: UTType.png) {
+            return "image/png"
+        } else if type.conforms(to: UTType.gif) {
+            return "image/gif"
+        } else if type.conforms(to: UTType.webP) {
+            return "image/webp"
+        } else if type.conforms(to: UTType.bmp) {
+            return "image/bmp"
+        } else if type.conforms(to: UTType.tiff) {
+            return "image/tiff"
+        } else if type.conforms(to: UTType.heic) || type.conforms(to: UTType.heif) {
+            return "image/heic"
+        }
+        return nil
+    }
+
+    /// Detects MIME type using platform-specific APIs (UniformTypeIdentifiers)
+    /// - Parameter data: The data to analyze for MIME type detection
+    /// - Returns: Detected MIME type string, or nil if detection fails
+    private func detectMimeTypeUsingPlatformAPI(from data: Data) -> String? {
+        #if canImport(UniformTypeIdentifiers)
+            // Create a temporary file URL to use with UTType
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("tmp")
+
+            do {
+                // Write data to temporary file
+                try data.write(to: tempURL)
+
+                // Use UTType to detect the file type
+                if let type = try? UTType(filenameExtension: tempURL.pathExtension) {
+                    // Try to get MIME type from UTType
+                    return type.preferredMIMEType
+                }
+
+                // Fallback: try to create UTType from the file URL
+                if let type = try? UTType(filenameExtension: tempURL.pathExtension) {
+                    return type.preferredMIMEType
+                }
+
+                // Clean up temporary file
+                try? FileManager.default.removeItem(at: tempURL)
+
+            } catch {
+                // Clean up temporary file on error
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+        #endif
+        return nil
+    }
+
+    /// Builds multipart form data body for image upload
     /// - Parameters:
     ///   - boundary: The multipart boundary string
-    ///   - configuration: Upload configuration containing field names, additional fields, etc.
+    ///   - configuration: Upload configuration with field names and additional data
     ///   - imageData: The image data to include in the multipart body
-    /// - Returns: Complete multipart form-data as Data
+    /// - Returns: Data containing the complete multipart form body
     private func buildMultipartBody(
         boundary: String,
         configuration: UploadConfiguration,
         imageData: Data
     ) throws -> Data {
-        // Build multipart body data directly
         var body = Data()
 
-        // Add additional fields
+        // Add additional fields first
         for (key, value) in configuration.additionalFields {
-            let boundaryString = "--\(boundary)\r\n"
-            let dispositionString = "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n"
-            let valueString = "\(value)\r\n"
-
-            // Validate UTF-8 encoding for each component with specific error messages
-            let boundaryData = try encodeMultipartComponent(
-                boundaryString, componentName: "multipart boundary for field '\(key)'")
-            let dispositionData = try encodeMultipartComponent(
-                dispositionString, componentName: "Content-Disposition header for field '\(key)'")
-            let valueData = try encodeMultipartComponent(
-                valueString, componentName: "value for field '\(key)' with value '\(value)'")
-
-            body.append(boundaryData)
-            body.append(dispositionData)
-            body.append(valueData)
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append(
+                "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
         }
 
-        // Add image data
-        let imageBoundaryString = "--\(boundary)\r\n"
-        let imageDispositionString =
+        // Add the image data
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append(
             "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
-        let imageTypeString = "Content-Type: \(configuration.mimeType)\r\n\r\n"
-        let closingBoundaryString = "\r\n--\(boundary)--\r\n"
-
-        // Validate UTF-8 encoding for image multipart components with specific error messages
-        let imageBoundaryData = try encodeMultipartComponent(
-            imageBoundaryString, componentName: "image boundary")
-        let imageDispositionData = try encodeMultipartComponent(
-            imageDispositionString, componentName: "image Content-Disposition header")
-        let imageTypeData = try encodeMultipartComponent(
-            imageTypeString, componentName: "image Content-Type header")
-        let closingBoundaryData = try encodeMultipartComponent(
-            closingBoundaryString, componentName: "closing boundary")
-
-        body.append(imageBoundaryData)
-        body.append(imageDispositionData)
-        body.append(imageTypeData)
+                .data(using: .utf8)!)
+        body.append("Content-Type: \(configuration.mimeType)\r\n\r\n".data(using: .utf8)!)
         body.append(imageData)
-        body.append(closingBoundaryData)
+        body.append("\r\n".data(using: .utf8)!)
+
+        // Add closing boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         return body
     }
@@ -1778,8 +1729,6 @@ private struct UploadPayload: Encodable {
 // MARK: - SwiftUI Image Extension
 #if canImport(SwiftUI)
 
-
-
     extension SwiftUI.Image {
         /// Creates a SwiftUI Image from a platform-specific image
         /// - Parameter platformImage: The UIImage or NSImage to convert
@@ -1803,10 +1752,10 @@ public actor Cache<Key: Hashable & Sendable, Value: Sendable> {
     public let totalCostLimit: Int?
 
     public struct CacheEntry: Sendable {
-        let value: Value
-        let cost: Int
+        public let value: Value
+        public let cost: Int
 
-        init(value: Value, cost: Int = 1) {
+        public init(value: Value, cost: Int = 1) {
             // Validate cost is non-negative
             self.value = value
             self.cost = max(0, cost)

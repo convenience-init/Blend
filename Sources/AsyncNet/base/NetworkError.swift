@@ -82,222 +82,115 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
     }
 
     private static func transportErrorDescription(_ code: URLError.Code) -> String {
-        switch code {
-        case .notConnectedToInternet:
+        // Group related error codes for better organization and reduced complexity
+        let connectionErrors: [URLError.Code: String] = [
+            .notConnectedToInternet: "Not connected to internet",
+            .cannotFindHost: "Cannot find host",
+            .cannotConnectToHost: "Cannot connect to host",
+            .networkConnectionLost: "Network connection lost",
+            .dnsLookupFailed: "DNS lookup failed",
+            .internationalRoamingOff: "International roaming off",
+            .dataNotAllowed: "Data not allowed",
+        ]
+
+        let fileErrors: [URLError.Code: String] = [
+            .cannotCreateFile: "Cannot create file",
+            .cannotOpenFile: "Cannot open file",
+            .cannotCloseFile: "Cannot close file",
+            .cannotWriteToFile: "Cannot write to file",
+            .cannotRemoveFile: "Cannot remove file",
+            .cannotMoveFile: "Cannot move file",
+            .fileDoesNotExist: "File does not exist",
+            .fileIsDirectory: "File is directory",
+            .noPermissionsToReadFile: "No permissions to read file",
+        ]
+
+        let securityErrors: [URLError.Code: String] = [
+            .secureConnectionFailed: "Secure connection failed",
+            .serverCertificateUntrusted: "Server certificate untrusted",
+            .serverCertificateHasBadDate: "Server certificate has bad date",
+            .serverCertificateHasUnknownRoot: "Server certificate has unknown root",
+            .serverCertificateNotYetValid: "Server certificate not yet valid",
+            .clientCertificateRejected: "Client certificate rejected",
+            .clientCertificateRequired: "Client certificate required",
+            .appTransportSecurityRequiresSecureConnection:
+                "App Transport Security requires secure connection",
+        ]
+
+        let requestErrors: [URLError.Code: String] = [
+            .timedOut: "Request timed out",
+            .cancelled: "Request cancelled",
+            .badURL: "Bad URL",
+            .unsupportedURL: "Unsupported URL",
+            .requestBodyStreamExhausted: "Request body stream exhausted",
+        ]
+
+        let backgroundErrors: [URLError.Code: String] = [
+            .backgroundSessionRequiresSharedContainer:
+                "Background session requires shared container",
+            .backgroundSessionInUseByAnotherProcess: "Background session in use by another process",
+            .backgroundSessionWasDisconnected: "Background session was disconnected",
+        ]
+
+        let otherErrors: [URLError.Code: String] = [
+            .cannotLoadFromNetwork: "Cannot load from network",
+            .downloadDecodingFailedMidStream: "Download decoding failed",
+            .downloadDecodingFailedToComplete: "Download decoding failed to complete",
+            .callIsActive: "Call is active",
+            .dataLengthExceedsMaximum: "Data length exceeds maximum",
+            .userAuthenticationRequired: "User authentication required",
+        ]
+
+        // Check each error group
+        if let description = connectionErrors[code] {
             return NSLocalizedString(
-                "Not connected to internet", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Not connected to internet",
-                comment: "User-friendly description for URLError.Code.notConnectedToInternet")
-        case .timedOut:
-            return NSLocalizedString(
-                "Request timed out", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Request timed out",
-                comment: "User-friendly description for URLError.Code.timedOut"
-            )
-        case .cannotFindHost:
-            return NSLocalizedString(
-                "Cannot find host", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot find host",
-                comment: "User-friendly description for URLError.Code.cannotFindHost")
-        case .cannotConnectToHost:
-            return NSLocalizedString(
-                "Cannot connect to host", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot connect to host",
-                comment: "User-friendly description for URLError.Code.cannotConnectToHost")
-        case .networkConnectionLost:
-            return NSLocalizedString(
-                "Network connection lost", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Network connection lost",
-                comment: "User-friendly description for URLError.Code.networkConnectionLost")
-        case .dnsLookupFailed:
-            return NSLocalizedString(
-                "DNS lookup failed", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "DNS lookup failed",
-                comment: "User-friendly description for URLError.Code.dnsLookupFailed")
-        case .cancelled:
-            return NSLocalizedString(
-                "Request cancelled", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Request cancelled",
-                comment: "User-friendly description for URLError.Code.cancelled")
-        case .badURL:
-            return NSLocalizedString(
-                "Bad URL", tableName: nil, bundle: NetworkError.l10nBundle, value: "Bad URL",
-                comment: "User-friendly description for URLError.Code.badURL")
-        case .unsupportedURL:
-            return NSLocalizedString(
-                "Unsupported URL", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Unsupported URL",
-                comment: "User-friendly description for URLError.Code.unsupportedURL")
-        case .userAuthenticationRequired:
-            return NSLocalizedString(
-                "User authentication required", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "User authentication required",
-                comment: "User-friendly description for URLError.Code.userAuthenticationRequired")
-        case .secureConnectionFailed:
-            return NSLocalizedString(
-                "Secure connection failed", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Secure connection failed",
-                comment: "User-friendly description for URLError.Code.secureConnectionFailed")
-        case .serverCertificateUntrusted:
-            return NSLocalizedString(
-                "Server certificate untrusted", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Server certificate untrusted",
-                comment: "User-friendly description for URLError.Code.serverCertificateUntrusted")
-        case .serverCertificateHasBadDate:
-            return NSLocalizedString(
-                "Server certificate has bad date", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Server certificate has bad date",
-                comment: "User-friendly description for URLError.Code.serverCertificateHasBadDate")
-        case .serverCertificateHasUnknownRoot:
-            return NSLocalizedString(
-                "Server certificate has unknown root", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Server certificate has unknown root",
-                comment:
-                    "User-friendly description for URLError.Code.serverCertificateHasUnknownRoot")
-        case .serverCertificateNotYetValid:
-            return NSLocalizedString(
-                "Server certificate not yet valid", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Server certificate not yet valid",
-                comment: "User-friendly description for URLError.Code.serverCertificateNotYetValid")
-        case .clientCertificateRejected:
-            return NSLocalizedString(
-                "Client certificate rejected", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Client certificate rejected",
-                comment: "User-friendly description for URLError.Code.clientCertificateRejected")
-        case .clientCertificateRequired:
-            return NSLocalizedString(
-                "Client certificate required", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Client certificate required",
-                comment: "User-friendly description for URLError.Code.clientCertificateRequired")
-        case .cannotLoadFromNetwork:
-            return NSLocalizedString(
-                "Cannot load from network", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot load from network",
-                comment: "User-friendly description for URLError.Code.cannotLoadFromNetwork")
-        case .cannotCreateFile:
-            return NSLocalizedString(
-                "Cannot create file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot create file",
-                comment: "User-friendly description for URLError.Code.cannotCreateFile")
-        case .cannotOpenFile:
-            return NSLocalizedString(
-                "Cannot open file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot open file",
-                comment: "User-friendly description for URLError.Code.cannotOpenFile")
-        case .cannotCloseFile:
-            return NSLocalizedString(
-                "Cannot close file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot close file",
-                comment: "User-friendly description for URLError.Code.cannotCloseFile")
-        case .cannotWriteToFile:
-            return NSLocalizedString(
-                "Cannot write to file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot write to file",
-                comment: "User-friendly description for URLError.Code.cannotWriteToFile")
-        case .cannotRemoveFile:
-            return NSLocalizedString(
-                "Cannot remove file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot remove file",
-                comment: "User-friendly description for URLError.Code.cannotRemoveFile")
-        case .cannotMoveFile:
-            return NSLocalizedString(
-                "Cannot move file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Cannot move file",
-                comment: "User-friendly description for URLError.Code.cannotMoveFile")
-        case .downloadDecodingFailedMidStream:
-            return NSLocalizedString(
-                "Download decoding failed", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Download decoding failed",
-                comment:
-                    "User-friendly description for URLError.Code.downloadDecodingFailedMidStream")
-        case .downloadDecodingFailedToComplete:
-            return NSLocalizedString(
-                "Download decoding failed to complete", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Download decoding failed to complete",
-                comment:
-                    "User-friendly description for URLError.Code.downloadDecodingFailedToComplete")
-        case .internationalRoamingOff:
-            return NSLocalizedString(
-                "International roaming off", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "International roaming off",
-                comment: "User-friendly description for URLError.Code.internationalRoamingOff")
-        case .callIsActive:
-            return NSLocalizedString(
-                "Call is active", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Call is active",
-                comment: "User-friendly description for URLError.Code.callIsActive")
-        case .dataNotAllowed:
-            return NSLocalizedString(
-                "Data not allowed", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Data not allowed",
-                comment: "User-friendly description for URLError.Code.dataNotAllowed")
-        case .requestBodyStreamExhausted:
-            return NSLocalizedString(
-                "Request body stream exhausted", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Request body stream exhausted",
-                comment: "User-friendly description for URLError.Code.requestBodyStreamExhausted")
-        case .appTransportSecurityRequiresSecureConnection:
-            return NSLocalizedString(
-                "App Transport Security requires secure connection", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "App Transport Security requires secure connection",
-                comment:
-                    "User-friendly description for URLError.Code.appTransportSecurityRequiresSecureConnection"
-            )
-        case .fileDoesNotExist:
-            return NSLocalizedString(
-                "File does not exist", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "File does not exist",
-                comment: "User-friendly description for URLError.Code.fileDoesNotExist")
-        case .fileIsDirectory:
-            return NSLocalizedString(
-                "File is directory", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "File is directory",
-                comment: "User-friendly description for URLError.Code.fileIsDirectory")
-        case .noPermissionsToReadFile:
-            return NSLocalizedString(
-                "No permissions to read file", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "No permissions to read file",
-                comment: "User-friendly description for URLError.Code.noPermissionsToReadFile")
-        case .dataLengthExceedsMaximum:
-            return NSLocalizedString(
-                "Data length exceeds maximum", tableName: nil, bundle: NetworkError.l10nBundle,
-                value: "Data length exceeds maximum",
-                comment: "User-friendly description for URLError.Code.dataLengthExceedsMaximum")
-        case .backgroundSessionRequiresSharedContainer:
-            return NSLocalizedString(
-                "Background session requires shared container", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Background session requires shared container",
-                comment:
-                    "User-friendly description for URLError.Code.backgroundSessionRequiresSharedContainer"
-            )
-        case .backgroundSessionInUseByAnotherProcess:
-            return NSLocalizedString(
-                "Background session in use by another process", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Background session in use by another process",
-                comment:
-                    "User-friendly description for URLError.Code.backgroundSessionInUseByAnotherProcess"
-            )
-        case .backgroundSessionWasDisconnected:
-            return NSLocalizedString(
-                "Background session was disconnected", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Background session was disconnected",
-                comment:
-                    "User-friendly description for URLError.Code.backgroundSessionWasDisconnected")
-        default:
-            // Fallback to a generic description with the raw value for unknown codes
-            return String(
-                format: NSLocalizedString(
-                    "Transport error %d", tableName: nil, bundle: NetworkError.l10nBundle,
-                    value: "Transport error %d",
-                    comment: "Fallback description for unknown URLError codes"
-                ), code.rawValue)
+                description, tableName: nil, bundle: NetworkError.l10nBundle,
+                value: description,
+                comment: "User-friendly description for \(code)")
         }
+
+        if let description = fileErrors[code] {
+            return NSLocalizedString(
+                description, tableName: nil, bundle: NetworkError.l10nBundle,
+                value: description,
+                comment: "User-friendly description for \(code)")
+        }
+
+        if let description = securityErrors[code] {
+            return NSLocalizedString(
+                description, tableName: nil, bundle: NetworkError.l10nBundle,
+                value: description,
+                comment: "User-friendly description for \(code)")
+        }
+
+        if let description = requestErrors[code] {
+            return NSLocalizedString(
+                description, tableName: nil, bundle: NetworkError.l10nBundle,
+                value: description,
+                comment: "User-friendly description for \(code)")
+        }
+
+        if let description = backgroundErrors[code] {
+            return NSLocalizedString(
+                description, tableName: nil, bundle: NetworkError.l10nBundle,
+                value: description,
+                comment: "User-friendly description for \(code)")
+        }
+
+        if let description = otherErrors[code] {
+            return NSLocalizedString(
+                description, tableName: nil, bundle: NetworkError.l10nBundle,
+                value: description,
+                comment: "User-friendly description for \(code)")
+        }
+
+        // Fallback to a generic description with the raw value for unknown codes
+        return String(
+            format: NSLocalizedString(
+                "Transport error %d", tableName: nil, bundle: NetworkError.l10nBundle,
+                value: "Transport error %d",
+                comment: "Fallback description for unknown URLError codes"
+            ), code.rawValue)
     }
 
     private static func decodingErrorReason(_ error: DecodingError) -> String {
@@ -305,7 +198,7 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
             if codingPath.isEmpty {
                 return "root"
             }
-            
+
             // Build path components, handling both string keys and array indices
             var pathComponents: [String] = []
 
@@ -527,62 +420,19 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
                 value: "Please try again or contact support.",
                 comment: "Recovery suggestion for custom errors")
         case .httpError(let statusCode, _):
-            switch statusCode {
-            case 400:
-                return NSLocalizedString(
-                    "Check the request parameters and format.", tableName: nil,
-                    bundle: NetworkError.l10nBundle,
-                    value: "Check the request parameters and format.",
-                    comment: "Recovery suggestion for HTTP 400 Bad Request errors")
-            case 401:
-                return NSLocalizedString(
-                    "Check your credentials and try again.", tableName: nil,
-                    bundle: NetworkError.l10nBundle,
-                    value: "Check your credentials and try again.",
-                    comment: "Recovery suggestion for HTTP 401 Unauthorized errors")
-            case 403:
-                return NSLocalizedString(
-                    "Check your permissions for this resource.", tableName: nil,
-                    bundle: NetworkError.l10nBundle,
-                    value: "Check your permissions for this resource.",
-                    comment: "Recovery suggestion for HTTP 403 Forbidden errors")
-            case 404:
-                return NSLocalizedString(
-                    "Verify the endpoint URL and resource exists.", tableName: nil,
-                    bundle: NetworkError.l10nBundle,
-                    value: "Verify the endpoint URL and resource exists.",
-                    comment: "Recovery suggestion for HTTP 404 Not Found errors")
-            case 429:
-                return NSLocalizedString(
-                    "Wait before making another request or reduce request frequency.",
-                    tableName: nil, bundle: NetworkError.l10nBundle,
-                    value: "Wait before making another request or reduce request frequency.",
-                    comment: "Recovery suggestion for HTTP 429 Too Many Requests errors")
-            case 500..<600:
-                return NSLocalizedString(
-                    "Try again later. The server encountered an error.", tableName: nil,
-                    bundle: NetworkError.l10nBundle,
-                    value: "Try again later. The server encountered an error.",
-                    comment: "Recovery suggestion for HTTP 5xx Server errors")
-            default:
-                return NSLocalizedString(
-                    "Check the request and try again.", tableName: nil,
-                    bundle: NetworkError.l10nBundle,
-                    value: "Check the request and try again.",
-                    comment: "Recovery suggestion for general HTTP errors")
-            }
-        case .badRequest:
+            return recoverySuggestionForHTTPStatus(statusCode)
+        case .badRequest, .decodingError, .decodingFailed:
             return NSLocalizedString(
                 "Check the request parameters and format.", tableName: nil,
                 bundle: NetworkError.l10nBundle,
                 value: "Check the request parameters and format.",
-                comment: "Recovery suggestion for bad request errors")
-        case .forbidden:
+                comment: "Recovery suggestion for request/format errors")
+        case .forbidden, .unauthorized:
             return NSLocalizedString(
                 "Check your permissions for this resource.", tableName: nil,
                 bundle: NetworkError.l10nBundle,
                 value: "Check your permissions for this resource.",
-                comment: "Recovery suggestion for forbidden access errors")
+                comment: "Recovery suggestion for authorization errors")
         case .notFound:
             return NSLocalizedString(
                 "Verify the endpoint URL and resource exists.", tableName: nil,
@@ -601,19 +451,6 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
                 bundle: NetworkError.l10nBundle,
                 value: "Try again later. The server encountered an error.",
                 comment: "Recovery suggestion for server errors")
-        case .decodingError:
-            return NSLocalizedString(
-                "Ensure the response format matches the expected model.", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Ensure the response format matches the expected model.",
-                comment: "Recovery suggestion for decoding errors")
-        case .decodingFailed:
-            return NSLocalizedString(
-                "Check the response data format and ensure it matches the expected model structure.",
-                tableName: nil, bundle: NetworkError.l10nBundle,
-                value:
-                    "Check the response data format and ensure it matches the expected model structure.",
-                comment: "Recovery suggestion for detailed decoding failures")
         case .networkUnavailable:
             return NSLocalizedString(
                 "Check your internet connection.", tableName: nil, bundle: NetworkError.l10nBundle,
@@ -631,12 +468,6 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
                 bundle: NetworkError.l10nBundle,
                 value: "Verify the endpoint configuration.",
                 comment: "Recovery suggestion for invalid endpoint errors")
-        case .unauthorized:
-            return NSLocalizedString(
-                "Check your authentication and permissions.", tableName: nil,
-                bundle: NetworkError.l10nBundle,
-                value: "Check your authentication and permissions.",
-                comment: "Recovery suggestion for unauthorized access errors")
         case .noResponse:
             return NSLocalizedString(
                 "Check network connectivity and server status.", tableName: nil,
@@ -715,9 +546,51 @@ public enum NetworkError: Error, LocalizedError, Sendable, Equatable {
         }
     }
 
-    // MARK: - Error Message Helper
-    public func message() -> String {
-        return errorDescription ?? "An unknown error occurred."
+    private func recoverySuggestionForHTTPStatus(_ statusCode: Int) -> String {
+        switch statusCode {
+        case 400:
+            return NSLocalizedString(
+                "Check the request parameters and format.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Check the request parameters and format.",
+                comment: "Recovery suggestion for HTTP 400 Bad Request errors")
+        case 401:
+            return NSLocalizedString(
+                "Check your credentials and try again.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Check your credentials and try again.",
+                comment: "Recovery suggestion for HTTP 401 Unauthorized errors")
+        case 403:
+            return NSLocalizedString(
+                "Check your permissions for this resource.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Check your permissions for this resource.",
+                comment: "Recovery suggestion for HTTP 403 Forbidden errors")
+        case 404:
+            return NSLocalizedString(
+                "Verify the endpoint URL and resource exists.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Verify the endpoint URL and resource exists.",
+                comment: "Recovery suggestion for HTTP 404 Not Found errors")
+        case 429:
+            return NSLocalizedString(
+                "Wait before making another request or reduce request frequency.",
+                tableName: nil, bundle: NetworkError.l10nBundle,
+                value: "Wait before making another request or reduce request frequency.",
+                comment: "Recovery suggestion for HTTP 429 Too Many Requests errors")
+        case 500..<600:
+            return NSLocalizedString(
+                "Try again later. The server encountered an error.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Try again later. The server encountered an error.",
+                comment: "Recovery suggestion for HTTP 5xx Server errors")
+        default:
+            return NSLocalizedString(
+                "Check the request and try again.", tableName: nil,
+                bundle: NetworkError.l10nBundle,
+                value: "Check the request and try again.",
+                comment: "Recovery suggestion for general HTTP errors")
+        }
     }
 }
 
@@ -803,73 +676,52 @@ extension NetworkError {
             .customError(let rhsMessage, let rhsDetails)
         ):
             return lhsMessage == rhsMessage && lhsDetails == rhsDetails
-        case (.httpError(let lhsStatus, let lhsData), .httpError(let rhsStatus, let rhsData)):
-            return lhsStatus == rhsStatus && lhsData == rhsData
-        case (
-            .badRequest(let lhsData, let lhsStatusCode), .badRequest(let rhsData, let rhsStatusCode)
-        ):
-            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
-        case (
-            .forbidden(let lhsData, let lhsStatusCode), .forbidden(let rhsData, let rhsStatusCode)
-        ):
-            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
-        case (.notFound(let lhsData, let lhsStatusCode), .notFound(let rhsData, let rhsStatusCode)):
-            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
-        case (
-            .rateLimited(let lhsData, let lhsStatusCode),
-            .rateLimited(let rhsData, let rhsStatusCode)
-        ):
-            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
+
+        // Group HTTP error cases with data and status codes
+        case (.httpError(let lhsStatus, let lhsData), .httpError(let rhsStatus, let rhsData)),
+            (.badRequest(let lhsData, let lhsStatus), .badRequest(let rhsData, let rhsStatus)),
+            (.forbidden(let lhsData, let lhsStatus), .forbidden(let rhsData, let rhsStatus)),
+            (.notFound(let lhsData, let lhsStatus), .notFound(let rhsData, let rhsStatus)),
+            (.rateLimited(let lhsData, let lhsStatus), .rateLimited(let rhsData, let rhsStatus)),
+            (.unauthorized(let lhsData, let lhsStatus), .unauthorized(let rhsData, let rhsStatus)):
+            return compareHTTPErrorVariants(
+                lhsData: lhsData, lhsStatus: lhsStatus, rhsData: rhsData, rhsStatus: rhsStatus)
+
+        // Group server and decoding error cases
         case (.serverError(let lhsStatus, let lhsData), .serverError(let rhsStatus, let rhsData)):
             return lhsStatus == rhsStatus && lhsData == rhsData
         case (.decodingError(let lhsError, let lhsData), .decodingError(let rhsError, let rhsData)):
-            // Compare error types and NSError properties since Error is not Equatable
-            let lhsNSError = lhsError as NSError
-            let rhsNSError = rhsError as NSError
-            return type(of: lhsError) == type(of: rhsError)
-                && lhsNSError.domain == rhsNSError.domain && lhsNSError.code == rhsNSError.code
-                && lhsData == rhsData
+            return compareDecodingErrors(
+                lhsError: lhsError, lhsData: lhsData, rhsError: rhsError, rhsData: rhsData)
         case (
             .decodingFailed(let lhsReason, let lhsError, let lhsData),
             .decodingFailed(let rhsReason, let rhsError, let rhsData)
         ):
-            // Compare reasons, error types, and NSError properties since Error is not Equatable
-            let lhsNSError = lhsError as NSError
-            let rhsNSError = rhsError as NSError
-            return lhsReason == rhsReason && type(of: lhsError) == type(of: rhsError)
-                && lhsNSError.domain == rhsNSError.domain && lhsNSError.code == rhsNSError.code
-                && lhsData == rhsData
-        case (.networkUnavailable, .networkUnavailable):
+            return compareDecodingFailedErrors(
+                lhsReason: lhsReason, lhsError: lhsError, lhsData: lhsData, rhsReason: rhsReason,
+                rhsError: rhsError, rhsData: rhsData)
+
+        // Group simple cases without associated values
+        case (.networkUnavailable, .networkUnavailable),
+            (.noResponse, .noResponse),
+            (.imageProcessingFailed, .imageProcessingFailed),
+            (.invalidBodyForGET, .invalidBodyForGET),
+            (.requestCancelled, .requestCancelled),
+            (.authenticationFailed, .authenticationFailed):
             return true
+
+        // Group simple cases with single values
         case (.requestTimeout(let lhsDuration), .requestTimeout(let rhsDuration)):
             return lhsDuration == rhsDuration
         case (.invalidEndpoint(let lhsReason), .invalidEndpoint(let rhsReason)):
             return lhsReason == rhsReason
-        case (
-            .unauthorized(let lhsData, let lhsStatusCode),
-            .unauthorized(let rhsData, let rhsStatusCode)
-        ):
-            return lhsData == rhsData && lhsStatusCode == rhsStatusCode
-        case (.noResponse, .noResponse):
-            return true
         case (.badMimeType(let lhsType), .badMimeType(let rhsType)):
             return lhsType == rhsType
         case (.uploadFailed(let lhsMessage), .uploadFailed(let rhsMessage)):
             return lhsMessage == rhsMessage
-        case (.imageProcessingFailed, .imageProcessingFailed):
-            return true
         case (.cacheError(let lhsMessage), .cacheError(let rhsMessage)):
             return lhsMessage == rhsMessage
-        case (.invalidBodyForGET, .invalidBodyForGET):
-            return true
-        case (.requestCancelled, .requestCancelled):
-            return true
-        case (.authenticationFailed, .authenticationFailed):
-            return true
-        case (
-            .transportError(let lhsCode, _),
-            .transportError(let rhsCode, _)
-        ):
+        case (.transportError(let lhsCode, _), .transportError(let rhsCode, _)):
             return lhsCode == rhsCode
         case (.outOfScriptBounds(let lhsCall), .outOfScriptBounds(let rhsCall)):
             return lhsCall == rhsCall
@@ -883,9 +735,40 @@ extension NetworkError {
         ):
             return lhsCallIndex == rhsCallIndex && lhsMissingData == rhsMissingData
                 && lhsMissingResponse == rhsMissingResponse
+
         default:
             return false
         }
+    }
+
+    /// Helper function to compare HTTP error variants with data and status codes
+    private static func compareHTTPErrorVariants(
+        lhsData: Data?, lhsStatus: Int, rhsData: Data?, rhsStatus: Int
+    ) -> Bool {
+        return lhsStatus == rhsStatus && lhsData == rhsData
+    }
+
+    /// Helper function to compare decoding errors
+    private static func compareDecodingErrors(
+        lhsError: Error, lhsData: Data?, rhsError: Error, rhsData: Data?
+    ) -> Bool {
+        let lhsNSError = lhsError as NSError
+        let rhsNSError = rhsError as NSError
+        return type(of: lhsError) == type(of: rhsError)
+            && lhsNSError.domain == rhsNSError.domain && lhsNSError.code == rhsNSError.code
+            && lhsData == rhsData
+    }
+
+    /// Helper function to compare decoding failed errors
+    private static func compareDecodingFailedErrors(
+        lhsReason: String, lhsError: Error, lhsData: Data?, rhsReason: String, rhsError: Error,
+        rhsData: Data?
+    ) -> Bool {
+        let lhsNSError = lhsError as NSError
+        let rhsNSError = rhsError as NSError
+        return lhsReason == rhsReason && type(of: lhsError) == type(of: rhsError)
+            && lhsNSError.domain == rhsNSError.domain && lhsNSError.code == rhsNSError.code
+            && lhsData == rhsData
     }
 }
 

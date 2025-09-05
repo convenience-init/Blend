@@ -3,9 +3,8 @@ import Testing
 
 @testable import AsyncNet
 
-@Suite("AdvancedNetworkManager Tests")
-struct AdvancedNetworkManagerTests {
-    @Test func testDeduplicationReturnsSameTaskSingleRequest() async throws {
+@Suite public struct AdvancedNetworkManagerTests {
+    @Test public func testDeduplicationReturnsSameTaskSingleRequest() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
         let mockSession = MockURLSession(
             nextData: Data([0x01, 0x02, 0x03]),
@@ -32,7 +31,7 @@ struct AdvancedNetworkManagerTests {
         )
     }
 
-    @Test func testRetryPolicyBackoff() async throws {
+    @Test public func testRetryPolicyBackoff() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
         // Script multiple failures to trigger retries: first 2 fail, third succeeds
         let mockSession = MockURLSession(scriptedCalls: [
@@ -76,7 +75,7 @@ struct AdvancedNetworkManagerTests {
         #expect(elapsed < 1.5, "Expected less than 1.5s elapsed (backoff should be reasonable)")
     }
 
-    @Test func testRetryPolicyBackoffCapping() async throws {
+    @Test public func testRetryPolicyBackoffCapping() async throws {
         // Test that backoff is capped at maxBackoff when used in fetchData
         // Use a deterministic custom policy to avoid flakiness from factory jitter
         let policy = RetryPolicy(
@@ -119,7 +118,7 @@ struct AdvancedNetworkManagerTests {
         #expect(cappedBackoff == 5.0, "High raw backoff should be capped to maxBackoff")
     }
 
-    @Test func testCacheReturnsCachedData() async throws {
+    @Test public func testCacheReturnsCachedData() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
         let mockSession = MockURLSession(
             nextData: Data([0x01, 0x02, 0x03]),
@@ -141,7 +140,7 @@ struct AdvancedNetworkManagerTests {
         #expect(callCount == 0, "Expected no network calls when data is cached")
     }
 
-    @Test func testConditionalCachingOnlyCachesSuccessfulResponses() async throws {
+    @Test public func testConditionalCachingOnlyCachesSuccessfulResponses() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
 
         // Test 1: Successful response (200 OK) should be cached
@@ -268,7 +267,7 @@ struct AdvancedNetworkManagerTests {
             "Non-HTTP response should not be cached (only HTTP 2xx responses are cached)")
     }
 
-    @Test func testRetryPolicyWithNonRetryableError() async throws {
+    @Test public func testRetryPolicyWithNonRetryableError() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
         let mockSession = MockURLSession(nextError: NetworkError.invalidEndpoint(reason: "Test"))
         let manager = AdvancedNetworkManager(cache: cache, urlSession: mockSession)
@@ -304,7 +303,7 @@ struct AdvancedNetworkManagerTests {
         #expect(recorded.count == 1, "Non-retryable error should not be retried")
     }
 
-    @Test func testRetryPolicyBackoffCappingInPractice() async throws {
+    @Test public func testRetryPolicyBackoffCappingInPractice() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
         // Script multiple failures to trigger retries
         let mockSession = MockURLSession(scriptedCalls: [
@@ -340,7 +339,7 @@ struct AdvancedNetworkManagerTests {
         #expect(elapsed < 2.0, "Total elapsed time should respect maxBackoff capping")
     }
 
-    @Test func testRequestTimeoutDoesNotMutateOriginalRequest() async throws {
+    @Test public func testRequestTimeoutDoesNotMutateOriginalRequest() async throws {
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 60)
         let mockSession = MockURLSession(
             nextData: Data([0x01, 0x02, 0x03]),
@@ -373,19 +372,22 @@ struct AdvancedNetworkManagerTests {
 }
 
 @Suite("AsyncRequestable & Endpoint Tests")
-struct AsyncRequestableTests {
-    struct TestModel: Decodable, Equatable { let value: Int }
-    struct MockService: AdvancedAsyncRequestable {
-        typealias ResponseModel = TestModel
-        typealias SecondaryResponseModel = TestModel
+public struct AsyncRequestableTests {
+    public struct TestModel: Decodable, Equatable { public let value: Int }
+    public struct MockService: AdvancedAsyncRequestable {
+        public typealias ResponseModel = TestModel
+        public typealias SecondaryResponseModel = TestModel
         let urlSession: URLSessionProtocol
         
-        func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T {
+        public func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws
+            -> T
+        {
             // Use shared helper to build the request
             let request = try buildURLRequest(from: endpoint)
 
             // Perform network call
             let (data, response) = try await urlSession.data(for: request)
+            // swiftlint:enable explicit_acl
             if let httpResponse = response as? HTTPURLResponse,
                 !(200...299).contains(httpResponse.statusCode)
             {
@@ -396,7 +398,7 @@ struct AsyncRequestableTests {
             return try jsonDecoder.decode(type, from: data)
         }
 
-        func sendRequest<ResponseModel>(
+        public func sendRequest<ResponseModel>(
             to endPoint: Endpoint,
             session: URLSessionProtocol = URLSession.shared
         ) async throws -> ResponseModel where ResponseModel: Decodable {
@@ -431,7 +433,7 @@ struct AsyncRequestableTests {
         }
     }
 
-    @Test func testSendRequestReturnsDecodedModel() async throws {
+    @Test public func testSendRequestReturnsDecodedModel() async throws {
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
@@ -446,7 +448,7 @@ struct AsyncRequestableTests {
         #expect(result == TestModel(value: 42))
     }
 
-    @Test func testSendRequestAdvancedReturnsDecodedModel() async throws {
+    @Test public func testSendRequestAdvancedReturnsDecodedModel() async throws {
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
@@ -458,14 +460,14 @@ struct AsyncRequestableTests {
         
         // Create a test service with custom network manager
         struct TestService: AsyncRequestable {
-            typealias ResponseModel = TestModel
+            public typealias ResponseModel = TestModel
             let testManager: AdvancedNetworkManager
 
             var networkManager: AdvancedNetworkManager {
                 testManager
             }
 
-            func sendRequest<ResponseModel>(
+            public func sendRequest<ResponseModel>(
                 to endPoint: Endpoint, session: URLSessionProtocol = URLSession.shared
             ) async throws -> ResponseModel
             where ResponseModel: Decodable {
@@ -484,7 +486,7 @@ struct AsyncRequestableTests {
         #expect(result == TestModel(value: 42))
     }
 
-    @Test func testSendRequestThrowsInvalidBodyForGET() async throws {
+    @Test public func testSendRequestThrowsInvalidBodyForGET() async throws {
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
@@ -512,7 +514,7 @@ struct AsyncRequestableTests {
         }
     }
 
-    @Test func testTimeoutResolutionPrefersDurationOverLegacy() async throws {
+    @Test public func testTimeoutResolutionPrefersDurationOverLegacy() async throws {
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
@@ -538,11 +540,11 @@ struct AsyncRequestableTests {
         #expect(request.timeoutInterval != 60.0, "Should not use legacy timeout value")
     }
 
-    @Test func testJsonDecoderConfiguration() async throws {
+    @Test public func testJsonDecoderConfiguration() async throws {
         // Test that conforming types have access to the jsonDecoder property
         struct SimpleService: AdvancedAsyncRequestable {
-            typealias ResponseModel = Int
-            typealias SecondaryResponseModel = String
+            public typealias ResponseModel = Int
+            public typealias SecondaryResponseModel = String
 
             func sendRequest<T: Decodable>(_ type: T.Type, to endpoint: Endpoint) async throws -> T
             {
@@ -590,7 +592,7 @@ struct AsyncRequestableTests {
         #expect(result == 42)
     }
 
-    @Test func testCustomJsonDecoderInjection() async throws {
+    @Test public func testCustomJsonDecoderInjection() async throws {
         // Test that custom decoders can be injected for testing
         struct TestService: AdvancedAsyncRequestable {
             typealias ResponseModel = TestModel
@@ -634,7 +636,7 @@ struct AsyncRequestableTests {
         #expect(result.value == 99, "Custom decoder should decode the value correctly")
     }
 
-    @Test func testSendRequestThrowsForNon2xxStatusCode() async throws {
+    @Test public func testSendRequestThrowsForNon2xxStatusCode() async throws {
         // Test that non-2xx HTTP status codes throw NetworkError.customError with status code in message
         let mockSession = MockURLSession(
             nextData: Data(),  // Empty data for 500 response
@@ -670,9 +672,9 @@ struct AsyncRequestableTests {
 }
 
 @Suite("AdvancedNetworkManager LRU Cache Tests")
-struct AdvancedNetworkManagerLRUCacheTests {
+public struct AdvancedNetworkManagerLRUCacheTests {
 
-    @Test func testAdvancedNetworkManagerLRUBasicOperations() async {
+    @Test public func testAdvancedNetworkManagerLRUBasicOperations() async {
         let cache = DefaultNetworkCache(maxSize: 3, expiration: 3600.0)
 
         let data1 = Data([1, 2, 3])
@@ -705,13 +707,13 @@ struct AdvancedNetworkManagerLRUCacheTests {
         #expect(retrieved4 == data4)
     }
 
-    @Test func testAdvancedNetworkManagerLRUNodeRemoval() async {
+    @Test public func testAdvancedNetworkManagerLRUNodeRemoval() async {
         let cache = DefaultNetworkCache(maxSize: 5, expiration: 3600.0)
 
         // Add multiple items
-        for i in 1...5 {
-            let data = Data([UInt8(i)])
-            await cache.set(data, forKey: "key\(i)")
+        for itemIndex in 1...5 {
+            let data = Data([UInt8(itemIndex)])
+            await cache.set(data, forKey: "key\(itemIndex)")
         }
 
         // Remove middle item
@@ -737,7 +739,7 @@ struct AdvancedNetworkManagerLRUCacheTests {
         #expect(retrieved6 == Data([6]))
     }
 
-    @Test func testAdvancedNetworkManagerLRUExpiration() async {
+    @Test public func testAdvancedNetworkManagerLRUExpiration() async {
         // Use a very short expiration for testing
         let cache = DefaultNetworkCache(maxSize: 10, expiration: 0.1)
 
@@ -756,32 +758,32 @@ struct AdvancedNetworkManagerLRUCacheTests {
         #expect(expired == nil)
     }
 
-    @Test func testAdvancedNetworkManagerLRUClear() async {
+    @Test public func testAdvancedNetworkManagerLRUClear() async {
         let cache = DefaultNetworkCache(maxSize: 5, expiration: 3600.0)
 
         // Add items
-        for i in 1...3 {
-            let data = Data([UInt8(i)])
-            await cache.set(data, forKey: "key\(i)")
+        for itemIndex in 1...3 {
+            let data = Data([UInt8(itemIndex)])
+            await cache.set(data, forKey: "key\(itemIndex)")
         }
 
         // Clear cache
         await cache.clear()
 
         // All items should be gone
-        for i in 1...3 {
-            let retrieved = await cache.get(forKey: "key\(i)")
+        for itemIndex in 1...3 {
+            let retrieved = await cache.get(forKey: "key\(itemIndex)")
             #expect(retrieved == nil)
         }
     }
 
-    @Test func testAdvancedNetworkManagerLRUStressTest() async {
+    @Test public func testAdvancedNetworkManagerLRUStressTest() async {
         let cache = DefaultNetworkCache(maxSize: 100, expiration: 3600.0)
 
         // Add many items
-        for i in 1...50 {  // Reduced count to avoid timeout
-            let data = Data([UInt8(i % 256)])
-            await cache.set(data, forKey: "key\(i)")
+        for itemIndex in 1...50 {  // Reduced count to avoid timeout
+            let data = Data([UInt8(itemIndex % 256)])
+            await cache.set(data, forKey: "key\(itemIndex)")
         }
 
         // Random access pattern
@@ -797,28 +799,28 @@ struct AdvancedNetworkManagerLRUCacheTests {
         #expect(retrieved == testData)
     }
 
-    @Test func testAdvancedNetworkManagerLRUConcurrentAccess() async {
+    @Test public func testAdvancedNetworkManagerLRUConcurrentAccess() async {
         let cache = DefaultNetworkCache(maxSize: 50, expiration: 3600.0)
 
         // Concurrent operations
         await withTaskGroup(of: Void.self) { group in
-            for i in 1...10 {
+            for itemIndex in 1...10 {
                 group.addTask {
-                    let data = Data([UInt8(i)])
-                    await cache.set(data, forKey: "key\(i)")
+                    let data = Data([UInt8(itemIndex)])
+                    await cache.set(data, forKey: "key\(itemIndex)")
                 }
             }
 
-            for i in 1...10 {
+            for itemIndex in 1...10 {
                 group.addTask {
-                    _ = await cache.get(forKey: "key\(i)")
+                    _ = await cache.get(forKey: "key\(itemIndex)")
                 }
             }
 
-            for i in 11...20 {
+            for itemIndex in 11...20 {
                 group.addTask {
-                    let data = Data([UInt8(i)])
-                    await cache.set(data, forKey: "key\(i)")
+                    let data = Data([UInt8(itemIndex)])
+                    await cache.set(data, forKey: "key\(itemIndex)")
                 }
             }
         }

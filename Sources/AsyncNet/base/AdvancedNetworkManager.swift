@@ -379,47 +379,25 @@ public actor AdvancedNetworkManager {
                     
                     // Validate HTTP response status code
                     if let httpResponse = response as? HTTPURLResponse {
-                        switch httpResponse.statusCode {
-                        case 200...299:
-                            // Only cache successful responses for safe/idempotent HTTP methods
-                            let shouldCache = shouldCacheResponse(
-                                for: requestWithTimeout, response: httpResponse)
-                            if shouldCache {
-                                await capturedCache.set(data, forKey: key)
-                            }
-                            #if canImport(OSLog)
-                                if attempt > 0 {
-                                    asyncNetLogger.info(
-                                        "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .private)"
-                                    )
-                                } else {
-                                    asyncNetLogger.debug(
-                                        "Request succeeded on first attempt for key: \(key, privacy: .private)")
-                                }
-                            #endif
-                            return data
-                        case 400:
-                            throw NetworkError.badRequest(
-                                data: data, statusCode: httpResponse.statusCode)
-                        case 401:
-                            throw NetworkError.unauthorized(
-                                data: data, statusCode: httpResponse.statusCode)
-                        case 403:
-                            throw NetworkError.forbidden(
-                                data: data, statusCode: httpResponse.statusCode)
-                        case 404:
-                            throw NetworkError.notFound(
-                                data: data, statusCode: httpResponse.statusCode)
-                        case 429:
-                            throw NetworkError.rateLimited(
-                                data: data, statusCode: httpResponse.statusCode)
-                        case 500...599:
-                            throw NetworkError.serverError(
-                                statusCode: httpResponse.statusCode, data: data)
-                        default:
-                            throw NetworkError.httpError(
-                                statusCode: httpResponse.statusCode, data: data)
+                        try validateHTTPResponse(httpResponse, data: data)
+                        // Only cache successful responses for safe/idempotent HTTP methods
+                        let shouldCache = shouldCacheResponse(
+                            for: requestWithTimeout, response: httpResponse)
+                        if shouldCache {
+                            await capturedCache.set(data, forKey: key)
                         }
+                        #if canImport(OSLog)
+                            if attempt > 0 {
+                                asyncNetLogger.info(
+                                    "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .private)"
+                                )
+                            } else {
+                                asyncNetLogger.debug(
+                                    "Request succeeded on first attempt for key: \(key, privacy: .private)"
+                                )
+                            }
+                        #endif
+                        return data
                     } else {
                         // Non-HTTP response: return data without caching
                         #if canImport(OSLog)
@@ -435,42 +413,12 @@ public actor AdvancedNetworkManager {
                             "Request attempt \(attempt + 1, privacy: .public) failed for key: \(key, privacy: .private), error: \(error.localizedDescription, privacy: .public)"
                         )
                     #endif
-                    // shouldRetry and backoff use the attempt index (0-based)
-                    // Determine if we should retry based on custom logic or default behavior
-                    let shouldRetryAttempt: Bool
-                    if let customShouldRetry = retryPolicy.shouldRetry {
-                        shouldRetryAttempt = customShouldRetry(error, attempt)
-                    } else {
-                        // Default behavior: always retry (maxAttempts controls total attempts)
-                        let wrappedError = await NetworkError.wrapAsync(
-                            error, config: AsyncNetConfig.shared)
-                        #if canImport(OSLog)
-                            asyncNetLogger.debug(
-                                "Default retry behavior triggered for wrapped error: \(wrappedError.localizedDescription, privacy: .public)"
-                            )
-                        #endif
-                        shouldRetryAttempt = true
-                    }
-
-                    // If custom logic says don't retry, break immediately
-                    if !shouldRetryAttempt {
+                    
+                    // Handle retry logic
+                    let shouldContinue = try await handleRetryAttempt(
+                        error: error, attempt: attempt, retryPolicy: retryPolicy, key: key)
+                    if !shouldContinue {
                         break
-                    }
-
-                    // Apply backoff with jitter for both custom and default retry paths
-                    var delay = retryPolicy.backoff?(attempt) ?? 0.0
-                    // Apply jitter if provider is specified (user is responsible for avoiding double jitter)
-                    if let jitterProvider = retryPolicy.jitterProvider {
-                        delay += jitterProvider(attempt)
-                    }
-                    let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
-                    // Only sleep if this is not the final attempt
-                    if attempt + 1 < retryPolicy.maxAttempts && cappedDelay > 0 {
-                        #if canImport(OSLog)
-                            asyncNetLogger.debug(
-                                "Retrying request for key: \(key, privacy: .private) after \(cappedDelay, privacy: .public) seconds")
-                        #endif
-                        try await Task.sleep(nanoseconds: UInt64(cappedDelay * 1_000_000_000))
                     }
                 }
             }
@@ -672,6 +620,73 @@ public actor AdvancedNetworkManager {
             storedTask.cancel()
         }
     }
+
+    /// Validates HTTP response and throws appropriate NetworkError for non-2xx status codes
+    private func validateHTTPResponse(_ response: HTTPURLResponse, data: Data) throws {
+        switch response.statusCode {
+        case 200...299:
+            return  // Success, no error to throw
+        case 400:
+            throw NetworkError.badRequest(data: data, statusCode: response.statusCode)
+        case 401:
+            throw NetworkError.unauthorized(data: data, statusCode: response.statusCode)
+        case 403:
+            throw NetworkError.forbidden(data: data, statusCode: response.statusCode)
+        case 404:
+            throw NetworkError.notFound(data: data, statusCode: response.statusCode)
+        case 429:
+            throw NetworkError.rateLimited(data: data, statusCode: response.statusCode)
+        case 500...599:
+            throw NetworkError.serverError(statusCode: response.statusCode, data: data)
+        default:
+            throw NetworkError.httpError(statusCode: response.statusCode, data: data)
+        }
+    }
+
+    /// Handles retry logic for a failed request attempt
+    private func handleRetryAttempt(
+        error: Error, attempt: Int, retryPolicy: RetryPolicy, key: String
+    ) async throws -> Bool {
+        // Determine if we should retry based on custom logic or default behavior
+        let shouldRetryAttempt: Bool
+        if let customShouldRetry = retryPolicy.shouldRetry {
+            shouldRetryAttempt = customShouldRetry(error, attempt)
+        } else {
+            // Default behavior: always retry (maxAttempts controls total attempts)
+            let wrappedError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+            #if canImport(OSLog)
+                asyncNetLogger.debug(
+                    "Default retry behavior triggered for wrapped error: \(wrappedError.localizedDescription, privacy: .public)"
+                )
+            #endif
+            shouldRetryAttempt = true
+        }
+
+        // If custom logic says don't retry, break immediately
+        if !shouldRetryAttempt {
+            return false
+        }
+
+        // Apply backoff with jitter for both custom and default retry paths
+        var delay = retryPolicy.backoff?(attempt) ?? 0.0
+        // Apply jitter if provider is specified (user is responsible for avoiding double jitter)
+        if let jitterProvider = retryPolicy.jitterProvider {
+            delay += jitterProvider(attempt)
+        }
+        let cappedDelay = min(max(delay, 0.0), retryPolicy.maxBackoff)
+
+        // Only sleep if this is not the final attempt
+        if attempt + 1 < retryPolicy.maxAttempts && cappedDelay > 0 {
+            #if canImport(OSLog)
+                asyncNetLogger.debug(
+                    "Retrying request for key: \(key, privacy: .private) after \(cappedDelay, privacy: .public) seconds"
+                )
+            #endif
+            try await Task.sleep(nanoseconds: UInt64(cappedDelay * 1_000_000_000))
+        }
+
+        return true
+    }
 }
 
 // MARK: - Retry Policy
@@ -795,10 +810,10 @@ public struct RetryPolicy: Sendable {
             let combinedSeed = seed &+ UInt64(attempt)
 
             // SplitMix64 algorithm - deterministic PRNG with good statistical properties
-            var z = combinedSeed &+ 0x9E37_79B9_7F4A_7C15
-            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-            let randomUInt64 = z ^ (z >> 31)
+            var randomState = combinedSeed &+ 0x9E37_79B9_7F4A_7C15
+            randomState = (randomState ^ (randomState >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            randomState = (randomState ^ (randomState >> 27)) &* 0x94D0_49BB_1331_11EB
+            let randomUInt64 = randomState ^ (randomState >> 31)
 
             // Scale UInt64 to TimeInterval range [0.0, 0.5)
             return Double(randomUInt64) / Double(UInt64.max) * 0.5

@@ -2,6 +2,8 @@
 
 A powerful Swift networking library with comprehensive image handling capabilities, built for iOS, iPadOS, and macOS with full SwiftUI support.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## Features
 
 **Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  

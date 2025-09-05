@@ -78,9 +78,8 @@ import Testing
         }
     }
 
-    @Suite("AsyncImageModel Tests")
-    struct SwiftUIIntegrationTests {
-        static let minimalPNGBase64 =
+    @Suite public struct SwiftUIIntegrationTests {
+        private static let minimalPNGBase64 =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
 
         /// Decode the minimal PNG Base64 string into Data
@@ -95,7 +94,7 @@ import Testing
         }
 
         /// Test-friendly version that throws instead of crashing
-        static func getMinimalPNGData() throws -> Data {
+        public static func getMinimalPNGData() throws -> Data {
             try decodeMinimalPNGBase64()
         }
 
@@ -143,7 +142,7 @@ import Testing
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelLoadingState() async throws {
+        @Test public func testAsyncNetImageModelLoadingState() async throws {
             let mockSession = try makeMockSession()
             let service = ImageService(
                 imageCacheCountLimit: 100,
@@ -171,7 +170,7 @@ import Testing
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelErrorState() async {
+        @Test public func testAsyncNetImageModelErrorState() async {
             // Create mock session that returns the same error for multiple calls (to handle retries)
             let mockSession = MockURLSession(scriptedCalls: [
                 (nil, nil, NetworkError.networkUnavailable),
@@ -195,7 +194,7 @@ import Testing
             #expect(model.isLoading == false, "Loading flag should be false after failed load")
         }
 
-        @Test func testAsyncNetImageModelConcurrentLoad() async throws {
+        @Test public func testAsyncNetImageModelConcurrentLoad() async throws {
             let imageData = try Self.getMinimalPNGData()
 
             // Create a single mock session that can handle all three URLs
@@ -342,7 +341,7 @@ import Testing
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelUploadErrorState() async throws {
+        @Test public func testAsyncNetImageModelUploadErrorState() async throws {
             // Create a mock session that returns an upload error
             guard
                 let errorResponse = HTTPURLResponse(
@@ -383,7 +382,7 @@ import Testing
                 image: platformImage,
                 url: Self.defaultUploadURL
             )
-            
+
             switch capturedResult {
             case .failure(let error):
                 result = error
@@ -506,7 +505,7 @@ import Testing
         }
 
         @MainActor
-        @Test func testAsyncNetImageModelUploadRetry() async throws {
+        @Test public func testAsyncNetImageModelUploadRetry() async throws {
             // Create a mock session that returns an upload error, then success
             guard
                 let successResponse = HTTPURLResponse(

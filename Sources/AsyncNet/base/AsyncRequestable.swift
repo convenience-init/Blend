@@ -2,7 +2,6 @@ import Foundation
 #if canImport(OSLog)
 import OSLog
 #endif
-
 /// Public logger for AsyncNet library consumers to access internal logging.
 ///
 /// This logger can be used to:
@@ -106,161 +105,16 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 ///     }
 /// }
 /// ```
-
-
 public protocol AsyncRequestable {
-
-	/// Associated type for documenting the primary response model type used by this service.
-	///
-	/// This associated type serves as documentation and enables protocol composition patterns.
-	/// It allows services to clearly define their response type contracts while maintaining
-	/// compatibility with the generic `sendRequest` methods.
-	///
-	/// ## Usage Patterns
-	///
-	/// **Simple Documentation:**
-	/// ```swift
-	/// struct UserService: AsyncRequestable {
-	///     typealias ResponseModel = User // Documents primary response type
-	/// }
-	/// ```
-	///
-	/// **Protocol Composition:**
-	/// ```swift
-	/// protocol ServiceProtocol {
-	///     associatedtype Response: Decodable
-	///     func fetchData() async throws -> Response
-	/// }
-	///
-	/// struct MyService: ServiceProtocol, AsyncRequestable {
-	///     typealias Response = ResponseModel // Links to AsyncRequestable
-	///     typealias ResponseModel = APIResponse<Data>
-	/// }
-	/// ```
-	///
 	associatedtype ResponseModel: Decodable
-
-	/// Sends an asynchronous network request to the specified endpoint and decodes the response.
-	///
-	/// - Parameters:
-	///   - endPoint: The endpoint to send the request to.
-	///   - session: The URLSessionProtocol to use for the request. Defaults to URLSession.shared for production use.
-	/// - Returns: The decoded response model of type `ResponseModel`.
-	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
-	///
-	/// ### Example
-	/// ```swift
-	/// let users: [User] = try await sendRequest(to: UsersEndpoint())
-	/// // Or with custom session for testing:
-	/// let users: [User] = try await sendRequest(to: UsersEndpoint(), session: mockSession)
-	/// ```
+	
 	func sendRequest<ResponseModel>(
 		to endPoint: Endpoint,
 		session: URLSessionProtocol
 	) async throws -> ResponseModel where ResponseModel: Decodable
 	
-	/// A configurable JSONDecoder for consistent decoding across the AsyncNet module.
-	/// 
-	/// This property allows injection of custom decoders for testing or different runtime contexts.
-	/// The default implementation provides ISO8601 date decoding and snake_case key conversion.
-	/// 
-	/// Override this property in conforming types to customize decoding behavior or inject test decoders.
-	///
-	/// ### Usage Examples
-	/// 
-	/// **Default Configuration:**
-	/// ```swift
-	/// class UserService: AsyncRequestable {
-	///     // Uses default ISO8601 + snake_case decoder
-	///     func getUsers() async throws -> [User] {
-	///         try await sendRequest(to: UsersEndpoint())
-	///     }
-	/// }
-	/// ```
-	/// 
-	/// **Custom Decoder for Testing:**
-	/// ```swift
-	/// class TestUserService: AsyncRequestable {
-	///     let testDecoder: JSONDecoder
-	///     
-	///     init(testDecoder: JSONDecoder = .init()) {
-	///         self.testDecoder = testDecoder
-	///     }
-	///     
-	///     var jsonDecoder: JSONDecoder {
-	///         testDecoder
-	///     }
-	///     
-	///     func getUsers() async throws -> [User] {
-	///         try await sendRequest(to: UsersEndpoint())
-	///     }
-	/// }
-	/// ```
-	/// 
-	/// **Custom Runtime Configuration:**
-	/// ```swift
-	/// class ConfigurableUserService: AsyncRequestable {
-	///     private let _jsonDecoder: JSONDecoder
-	///     
-	///     init(customDecoder: JSONDecoder? = nil) {
-	///         _jsonDecoder = customDecoder ?? Self.defaultJSONDecoder
-	///     }
-	///     
-	///     var jsonDecoder: JSONDecoder {
-	///         _jsonDecoder
-	///     }
-	/// }
-	/// ```
 	var jsonDecoder: JSONDecoder { get }
 	
-	/// The AdvancedNetworkManager instance used for advanced networking features.
-	///
-	/// This property enables dependency injection of the network manager, ensuring consistent
-	/// caching and deduplication behavior across all service instances. Override this property
-	/// to provide custom network managers for testing or specific requirements.
-	///
-	/// ### Usage Examples
-	///
-	/// **Default Shared Manager:**
-	/// ```swift
-	/// class UserService: AsyncRequestable {
-	///     // Uses shared manager with default caching and deduplication
-	///     func getUsers() async throws -> [User] {
-	///         try await sendRequestAdvanced(to: UsersEndpoint())
-	///     }
-	/// }
-	/// ```
-	///
-	/// **Custom Manager for Testing:**
-	/// ```swift
-	/// class TestUserService: AsyncRequestable {
-	///     let testManager: AdvancedNetworkManager
-	///
-	///     init(testManager: AdvancedNetworkManager) {
-	///         self.testManager = testManager
-	///     }
-	///
-	///     var networkManager: AdvancedNetworkManager {
-	///         testManager
-	///     }
-	/// }
-	/// ```
-	///
-	/// **Custom Manager for Production:**
-	/// ```swift
-	/// class ProductionUserService: AsyncRequestable {
-	///     private let _networkManager: AdvancedNetworkManager
-	///
-	///     init() {
-	///         let cache = DefaultNetworkCache(maxSize: 500, expiration: 1800) // 30min
-	///         _networkManager = AdvancedNetworkManager(cache: cache)
-	///     }
-	///
-	///     var networkManager: AdvancedNetworkManager {
-	///         _networkManager
-	///     }
-	/// }
-	/// ```
 	var networkManager: AdvancedNetworkManager { get }
 }
 
@@ -308,7 +162,7 @@ public extension AsyncRequestable {
 	var networkManager: AdvancedNetworkManager {
 		sharedNetworkManager
 	}
-
+	
 	func sendRequest<ResponseModel>(
 		to endPoint: Endpoint,
 		session: URLSessionProtocol = URLSession.shared
@@ -359,39 +213,40 @@ public extension AsyncRequestable {
 					"GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
 			)
 		}
-
+		
 		// Build URL from Endpoint properties
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
 		components.host = endPoint.host
 		components.path = endPoint.normalizedPath
 		components.queryItems = endPoint.queryItems
-
+		
 		if let port = endPoint.port {
 			components.port = port
 		}
+		
 		if let fragment = endPoint.fragment {
 			components.fragment = fragment
 		}
-
+		
 		guard let url = components.url else {
 			throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
 		}
-
+		
 		var request = URLRequest(url: url)
 		request.httpMethod = endPoint.method.rawValue
-
+		
 		if let resolvedHeaders = endPoint.resolvedHeaders {
 			for (key, value) in resolvedHeaders {
 				request.setValue(value, forHTTPHeaderField: key)
 			}
 		}
-
+		
 		// Only set httpBody for non-GET methods
 		if let body = endPoint.body, endPoint.method != .get {
 			request.httpBody = body
 		}
-
+		
 		// Resolve timeout: timeoutDuration takes precedence over legacy timeout
 		if let timeoutDuration = endPoint.timeoutDuration {
 			// Convert Duration to TimeInterval (seconds) with full precision
@@ -407,7 +262,7 @@ public extension AsyncRequestable {
 			}
 			request.timeoutInterval = legacyTimeout
 		}
-
+		
 		return request
 	}
 	
@@ -486,7 +341,8 @@ public protocol URLSessionProtocol: Sendable {
 	func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
-extension URLSession: URLSessionProtocol {}
+extension URLSession: URLSessionProtocol {
+}
 
 /// Configuration for the shared network cache
 private struct NetworkCacheConfig {
@@ -494,11 +350,11 @@ private struct NetworkCacheConfig {
 	let maxSize: Int
 	/// Cache expiration time in seconds (default: 600 = 10 minutes)
 	let expiration: TimeInterval
-
+	
 	/// Initialize from environment variables with validation and defaults
 	static func fromEnvironment() -> NetworkCacheConfig {
 		let environment = ProcessInfo.processInfo.environment
-
+		
 		// Parse maxSize from environment with validation
 		let maxSize: Int
 		if let maxSizeString = environment["ASYNCNET_CACHE_MAX_SIZE"],
@@ -509,7 +365,7 @@ private struct NetworkCacheConfig {
 		} else {
 			maxSize = 100  // Default value
 		}
-
+		
 		// Parse expiration from environment with validation
 		let expiration: TimeInterval
 		if let expirationString = environment["ASYNCNET_CACHE_EXPIRATION"],
@@ -520,7 +376,7 @@ private struct NetworkCacheConfig {
 		} else {
 			expiration = 600.0  // Default: 10 minutes
 		}
-
+		
 		return NetworkCacheConfig(maxSize: maxSize, expiration: expiration)
 	}
 }

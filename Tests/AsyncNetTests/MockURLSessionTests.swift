@@ -5,10 +5,10 @@ import Testing
 
 /// Unit tests for MockURLSession functionality
 @Suite("Mock URL Session Tests")
-struct MockURLSessionTests {
+public struct MockURLSessionTests {
     private let testURL = URL(string: "https://mock.api/test")!
 
-    @Test func testErrorPrecedenceOverData() async {
+    @Test public func testErrorPrecedenceOverData() async {
         // Test that scripted errors take precedence over scripted data/responses
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
@@ -33,7 +33,7 @@ struct MockURLSessionTests {
         #expect(callCount == 1)
     }
 
-    @Test func testMultiCallScripting() async {
+    @Test public func testMultiCallScripting() async {
         // Test scenario: first call fails with network error, second call succeeds
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let successResponse = HTTPURLResponse(
@@ -72,7 +72,7 @@ struct MockURLSessionTests {
         #expect(callCount == 2)
     }
 
-    @Test func testOutOfBoundsHandling() async {
+    @Test public func testOutOfBoundsHandling() async {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
             url: testURL,
@@ -117,7 +117,7 @@ struct MockURLSessionTests {
         #expect(callCount == 2)
     }
 
-    @Test func testErrorPrecedenceWithCustomError() async {
+    @Test public func testErrorPrecedenceWithCustomError() async {
         // Test error precedence with a custom error and valid data/response
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
@@ -154,7 +154,7 @@ struct MockURLSessionTests {
         #expect(callCount == 1)
     }
 
-    @Test func testBackwardCompatibility() async {
+    @Test public func testBackwardCompatibility() async {
         // Test that the old single-value initializer still works
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
@@ -179,7 +179,7 @@ struct MockURLSessionTests {
         #expect(callCount == 1)
     }
 
-    @Test func testErrorPrecedenceInMultiCallScenario() async {
+    @Test public func testErrorPrecedenceInMultiCallScenario() async {
         // Test error precedence in a multi-call scenario where some calls have both error and data
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let response = HTTPURLResponse(
@@ -234,7 +234,7 @@ struct MockURLSessionTests {
         #expect(callCount == 3)
     }
 
-    @Test func testResolvedHeadersNormalization() async {
+    @Test public func testResolvedHeadersNormalization() async {
         // Test 1: Case-insensitive content-type canonicalization
         do {
             let endpoint1 = MockEndpoint(headers: [

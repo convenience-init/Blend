@@ -244,15 +244,15 @@ public class AsyncImageModel {
 /// let success = await imageView.uploadImage()
 /// ```
 public struct AsyncNetImageView: View {
-    let url: String?
-    let uploadURL: URL?
-    let uploadType: UploadType
-    let configuration: ImageService.UploadConfiguration
-    let onUploadSuccess: ((Data) -> Void)?
+    private let url: String?
+    private let uploadURL: URL?
+    private let uploadType: UploadType
+    private let configuration: ImageService.UploadConfiguration
+    private let onUploadSuccess: ((Data) -> Void)?
     /// Error callback always receives NetworkError
-    let onUploadError: ((NetworkError) -> Void)?
-    let imageService: ImageService
-    let autoUpload: Bool
+    private let onUploadError: ((NetworkError) -> Void)?
+    private let imageService: ImageService
+    private let autoUpload: Bool
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
     @State private var model: AsyncImageModel
     /// Prevents multiple auto-upload attempts

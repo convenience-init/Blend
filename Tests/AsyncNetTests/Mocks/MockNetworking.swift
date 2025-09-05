@@ -15,32 +15,33 @@ public actor MockURLSession: URLSessionProtocol {
     /// Actor-isolated call count for tracking mock network requests.
     /// Must be accessed with `await` from outside the actor due to actor isolation.
     /// Example: `let count = await mockSession.callCount`
-    var callCount: Int {
+    public var callCount: Int {
         _callCount
     }
 
     /// Actor-isolated recorded requests for verifying call arguments in tests.
     /// Must be accessed with `await` from outside the actor due to actor isolation.
     /// Example: `let requests = await mockSession.recordedRequests`
-    var recordedRequests: [URLRequest] {
+    public var recordedRequests: [URLRequest] {
         _recordedRequests
     }
 
     /// Actor-isolated accessor for the last recorded request to avoid copying the full array.
     /// Must be accessed with `await` from outside the actor due to actor isolation.
     /// Example: `let last = await mockSession.lastRecordedRequest`
-    var lastRecordedRequest: URLRequest? {
+    public var lastRecordedRequest: URLRequest? {
         _recordedRequests.last
     }
 
     /// Check if all scripted responses have been consumed
     /// Returns true if callCount >= scriptedScripts.count, indicating all scripts were used
-    var allScriptsConsumed: Bool {
+    public var allScriptsConsumed: Bool {
         _callCount >= scriptedScripts.count
     }
 
     /// Initialize with multiple scripted results for testing multi-call scenarios
-    init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
+    public init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?])
+    {
         precondition(
             !scriptedData.isEmpty,
             "MockURLSession arrays must not be empty"
@@ -58,7 +59,7 @@ public actor MockURLSession: URLSessionProtocol {
 
     /// Initialize with an array of tuples to keep scripted triples aligned
     /// Each tuple contains (data, response, error) for one mock call
-    init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
+    public init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
         precondition(
             !scriptedCalls.isEmpty,
             "MockURLSession scriptedCalls must not be empty"
@@ -74,7 +75,7 @@ public actor MockURLSession: URLSessionProtocol {
     ///   - nextError: The error to return for requests (if any)
     ///   - maxCalls: Maximum number of calls to handle (defaults to 4 to handle retries)
     ///   - artificialDelay: Artificial delay in nanoseconds to simulate network latency
-    init(
+    public init(
         nextData: Data? = nil,
         nextResponse: URLResponse? = nil,
         nextError: Error? = nil,
@@ -98,7 +99,7 @@ public actor MockURLSession: URLSessionProtocol {
     ///   - responses: Array of URLResponse responses for each call
     ///   - errors: Array of Error responses for each call
     ///   - keepPosition: If true, preserves the current call index; if false (default), resets the call index to 0
-    func loadScript(
+    public func loadScript(
         data: [Data?], responses: [URLResponse?], errors: [Error?], keepPosition: Bool = false
     ) {
         precondition(
@@ -119,7 +120,7 @@ public actor MockURLSession: URLSessionProtocol {
 
     /// Reset the mock session state for reuse between tests
     /// - Parameter keepScript: If true, preserves the current script; if false, clears all scripted arrays
-    func reset(keepScript: Bool = true) {
+    public func reset(keepScript: Bool = true) {
         _callCount = 0
         _recordedRequests.removeAll()
         if !keepScript {
@@ -181,23 +182,23 @@ public actor MockURLSession: URLSessionProtocol {
 }
 
 /// MockEndpoint for testing Endpoint protocol
-struct MockEndpoint: Endpoint, Equatable {
+public struct MockEndpoint: Endpoint, Equatable {
     /// Properties are immutable for thread-safety and Swift 6 concurrency compliance.
     /// Use factory methods or initializers to create configured instances for testing.
-    let scheme: URLScheme
-    let host: String
-    let path: String
-    let method: RequestMethod
-    let headers: [String: String]?
-    let queryItems: [URLQueryItem]?
-    let contentType: String?
-    let timeout: TimeInterval?
-    let timeoutDuration: Duration?
-    let body: Data?
-    let port: Int?
-    let fragment: String?
+    public let scheme: URLScheme
+    public let host: String
+    public let path: String
+    public let method: RequestMethod
+    public let headers: [String: String]?
+    public let queryItems: [URLQueryItem]?
+    public let contentType: String?
+    public let timeout: TimeInterval?
+    public let timeoutDuration: Duration?
+    public let body: Data?
+    public let port: Int?
+    public let fragment: String?
 
-    init(
+    public init(
         scheme: URLScheme = .https,
         host: String = "mock.api",
         path: String = "/test",
@@ -226,7 +227,7 @@ struct MockEndpoint: Endpoint, Equatable {
     }
 
     /// Convenience initializer for default test configuration
-    init() {
+    public init() {
         self.init(
             scheme: .https,
             host: "mock.api",
@@ -244,7 +245,7 @@ struct MockEndpoint: Endpoint, Equatable {
     }
 
     /// Equatable conformance for test assertions
-    static func == (lhs: MockEndpoint, rhs: MockEndpoint) -> Bool {
+    public static func == (lhs: MockEndpoint, rhs: MockEndpoint) -> Bool {
         return lhs.scheme == rhs.scheme && lhs.host == rhs.host && lhs.path == rhs.path
             && lhs.method == rhs.method && lhs.headers == rhs.headers
             && lhs.queryItems == rhs.queryItems && lhs.contentType == rhs.contentType
@@ -260,23 +261,24 @@ extension MockEndpoint {
     ///   - duration: Duration-based timeout (takes precedence if both are provided)
     ///   - legacy: Legacy TimeInterval-based timeout
     /// - Returns: Configured MockEndpoint
-    static func withTimeout(duration: Duration? = nil, legacy: TimeInterval? = nil) -> MockEndpoint
+    public static func withTimeout(duration: Duration? = nil, legacy: TimeInterval? = nil)
+        -> MockEndpoint
     {
         return MockEndpoint(timeout: legacy, timeoutDuration: duration)
     }
 
     /// Test endpoint demonstrating Duration-based timeout
-    static var withDurationTimeout: MockEndpoint {
+    public static var withDurationTimeout: MockEndpoint {
         withTimeout(duration: .seconds(45))
     }
 
     /// Test endpoint demonstrating legacy TimeInterval timeout
-    static var withLegacyTimeout: MockEndpoint {
+    public static var withLegacyTimeout: MockEndpoint {
         withTimeout(legacy: 30.0)
     }
 
     /// Test endpoint with both timeout types (Duration takes precedence)
-    static var withBothTimeouts: MockEndpoint {
+    public static var withBothTimeouts: MockEndpoint {
         withTimeout(duration: .seconds(15), legacy: 60.0)  // 15 seconds (Duration), 60 seconds (legacy, ignored)
     }
 }

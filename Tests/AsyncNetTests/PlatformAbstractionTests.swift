@@ -10,7 +10,7 @@ import Testing
 #endif
 
 @Suite("Platform Abstraction Tests")
-struct PlatformAbstractionTests {
+public struct PlatformAbstractionTests {
 
     #if canImport(AppKit) && !canImport(UIKit)
         /// Creates a test NSBitmapImageRep with standard parameters for testing
@@ -59,7 +59,7 @@ struct PlatformAbstractionTests {
         }
     #endif
 
-    @Test func testPlatformImageTypealias() {
+    @Test public func testPlatformImageTypealias() {
         #if canImport(UIKit)
             let image = UIImage()
             let platformImage: PlatformImage = image
@@ -73,7 +73,7 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testNSImageExtensionJPEGData() {
+    @Test @MainActor public func testNSImageExtensionJPEGData() {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
@@ -102,7 +102,7 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testNSImageExtensionPNGData() {
+    @Test @MainActor public func testNSImageExtensionPNGData() {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
@@ -138,7 +138,7 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testPlatformImageToData() {
+    @Test @MainActor public func testPlatformImageToData() {
         #if canImport(UIKit)
             // Render a 1x1 pixel image using UIGraphicsImageRenderer
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
@@ -170,7 +170,7 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testNSImageExtensionZeroSizeImage() {
+    @Test @MainActor public func testNSImageExtensionZeroSizeImage() {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with zero-sized image
             let zeroSizeImage = NSImage(size: NSSize(width: 0, height: 0))
@@ -179,7 +179,7 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testNSImageExtensionRasterizationFallback() {
+    @Test @MainActor public func testNSImageExtensionRasterizationFallback() {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with image that has no TIFF encoder (forces rasterization)
             let customImage = NSImage(size: NSSize(width: 10, height: 10))
@@ -203,7 +203,7 @@ struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor func testNSImageExtensionCorruptedTIFFHandling() {
+    @Test @MainActor public func testNSImageExtensionCorruptedTIFFHandling() {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with actually corrupted TIFF data
             let corruptedImage = NSImage(size: NSSize(width: 10, height: 10))

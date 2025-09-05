@@ -257,7 +257,7 @@ extension Endpoint {
 				TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
 			return seconds > 0 ? seconds : nil
 		}
-		if let t = timeout, t > 0 { return t }
+		if let timeoutValue = timeout, timeoutValue > 0 { return timeoutValue }
 		return nil
 	}
 

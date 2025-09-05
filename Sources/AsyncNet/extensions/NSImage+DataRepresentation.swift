@@ -15,8 +15,8 @@
         }
 
         // Constants for dimension and pixel count limits to prevent excessive memory usage
-        private static let MAX_DIMENSION = 16384  // 16K pixels max per dimension (reasonable for most use cases)
-        private static let MAX_TOTAL_PIXELS = 100 * 1024 * 1024  // 100M pixels max total (approx 400MB at 32bpp)
+        private static let maxDimension = 16384  // 16K pixels max per dimension (reasonable for most use cases)
+        private static let maxTotalPixels = 100 * 1024 * 1024  // 100M pixels max total (approx 400MB at 32bpp)
 
         /// Creates JPEG data representation with compression quality
         /// - Parameter compressionQuality: Quality factor (0.0 to 1.0)
@@ -68,8 +68,8 @@
 
             // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
             // Check individual dimensions
-            guard bitmapRep.pixelsWide <= Self.MAX_DIMENSION,
-                bitmapRep.pixelsHigh <= Self.MAX_DIMENSION
+            guard bitmapRep.pixelsWide <= Self.maxDimension,
+                bitmapRep.pixelsHigh <= Self.maxDimension
             else {
                 return nil
             }
@@ -80,7 +80,7 @@
                 return nil  // Would overflow
             }
             let totalPixels = bitmapRep.pixelsWide * bitmapRep.pixelsHigh
-            guard totalPixels <= Self.MAX_TOTAL_PIXELS else {
+            guard totalPixels <= Self.maxTotalPixels else {
                 return nil
             }
 
@@ -135,8 +135,6 @@
 
             if let bestRep =
                 representations
-                .compactMap({ $0 as? NSBitmapImageRep })
-                .filter({ $0.pixelsWide > 0 && $0.pixelsHigh > 0 })
                 .max(by: {
                     // Use Int64 to prevent overflow when calculating area
                     let area0 = Int64($0.pixelsWide) * Int64($0.pixelsHigh)
@@ -146,9 +144,9 @@
             {
                 pixelsWide = bestRep.pixelsWide
                 pixelsHigh = bestRep.pixelsHigh
-            } else if let cg = cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                pixelsWide = cg.width
-                pixelsHigh = cg.height
+            } else if let cgImage = cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                pixelsWide = cgImage.width
+                pixelsHigh = cgImage.height
             } else {
                 // Fallback to point size as a last resort
                 let targetSize = size
@@ -159,7 +157,7 @@
 
             // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
             // Check individual dimensions
-            guard pixelsWide <= Self.MAX_DIMENSION, pixelsHigh <= Self.MAX_DIMENSION else {
+            guard pixelsWide <= Self.maxDimension, pixelsHigh <= Self.maxDimension else {
                 return nil
             }
 
@@ -169,7 +167,7 @@
                 return nil  // Would overflow
             }
             let totalPixels = pixelsWide * pixelsHigh
-            guard totalPixels <= Self.MAX_TOTAL_PIXELS else {
+            guard totalPixels <= Self.maxTotalPixels else {
                 return nil
             }
 
