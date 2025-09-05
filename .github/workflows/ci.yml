@@ -58,7 +58,7 @@ jobs:
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
         with:
           path: .build
-          key: ${{ runner.os }}-spm-${{ matrix.swift }}-${{ hashFiles('**/Package.resolved') }}
+          key: ${{ runner.os }}-spm-${{ matrix.swift }}-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-spm-${{ matrix.swift }}-
 
@@ -67,7 +67,7 @@ jobs:
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
         with:
           path: ~/Library/Developer/Xcode/DerivedData
-          key: ${{ runner.os }}-xcode${{ matrix.xcode }}-swift-${{ matrix.swift }}-deriveddata-${{ hashFiles('**/Package.resolved') }}
+          key: ${{ runner.os }}-xcode${{ matrix.xcode }}-swift-${{ matrix.swift }}-deriveddata-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-xcode${{ matrix.xcode }}-swift-${{ matrix.swift }}-deriveddata-
 
