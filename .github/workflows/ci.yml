@@ -99,7 +99,8 @@ jobs:
           swift build --configuration debug \
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
-            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
+            --arch x86_64
 
       - name: Build (macOS Xcode)
         if: matrix.target == 'macos' && matrix.build == 'xcode'
@@ -297,7 +298,8 @@ jobs:
             -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
             -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
             -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
-            --enable-code-coverage
+            --enable-code-coverage \
+            --arch x86_64
 
       - name: Test macOS Xcode
         if: matrix.target == 'macos' && matrix.build == 'xcode'
