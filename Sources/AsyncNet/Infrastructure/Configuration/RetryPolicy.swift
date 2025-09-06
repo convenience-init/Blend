@@ -18,6 +18,9 @@ import os
 /// Hash multiplier for jitter generation using SplitMix64 algorithm.
 /// This constant provides good statistical properties for hash-based randomization.
 /// The value is chosen to have high entropy and uniform distribution properties.
+/// 0x9E37_79B9_7F4A_7C15 is a large odd constant derived from the fractional part of the golden ratio for 64-bit hashing.
+/// It is commonly used in hash functions (e.g., SplitMix64) to achieve good distribution of values.
+/// Reference: https://prng.di.unimi.it/splitmix64.c
 private let hashMultiplier: UInt64 = 0x9E37_79B9_7F4A_7C15
 
 // MARK: - Retry Policy
