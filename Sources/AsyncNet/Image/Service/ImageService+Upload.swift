@@ -1,6 +1,13 @@
 import Foundation
 
 extension ImageService {
+    /// Calculates the size of data after base64 encoding
+    /// - Parameter rawSize: The size of the raw data in bytes
+    /// - Returns: The size of the data after base64 encoding
+    private func calculateBase64EncodedSize(_ rawSize: Int) -> Int {
+        ((rawSize + 2) / 3) * 4
+    }
+
     /// Uploads image data as a JSON payload with a base64-encoded image field
     /// - Parameters:
     ///   - imageData: The image data to upload
@@ -19,7 +26,7 @@ extension ImageService {
 
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
         let effectiveMaxUploadSize = await getEffectiveMaxUploadSize()
-        let encodedSize = ((imageData.count + 2) / 3) * 4
+        let encodedSize = calculateBase64EncodedSize(imageData.count)
         try validateEncodedSize(encodedSize, effectiveMaxUploadSize, imageData.count)
 
         // Determine upload strategy based on encoded size
@@ -182,14 +189,14 @@ extension ImageService {
                     "Upload rejected: JSON payload size \(payloadSize) bytes "
                     + "exceeds limit of \(effectiveMaxUploadSize) bytes "
                     + "(base64 image: \(imageSize) bytes, "
-                    + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
+                    + "encoded: \(calculateBase64EncodedSize(imageSize)) bytes)"
                 asyncNetLogger.warning("\(message, privacy: .public)")
             #else
                 let message =
                     "Upload rejected: JSON payload size \(payloadSize) bytes "
                     + "exceeds limit of \(effectiveMaxUploadSize) bytes "
                     + "(base64 image: \(imageSize) bytes, "
-                    + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
+                    + "encoded: \(calculateBase64EncodedSize(imageSize)) bytes)"
                 asyncNetLogger.warning("\(message, privacy: .private)")
             #endif
             throw NetworkError.payloadTooLarge(size: payloadSize, limit: effectiveMaxUploadSize)
@@ -265,7 +272,7 @@ extension ImageService {
         configuration: UploadConfiguration
     ) async throws -> Data {
         // Log that we're using streaming upload for large images
-        let encodedSize = ((imageData.count + 2) / 3) * 4
+        let encodedSize = calculateBase64EncodedSize(imageData.count)
         #if canImport(OSLog)
             #if DEBUG
                 asyncNetLogger.info(
