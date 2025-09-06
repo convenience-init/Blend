@@ -81,7 +81,10 @@ public actor MockURLSession: URLSessionProtocol {
             "MockURLSession.init requires at least one of nextData, nextResponse, or nextError"
         )
         // Create array using Array(repeating:count:) to preserve types and simplify
-        scriptedScripts = Array(repeating: MockScript(data: nextData, response: nextResponse, error: nextError), count: maxCalls)
+        scriptedScripts = Array(
+            repeating: MockScript(data: nextData, response: nextResponse, error: nextError),
+            count: maxCalls
+        )
     }
 
     /// Load a new script sequence for the mock session

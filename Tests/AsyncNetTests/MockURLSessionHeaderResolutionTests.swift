@@ -11,7 +11,7 @@ public struct MockURLSessionHeaderResolutionTests {
     @Test public func testResolvedHeadersCaseInsensitiveCanonicalization() async {
         // Test that headers are properly canonicalized and case-insensitive
         let mockSession = MockURLSession(
-            scriptedData: [Data()],
+            scriptedData: [Data([0x01, 0x02, 0x03])],
             scriptedResponses: [
                 HTTPURLResponse(
                     url: testURL,
@@ -21,35 +21,43 @@ public struct MockURLSessionHeaderResolutionTests {
                 )!
             ], scriptedErrors: [nil])
 
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(!data.isEmpty)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(!data.isEmpty)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test public func testResolvedHeadersEmptyWhitespaceTrimming() async {
         // Test that empty/whitespace-only headers are properly trimmed
         let mockSession = MockURLSession(
-            scriptedData: [Data()],
+            scriptedData: [Data([0x01, 0x02, 0x03])],
             scriptedResponses: [
                 HTTPURLResponse(
                     url: testURL,
                     statusCode: 200,
                     httpVersion: nil,
                     headerFields: [
-                        "content-type": "application/json", "x-empty": "", "x-whitespace": "   ",
+                        "content-type": "application/json", "x-empty": "", "x-whitespace": "   "
                     ]
                 )!
             ], scriptedErrors: [nil])
 
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(!data.isEmpty)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(!data.isEmpty)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test public func testResolvedHeadersContentTypeInjection() async {
         // Test that Content-Type header is properly injected when missing
         let mockSession = MockURLSession(
-            scriptedData: [Data()],
+            scriptedData: [Data([0x01, 0x02, 0x03])],
             scriptedResponses: [
                 HTTPURLResponse(
                     url: testURL,
@@ -59,15 +67,19 @@ public struct MockURLSessionHeaderResolutionTests {
                 )!
             ], scriptedErrors: [nil])
 
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(!data.isEmpty)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(!data.isEmpty)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test public func testResolvedHeadersEmptyContentTypeNotInjected() async {
         // Test that empty Content-Type header is not replaced
         let mockSession = MockURLSession(
-            scriptedData: [Data()],
+            scriptedData: [Data([0x01, 0x02, 0x03])],
             scriptedResponses: [
                 HTTPURLResponse(
                     url: testURL,
@@ -77,15 +89,19 @@ public struct MockURLSessionHeaderResolutionTests {
                 )!
             ], scriptedErrors: [nil])
 
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(!data.isEmpty)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(!data.isEmpty)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test public func testResolvedHeadersMixedCaseKeys() async {
         // Test that mixed-case header keys are properly handled
         let mockSession = MockURLSession(
-            scriptedData: [Data()],
+            scriptedData: [Data([0x01, 0x02, 0x03])],
             scriptedResponses: [
                 HTTPURLResponse(
                     url: testURL,
@@ -95,9 +111,13 @@ public struct MockURLSessionHeaderResolutionTests {
                 )!
             ], scriptedErrors: [nil])
 
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(!data.isEmpty)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(!data.isEmpty)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test public func testBackwardCompatibility() async {
@@ -112,11 +132,15 @@ public struct MockURLSessionHeaderResolutionTests {
             )!
         )
 
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(!data.isEmpty)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(!data.isEmpty)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
 
-        let callCount = await mockSession.callCount
-        #expect(callCount == 1)
+            let callCount = await mockSession.callCount
+            #expect(callCount == 1)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 }

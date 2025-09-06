@@ -59,18 +59,24 @@
                 throw NetworkError.customError(
                     "Failed to create HTTPURLResponse for success test", details: nil)
             }
+            let errorResponse = HTTPURLResponse(
+                url: Self.defaultUploadURL,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )
+
             let mockSession = MockURLSession(scriptedCalls: [
                 MockScript(
                     data: Data("Server Error".utf8),
-                    response: nil,
-                    error: NetworkError.serverError(
-                        statusCode: 500, data: Data("Server Error".utf8))
+                    response: errorResponse,
+                    error: nil
                 ),
                 MockScript(
                     data: Data("{\"success\": true}".utf8),
                     response: successResponse,
                     error: nil
-                ),
+                )
             ])
             let service = ImageService(
                 imageCacheCountLimit: 100,

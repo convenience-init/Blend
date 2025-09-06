@@ -175,6 +175,7 @@ public class AsyncImageModel {
 
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
+            self.hasError = true
             self.error = error
             onError?(error)
             return
@@ -185,6 +186,7 @@ public class AsyncImageModel {
                 image, compressionQuality: configuration.compressionQuality)
         else {
             let error = NetworkError.imageProcessingFailed
+            self.hasError = true
             self.error = error
             onError?(error)
             return
@@ -215,6 +217,7 @@ public class AsyncImageModel {
             } else {
                 netError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
             }
+            self.hasError = true
             self.error = netError
             onError?(netError)
         }
@@ -297,7 +300,8 @@ public struct AsyncNetImageView: View {
                             Task {
                                 await performUpload(expectedUrl: url)
                             }
-                        }) {
+                            },
+                            label: {
                             Image(
                                 systemName: model.isUploading
                                     ? "arrow.up.circle.fill" : "arrow.up.circle"
@@ -311,7 +315,7 @@ public struct AsyncNetImageView: View {
                                 model.isUploading
                                     ? LocalizedStringKey("Uploading") : LocalizedStringKey("Upload")
                             )
-                        }
+                            })
                         .disabled(model.isUploading)
                         .padding(12)
                         .transition(.scale.combined(with: .opacity))

@@ -64,7 +64,10 @@ extension ImageService {
         if imageSize > maxSafeRawSize {
             #if canImport(OSLog)
                 asyncNetLogger.warning(
-                    "Upload rejected: Image size \(imageSize, privacy: .public) bytes exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes"
+                    """
+                    Upload rejected: Image size \(imageSize, privacy: .public) bytes \
+                    exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes
+                    """
                 )
             #else
                 print(
@@ -225,7 +228,11 @@ extension ImageService {
         let encodedSize = ((imageData.count + 2) / 3) * 4
         #if canImport(OSLog)
             asyncNetLogger.info(
-                "Using streaming multipart upload for large image (\(encodedSize, privacy: .public) bytes encoded, \(imageData.count, privacy: .public) bytes raw) to prevent memory spikes"
+                """
+                Using streaming multipart upload for large image \
+                (\(encodedSize, privacy: .public) bytes encoded, \
+                \(imageData.count, privacy: .public) bytes raw) to prevent memory spikes
+                """
             )
         #else
             print(

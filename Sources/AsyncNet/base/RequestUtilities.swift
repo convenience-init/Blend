@@ -205,7 +205,10 @@ public enum RequestUtilities {
             let wrappedError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
             #if canImport(OSLog)
                 asyncNetLogger.debug(
-                    "Default retry behavior triggered for wrapped error: \(wrappedError.localizedDescription, privacy: .public)"
+                    """
+                    Default retry behavior triggered for wrapped error: \
+                    \(wrappedError.localizedDescription, privacy: .public)
+                    """
                 )
             #endif
             shouldRetryAttempt = true

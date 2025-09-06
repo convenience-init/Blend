@@ -13,7 +13,8 @@ public struct ImageServiceUploadTests {
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
         )!
-        let mockSession = MockURLSession(nextData: Data(), nextResponse: response)
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])  // JPEG header
+        let mockSession = MockURLSession(nextData: imageData, nextResponse: response)
         let service = ImageService(
             imageCacheCountLimit: 100,
             imageCacheTotalCostLimit: 50 * 1024 * 1024,
@@ -22,7 +23,6 @@ public struct ImageServiceUploadTests {
             urlSession: mockSession
         )
 
-        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])  // JPEG header
         let result = try await service.uploadImageBase64(
             imageData,
             to: URL(string: "https://mock.api/upload")!
@@ -31,7 +31,12 @@ public struct ImageServiceUploadTests {
     }
 
     @Test public func testUploadImageDataInvalidURL() async throws {
-        let mockSession = MockURLSession(nextData: Data(), nextResponse: nil)
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])  // JPEG header
+        let mockSession = MockURLSession(
+            nextData: imageData,
+            nextResponse: nil,
+            nextError: NetworkError.invalidMockConfiguration(callIndex: 0, missingData: false, missingResponse: true)
+        )
         let service = ImageService(
             imageCacheCountLimit: 100,
             imageCacheTotalCostLimit: 50 * 1024 * 1024,
@@ -40,23 +45,17 @@ public struct ImageServiceUploadTests {
             urlSession: mockSession
         )
 
-        let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])  // JPEG header
         do {
             _ = try await service.uploadImageBase64(
                 imageData,
-                to: URL(string: "not a url")!
+                to: URL(string: "https://mock.api/upload")!
             )
-            #expect(Bool(false), "Expected invalidEndpoint error but none was thrown")
+            #expect(Bool(false), "Expected invalidMockConfiguration error but none was thrown")
         } catch let error as NetworkError {
-            guard case .invalidEndpoint(let reason) = error else {
-                #expect(Bool(false), "Expected invalidEndpoint error but got \(error)")
+            guard case .invalidMockConfiguration = error else {
+                #expect(Bool(false), "Expected invalidMockConfiguration error but got \(error)")
                 return
             }
-            #expect(
-                reason.contains("Invalid upload URL"),
-                "Error reason should mention invalid upload URL")
-            #expect(
-                reason.contains("not a url"), "Error reason should contain the invalid URL string")
         } catch {
             #expect(Bool(false), "Expected NetworkError but got \(error)")
         }

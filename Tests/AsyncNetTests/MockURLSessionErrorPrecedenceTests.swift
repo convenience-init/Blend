@@ -55,9 +55,13 @@ public struct MockURLSessionErrorPrecedenceTests {
         }
 
         // Second call should succeed
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(data == imageData)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(data == imageData)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error on second call: \(error)")
+        }
 
         let callCount = await mockSession.callCount
         #expect(callCount == 2)
@@ -117,8 +121,12 @@ public struct MockURLSessionErrorPrecedenceTests {
         }
 
         // Second call should succeed
-        let (data, response) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(data == imageData)
-        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, response) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(data == imageData)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        } catch {
+            Issue.record("Unexpected error on second call: \(error)")
+        }
     }
 }

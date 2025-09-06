@@ -24,11 +24,15 @@ public struct MockURLSessionTests {
             scriptedErrors: [nil]
         )
 
-        let (data, responseResult) = try! await mockSession.data(for: URLRequest(url: testURL))
-        #expect(data == imageData)
-        #expect((responseResult as? HTTPURLResponse)?.statusCode == 200)
+        do {
+            let (data, responseResult) = try await mockSession.data(for: URLRequest(url: testURL))
+            #expect(data == imageData)
+            #expect((responseResult as? HTTPURLResponse)?.statusCode == 200)
 
-        let callCount = await mockSession.callCount
-        #expect(callCount == 1)
+            let callCount = await mockSession.callCount
+            #expect(callCount == 1)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 }

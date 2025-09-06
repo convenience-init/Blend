@@ -119,7 +119,10 @@
         }
 
         /// Performs concurrent image loads and returns timing results
-        private func performConcurrentLoads(models: [AsyncImageModel], urls: [URL]) async -> [String: (start: Date, end: Date)] {
+        private func performConcurrentLoads(
+            models: [AsyncImageModel],
+            urls: [URL]
+        ) async -> [String: (start: Date, end: Date)] {
             var timingResults: [String: (start: Date, end: Date)] = [:]
 
             await withTaskGroup(of: (String, Date, Date).self) { group in
@@ -180,7 +183,8 @@
                     """
                     Concurrent loads did not show expected performance improvement \
                     (total: \(totalConcurrentTime)s, sequential: \(sequentialTime)s, \
-                    ratio: \(totalConcurrentTime/sequentialTime)). This may indicate timing variations under load.
+                    ratio: \(totalConcurrentTime/sequentialTime)). \
+                    This may indicate timing variations under load.
                     """
                 )
             }

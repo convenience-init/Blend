@@ -59,7 +59,11 @@ public struct ImageServicePerformanceTests {
         // Record timing information for test visibility
         #expect(
             elapsedSeconds < maxLatency,
-            "Cold start latency should be less than \(Int(maxLatency * 1000))ms in \(ProcessInfo.processInfo.environment["CI"] != nil ? "CI" : "local") environment, was \(elapsedSeconds * 1000)ms"
+            """
+            Cold start latency should be less than \(Int(maxLatency * 1000))ms in \
+            \(ProcessInfo.processInfo.environment["CI"] != nil ? "CI" : "local") environment, \
+            was \(elapsedSeconds * 1000)ms
+            """
         )
 
         #expect(duration < .milliseconds(Int(maxLatency * 1000)))  // Adjust timeout based on environment

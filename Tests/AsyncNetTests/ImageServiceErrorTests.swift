@@ -18,13 +18,12 @@ public struct ImageServiceErrorTests {
 
         do {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
-            #expect(Bool(false), "Expected networkError but none was thrown")
+            #expect(Bool(false), "Expected networkUnavailable but none was thrown")
         } catch let error as NetworkError {
-            guard case .transportError(let code, _) = error else {
-                #expect(Bool(false), "Expected transportError but got \(error)")
+            guard case .networkUnavailable = error else {
+                #expect(Bool(false), "Expected networkUnavailable but got \(error)")
                 return
             }
-            #expect(code == .notConnectedToInternet)
         } catch {
             #expect(Bool(false), "Expected NetworkError but got \(error)")
         }
@@ -48,10 +47,10 @@ public struct ImageServiceErrorTests {
 
         do {
             _ = try await service.fetchImageData(from: "https://mock.api/test")
-            #expect(Bool(false), "Expected httpError but none was thrown")
+            #expect(Bool(false), "Expected notFound but none was thrown")
         } catch let error as NetworkError {
-            guard case .httpError(let statusCode, let data) = error else {
-                #expect(Bool(false), "Expected httpError but got \(error)")
+            guard case .notFound(let data, let statusCode) = error else {
+                #expect(Bool(false), "Expected notFound but got \(error)")
                 return
             }
             #expect(statusCode == 404)
@@ -78,15 +77,11 @@ public struct ImageServiceErrorTests {
                 imageData,
                 to: URL(string: "https://mock.api/upload")!
             )
-            #expect(Bool(false), "Expected networkError but none was thrown")
-        } catch let error as NetworkError {
-            guard case .transportError(let code, _) = error else {
-                #expect(Bool(false), "Expected transportError but got \(error)")
-                return
-            }
-            #expect(code == .notConnectedToInternet)
+            #expect(Bool(false), "Expected URLError but none was thrown")
+        } catch let error as URLError {
+            #expect(error.code == .notConnectedToInternet)
         } catch {
-            #expect(Bool(false), "Expected NetworkError but got \(error)")
+            #expect(Bool(false), "Expected URLError but got \(error)")
         }
     }
 
@@ -112,10 +107,10 @@ public struct ImageServiceErrorTests {
                 imageData,
                 to: URL(string: "https://mock.api/upload")!
             )
-            #expect(Bool(false), "Expected httpError but none was thrown")
+            #expect(Bool(false), "Expected serverError but none was thrown")
         } catch let error as NetworkError {
-            guard case .httpError(let statusCode, let data) = error else {
-                #expect(Bool(false), "Expected httpError but got \(error)")
+            guard case .serverError(let statusCode, let data) = error else {
+                #expect(Bool(false), "Expected serverError but got \(error)")
                 return
             }
             #expect(statusCode == 500)
