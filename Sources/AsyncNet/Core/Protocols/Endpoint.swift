@@ -30,56 +30,7 @@ public enum URLScheme: String, Sendable {
 /// - Note: Use `resolvedHeaders` for the normalized, merged view of headers that properly handles
 ///         Content-Type precedence and prevents case-insensitive header collisions.
 ///
-/// ## Migration Guide
-///
-/// ### Breaking Changes from Previous Versions
-///
-/// **1. Property Name Change: `header` → `headers`**
-/// ```swift
-/// // Before (deprecated)
-/// struct MyEndpoint: Endpoint {
-///     var header: [String: String]? = ["Authorization": "Bearer token"]
-/// }
-///
-/// // After (current)
-/// struct MyEndpoint: Endpoint {
-///     var headers: [String: String]? = ["Authorization": "Bearer token"]
-/// }
-/// ```
-/// The deprecated `header` property has been completely removed. All conforming types must use `headers`.
-///
-/// **2. Body Type Change: `[String: String]?` → `Data?`**
-/// ```swift
-/// // Before (no longer supported)
-/// struct MyEndpoint: Endpoint {
-///     var body: [String: String]? = ["key": "value"]
-/// }
-///
-/// // After (current) - Convert dictionary to JSON Data
-/// struct MyEndpoint: Endpoint {
-///     var body: Data? = try? JSONEncoder().encode(["key": "value"])
-/// }
-///
-/// // Alternative: Convert dictionary to URL-encoded form data
-/// struct MyEndpoint: Endpoint {
-///     var body: Data? = {
-///         let params = ["key": "value"]
-///         let bodyString = params.map { "\($0.key)=\($0.value)" }.joined(separator: "&")
-///         return bodyString.data(using: .utf8)
-///     }()
-/// }
-/// ```
-///
-/// **Migration Steps:**
-/// 1. Replace `header` with `headers` in all conforming types
-/// 2. Convert `body: [String: String]?` to `body: Data?`:
-///    - For JSON payloads: Use `JSONEncoder().encode(dictionary)`
-///    - For form data: Convert to URL-encoded string then to Data
-///    - For raw data: Use the Data directly
-/// 3. Update any code that expects `[String: String]?` body type
-/// 4. Test all endpoints after migration to ensure proper serialization
-///
-/// ### Usage Example
+/// ## Usage Example
 /// ```swift
 /// struct UsersEndpoint: Endpoint {
 ///     var scheme: URLScheme = .https

@@ -15,7 +15,7 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 
 > **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 >
-> **Support Note**: AsyncNet requires iOS 18+/macOS 15+ (minimum supported). Older OS versions are not supported.
+> **Support Note**: AsyncNet requires iOS 18+/macOS 15+ for full functionality.
 > **Platform Feature Matrix**:
 
 | Feature | iOS 18+ | macOS 15+ |
@@ -81,8 +81,6 @@ let package = Package(
     ]
 )
 ```
-
-> **Version Pinning Recommendation**: Use `from: "1.0.0"` to automatically receive non-breaking updates (patch and minor versions) while preventing accidental major version upgrades. This ensures you get bug fixes and minor enhancements without unexpected breaking changes. For more explicit control, you can use version ranges like `"1.0.0"..<"2.0.0"`.
 
 ## Platform Support
 

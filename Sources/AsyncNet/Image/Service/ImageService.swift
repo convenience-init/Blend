@@ -44,10 +44,6 @@ private let sharedURLSession: URLSession = {
 /// - Use interceptors for request/response customization.
 /// - Configure cache and retry policies for optimal performance.
 /// - Use platformImageToData for cross-platform image conversion.
-///
-/// ### Migration Notes
-/// - All legacy synchronous APIs are replaced by async/await and actor isolation.
-/// - Use SwiftUI.Image(platformImage:) for cross-platform SwiftUI integration.
 public actor ImageService {
     // MARK: - Image Uploading
 

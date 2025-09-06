@@ -81,17 +81,17 @@ This codebase is a Swift networking library with comprehensive image handling, b
 - **For Race Detection in CI**: Use Thread Sanitizer instead of actor data race checks:
   - `swift test -c debug --sanitize=thread` (detects races without production overhead)
 
-> **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. Using older toolchains will result in compilation errors or runtime issues.
+> **Toolchain Note**: Swift 6 features like `@MainActor` isolation, `Sendable` conformance checking, and region-based memory analysis require Xcode 16+. 
 
 ## Architecture Overview
 
 AsyncNet follows a **protocol-oriented design** with modern Swift 6 patterns and these core service boundaries:
 
-- **Network Layer**: `AsyncRequestable` and `AdvancedAsyncRequestable` protocols + `Endpoint` definitions in `/base/` and `/endpoints/`
+- **Network Layer**: `AsyncRequestable` and `AdvancedAsyncRequestable` protocols + `Endpoint` definitions in `/Core/Protocols/` and `/Core/Networking/`
   - **Basic Networking**: `AsyncRequestable` for simple services with single response types
   - **Advanced Networking**: `AdvancedAsyncRequestable` for complex services requiring master-detail patterns, CRUD operations, and multiple response types
-  - **Image Operations**: `ImageService` is actor-based and provided via dependency injection in `/services/`, with comprehensive upload/download, caching, and SwiftUI integration
-- **SwiftUI Integration**: Complete view modifier suite in `/extensions/SwiftUIExtensions.swift` with async state management
+  - **Image Operations**: `ImageService` is actor-based and provided via dependency injection in `/Image/Service/`, with comprehensive upload/download, caching, and SwiftUI integration
+- **SwiftUI Integration**: Complete view modifier suite in `/UI/SwiftUI/SwiftUIExtensions.swift` with async state management
 - **Error Handling**: Centralized `NetworkError` enum with Sendable conformance and upload-specific cases
 - **Platform Abstraction**: Cross-platform support via `PlatformImage` typealias and conditional compilation
 

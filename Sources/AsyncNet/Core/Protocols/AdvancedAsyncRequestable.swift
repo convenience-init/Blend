@@ -123,13 +123,6 @@ import Foundation
 /// This protocol provides convenience methods `fetchList()` and `fetchDetails()` that automatically
 /// use the correct associated types, reducing boilerplate and potential type errors.
 ///
-/// ## Migration from AsyncRequestable
-///
-/// To migrate from `AsyncRequestable` to `AdvancedAsyncRequestable`:
-/// 1. Change the protocol conformance: `AsyncRequestable` → `AdvancedAsyncRequestable`
-/// 2. Add the `SecondaryResponseModel` associated type
-/// 3. Update method implementations to use `fetchList()` and `fetchDetails()` where appropriate
-///
 /// ## Thread Safety
 ///
 /// Like `AsyncRequestable`, this protocol is designed for Swift 6 concurrency and supports
@@ -207,7 +200,7 @@ public extension AdvancedAsyncRequestable {
 	/// let users: [UserSummary] = try await fetchList(from: UsersEndpoint())
 	/// ```
 	@discardableResult
-	public func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
+	func fetchList(from endpoint: Endpoint) async throws -> ResponseModel {
 		return try await sendRequest(ResponseModel.self, to: endpoint)
 	}
 
@@ -225,7 +218,7 @@ public extension AdvancedAsyncRequestable {
 	/// let userDetails: UserDetails = try await fetchDetails(from: UserDetailsEndpoint(id: "123"))
 	/// ```
 	@discardableResult
-	public func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
+	func fetchDetails(from endpoint: Endpoint) async throws -> SecondaryResponseModel {
 		return try await sendRequest(SecondaryResponseModel.self, to: endpoint)
 	}
 }

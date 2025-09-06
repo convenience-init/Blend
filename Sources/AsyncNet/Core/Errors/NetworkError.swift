@@ -16,11 +16,6 @@ import Foundation
 /// }
 /// ```
 ///
-/// ### Migration Notes
-/// - Migrate all legacy error cases to specific cases for strict concurrency and clarity.
-/// - Use `wrapAsync(_:config:)` to convert generic errors to `NetworkError`
-/// (config parameter uses default AsyncNetConfig.shared if not specified).
-///
 /// Enhanced error system for AsyncNet (ASYNC-302)
 public enum NetworkError: Error, Sendable {
     case customError(message: String, details: String?)
