@@ -185,6 +185,11 @@ public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecke
         lock.lock()
         defer { lock.unlock() }
         // Simple linear congruential generator for reproducibility
+        // Constants chosen for good statistical properties:
+        // - Multiplier (2_862_933_555_777_941_757): Large odd number with good distribution properties
+        // - Increment (3_037_000_493): Non-zero value to avoid short cycles
+        // These values are commonly used in LCG implementations for their statistical quality
+        // Reference: "Numerical Recipes" and various PRNG literature
         state = (2_862_933_555_777_941_757 &* state) &+ 3_037_000_493
         return state
     }

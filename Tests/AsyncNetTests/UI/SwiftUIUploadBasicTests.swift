@@ -193,7 +193,10 @@
                 }
 
                 // Return the first completed task result, cancel others
-                let result = try await group.next()!
+                guard let result = try await group.next() else {
+                    group.cancelAll()
+                    throw NetworkError.customError("No upload or timeout result was produced", details: nil)
+                }
                 group.cancelAll()
                 return result
             }
