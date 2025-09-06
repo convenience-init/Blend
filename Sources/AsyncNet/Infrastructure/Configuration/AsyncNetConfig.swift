@@ -262,24 +262,6 @@ public actor AsyncNetConfig {
         _maxImagePixels
     }
 
-    /// Gets the default maximum image dimension (synchronous accessor for use in synchronous contexts).
-    /// - Returns: The default maximum image dimension in pixels per side.
-    /// - Note: This method always returns the default value and does not reflect the actual configured state.
-    public nonisolated func getMaxImageDimension() -> Int {
-        // This is a synchronous accessor that returns the default value.
-        // Note: This does NOT reflect concurrent changes made to the actor or the actual configuration state.
-        return AsyncNetConfig.defaultMaxImageDimension // Fallback to default for synchronous access
-    }
-
-    /// Gets the default maximum total image pixels (synchronous accessor for use in synchronous contexts).
-    /// - Returns: The default maximum total image pixels.
-    /// - Note: This method always returns the default value and does not reflect the actual configured state.
-    public nonisolated func getMaxImagePixels() -> Int {
-        // This is a synchronous accessor that returns the default value.
-        // Note: This does NOT reflect concurrent changes made to the actor or the actual configuration state.
-        return AsyncNetConfig.defaultMaxImagePixels // Fallback to default for synchronous access
-    }
-
     /// Sets the timeout duration for network requests
     /// - Parameter duration: The timeout duration in seconds (must be finite and > 0)
     /// - Throws: AsyncNetConfigError.invalidTimeoutDuration if the duration is invalid
