@@ -371,11 +371,11 @@ EOF
             case "$PLATFORM_KEY" in
                 "iOS")
                     DEVICE_TYPE="iPhone"
-                    RUNTIME=$(xcrun simctl list runtimes | grep "iOS" | grep "ready" | tail -1 | awk '{print $2}' | tr -d '()')
+                    RUNTIME=$(xcrun simctl list runtimes | awk '/iOS.*ready/ { gsub(/[()]/, "", $2); runtime=$2 } END { print runtime }')
                     ;;
                 "tvOS")
                     DEVICE_TYPE="Apple TV"
-                    RUNTIME=$(xcrun simctl list runtimes | grep "tvOS" | grep "ready" | tail -1 | awk '{print $2}' | tr -d '()')
+                    RUNTIME=$(xcrun simctl list runtimes | awk '/tvOS.*ready/ { gsub(/[()]/, "", $2); runtime=$2 } END { print runtime }')
                     ;;
                 *)
                     echo "ERROR: Unsupported platform: $PLATFORM_KEY"
