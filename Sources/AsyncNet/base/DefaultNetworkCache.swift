@@ -118,10 +118,8 @@ public actor DefaultNetworkCache: NetworkCache {
         var nodesToRemove: [Node] = []
 
         // Collect expired nodes
-        for (_, node) in cache {
-            if now - node.timestamp >= expiration {
-                nodesToRemove.append(node)
-            }
+        for (_, node) in cache where now - node.timestamp >= expiration {
+            nodesToRemove.append(node)
         }
 
         // Remove expired nodes

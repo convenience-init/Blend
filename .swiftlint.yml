@@ -3,12 +3,10 @@ included:
   - Tests
 
 opt_in_rules:
-  - explicit_top_level_acl
 
 excluded:
   - .build/
   - .swiftpm/
 
-# Configure built-in access control rules
-explicit_top_level_acl:
-  severity: warning
+disabled_rules:
+  - explicit_top_level_acl

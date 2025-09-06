@@ -22,23 +22,24 @@ public enum MultipartBuilder {
 
         // Add additional fields first
         for (key, value) in configuration.additionalFields {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append(Data("--\(boundary)\r\n".utf8))
             body.append(
-                "Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(value)\r\n".data(using: .utf8)!)
+                Data("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".utf8))
+            body.append(Data("\(value)\r\n".utf8))
         }
 
         // Add the image data
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append(
-            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; filename=\"\(configuration.fileName)\"\r\n"
-                .data(using: .utf8)!)
-        body.append("Content-Type: \(configuration.mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(Data("--\(boundary)\r\n".utf8))
+        let contentDisposition =
+            "Content-Disposition: form-data; name=\"\(configuration.fieldName)\"; "
+            + "filename=\"\(configuration.fileName)\"\r\n"
+        body.append(Data(contentDisposition.utf8))
+        body.append(Data("Content-Type: \(configuration.mimeType)\r\n\r\n".utf8))
         body.append(imageData)
-        body.append("\r\n".data(using: .utf8)!)
+        body.append(Data("\r\n".utf8))
 
         // Add closing boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(Data("--\(boundary)--\r\n".utf8))
 
         return body
     }

@@ -2,25 +2,6 @@ import Foundation
 #if canImport(OSLog)
 import OSLog
 #endif
-/// Public logger for AsyncNet library consumers to access internal logging.
-///
-/// This logger can be used to:
-/// - Attach custom log handlers for debugging
-/// - Route AsyncNet logs to your application's logging system
-/// - Monitor network request lifecycle and performance
-///
-/// Example usage:
-/// ```swift
-/// // Attach a custom log handler
-/// asyncNetLogger.log(level: .debug, "Custom debug message")
-///
-/// // Or use OSLog's built-in methods
-/// asyncNetLogger.info("Network request started")
-/// asyncNetLogger.error("Network request failed: \(error)")
-/// ```
-#if canImport(OSLog)
-public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
-#endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
 ///
 /// Conform to `AsyncRequestable` to enable generic, type-safe API requests using async/await.
@@ -107,14 +88,14 @@ public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", ca
 /// ```
 public protocol AsyncRequestable {
 	associatedtype ResponseModel: Decodable
-	
+
 	func sendRequest<ResponseModel>(
 		to endPoint: Endpoint,
 		session: URLSessionProtocol
 	) async throws -> ResponseModel where ResponseModel: Decodable
-	
+
 	var jsonDecoder: JSONDecoder { get }
-	
+
 	var networkManager: AdvancedNetworkManager { get }
 }
 
@@ -125,15 +106,15 @@ public extension AsyncRequestable {
 	///   - endPoint: The endpoint to send the request to.
 	/// - Returns: The decoded response model of the specified type.
 	/// - Throws: `NetworkError` if the request fails, decoding fails, or the endpoint is invalid.
-	
+
 	/// Default JSONDecoder configuration for AsyncNet.
-	/// 
+	///
 	/// This decoder is configured with:
 	/// - `dateDecodingStrategy`: `.iso8601` for standard date handling
 	/// - `keyDecodingStrategy`: `.convertFromSnakeCase` for API compatibility
-	/// 
+	///
 	/// Use this as a starting point for custom decoders or inject entirely custom decoders via the jsonDecoder property.
-	/// 
+	///
 	/// ### Example
 	/// ```swift
 	/// let customDecoder = AsyncRequestable.defaultJSONDecoder
@@ -145,15 +126,15 @@ public extension AsyncRequestable {
 		decoder.keyDecodingStrategy = .convertFromSnakeCase
 		return decoder
 	}
-	
+
 	/// Default implementation of jsonDecoder using the standard AsyncNet configuration.
-	/// 
+	///
 	/// Conforming types can override this property to provide custom decoders for testing
 	/// or different runtime contexts while maintaining the same interface.
 	var jsonDecoder: JSONDecoder {
 		Self.defaultJSONDecoder
 	}
-	
+
 	/// Default implementation of networkManager using the shared instance.
 	///
 	/// This ensures all services use the same AdvancedNetworkManager instance by default,
@@ -162,7 +143,7 @@ public extension AsyncRequestable {
 	var networkManager: AdvancedNetworkManager {
 		sharedNetworkManager
 	}
-	
+
 	func sendRequest<ResponseModel>(
 		to endPoint: Endpoint,
 		session: URLSessionProtocol = URLSession.shared
@@ -196,7 +177,7 @@ public extension AsyncRequestable {
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
 		}
 	}
-	
+
 	/// Builds a URLRequest from the given endpoint with proper validation and configuration.
 	///
 	/// This method centralizes the common request building logic used across different service implementations,
@@ -205,56 +186,83 @@ public extension AsyncRequestable {
 	/// - Parameter endPoint: The endpoint to build the request for.
 	/// - Returns: A configured URLRequest.
 	/// - Throws: `NetworkError.invalidEndpoint` if the endpoint configuration is invalid.
-	func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
+	public func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
 		// Validate GET requests don't have a body
+		try validateGETRequest(endPoint)
+
+		// Build URL from Endpoint properties
+		let url = try buildURL(from: endPoint)
+
+		var request = URLRequest(url: url)
+		request.httpMethod = endPoint.method.rawValue
+
+		// Configure headers
+		configureHeaders(for: &request, from: endPoint)
+
+		// Configure body
+		configureBody(for: &request, from: endPoint)
+
+		// Configure timeout
+		try configureTimeout(for: &request, from: endPoint)
+
+		return request
+	}
+
+	/// Validates that GET requests don't have a body
+	private func validateGETRequest(_ endPoint: Endpoint) throws {
 		if endPoint.method == .get && endPoint.body != nil {
 			throw NetworkError.invalidEndpoint(
 				reason:
 					"GET requests must not have a body. Remove the body parameter or use a different HTTP method like POST."
 			)
 		}
-		
-		// Build URL from Endpoint properties
+	}
+
+	/// Builds URL from endpoint properties
+	private func buildURL(from endPoint: Endpoint) throws -> URL {
 		var components = URLComponents()
 		components.scheme = endPoint.scheme.rawValue
 		components.host = endPoint.host
 		components.path = endPoint.normalizedPath
 		components.queryItems = endPoint.queryItems
-		
+
 		if let port = endPoint.port {
 			components.port = port
 		}
-		
+
 		if let fragment = endPoint.fragment {
 			components.fragment = fragment
 		}
-		
+
 		guard let url = components.url else {
 			throw NetworkError.invalidEndpoint(reason: "Invalid endpoint URL")
 		}
-		
-		var request = URLRequest(url: url)
-		request.httpMethod = endPoint.method.rawValue
-		
+
+		return url
+	}
+
+	/// Configures headers for the request
+	private func configureHeaders(for request: inout URLRequest, from endPoint: Endpoint) {
 		if let resolvedHeaders = endPoint.resolvedHeaders {
 			for (key, value) in resolvedHeaders {
 				request.setValue(value, forHTTPHeaderField: key)
 			}
 		}
-		
+	}
+
+	/// Configures body for the request
+	private func configureBody(for request: inout URLRequest, from endPoint: Endpoint) {
 		// Only set httpBody for non-GET methods
 		if let body = endPoint.body, endPoint.method != .get {
 			request.httpBody = body
 		}
-		
+	}
+
+	/// Configures timeout for the request
+	private func configureTimeout(for request: inout URLRequest, from endPoint: Endpoint) throws {
 		// Resolve timeout: timeoutDuration takes precedence over legacy timeout
 		if let timeoutDuration = endPoint.timeoutDuration {
-			// Convert Duration to TimeInterval (seconds) with full precision
-			let components = timeoutDuration.components
-			let timeoutSeconds = TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
-			guard timeoutSeconds > 0 else {
-				throw NetworkError.invalidEndpoint(reason: "Timeout duration must be positive")
-			}
+			let timeoutSeconds = try convertDurationToTimeInterval(timeoutDuration)
 			request.timeoutInterval = timeoutSeconds
 		} else if let legacyTimeout = endPoint.timeout {
 			guard legacyTimeout > 0 else {
@@ -262,17 +270,28 @@ public extension AsyncRequestable {
 			}
 			request.timeoutInterval = legacyTimeout
 		}
-		
-		return request
 	}
-	
+
+	/// Converts Duration to TimeInterval with validation
+	private func convertDurationToTimeInterval(_ duration: Duration) throws -> TimeInterval {
+		// Convert Duration to TimeInterval (seconds) with full precision
+		let components = duration.components
+		let timeoutSeconds =
+			TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+		guard timeoutSeconds > 0 else {
+			throw NetworkError.invalidEndpoint(reason: "Timeout duration must be positive")
+		}
+		return timeoutSeconds
+	}
+
 	/// Sends an asynchronous network request using AdvancedNetworkManager with enhanced features.
 	///
 	/// This method provides advanced networking capabilities including request deduplication, intelligent caching,
 	/// configurable retry policies with backoff strategies, and request/response interceptors for cross-cutting concerns.
 	///
 	/// - Parameters:
-	///   - endPoint: The endpoint to send the request to, containing URL components, HTTP method, headers, and optional body.
+	///   - endPoint: The endpoint to send the request to, containing URL components, HTTP method,
+	///     headers, and optional body.
 	///   - cacheKey: Optional string key for caching the response. When provided:
 	///     - Responses are cached using this key for future identical requests
 	///     - Subsequent requests with the same key return cached data instantly
@@ -286,7 +305,8 @@ public extension AsyncRequestable {
 	/// - Returns: The decoded response model of type `ResponseModel`, automatically decoded from JSON.
 	///
 	/// - Throws:
-	///   - `NetworkError.invalidEndpoint` if the endpoint URL cannot be constructed or if attempting to send a body with a GET request
+	///   - `NetworkError.invalidEndpoint` if the endpoint URL cannot be constructed or if
+	///     attempting to send a body with a GET request
 	///   - `NetworkError.decodingError` if the response cannot be decoded to the expected type
 	///   - `NetworkError.httpError` for HTTP status codes outside 200-299 range
 	///   - `CancellationError` if the request is cancelled
@@ -350,33 +370,31 @@ private struct NetworkCacheConfig {
 	let maxSize: Int
 	/// Cache expiration time in seconds (default: 600 = 10 minutes)
 	let expiration: TimeInterval
-	
+
 	/// Initialize from environment variables with validation and defaults
 	static func fromEnvironment() -> NetworkCacheConfig {
 		let environment = ProcessInfo.processInfo.environment
-		
+
 		// Parse maxSize from environment with validation
 		let maxSize: Int
 		if let maxSizeString = environment["ASYNCNET_CACHE_MAX_SIZE"],
 			let parsedSize = Int(maxSizeString),
-			parsedSize > 0
-		{
+			parsedSize > 0 {
 			maxSize = parsedSize
 		} else {
 			maxSize = 100  // Default value
 		}
-		
+
 		// Parse expiration from environment with validation
 		let expiration: TimeInterval
 		if let expirationString = environment["ASYNCNET_CACHE_EXPIRATION"],
 			let parsedExpiration = TimeInterval(expirationString),
-			parsedExpiration > 0
-		{
+			parsedExpiration > 0 {
 			expiration = parsedExpiration
 		} else {
 			expiration = 600.0  // Default: 10 minutes
 		}
-		
+
 		return NetworkCacheConfig(maxSize: maxSize, expiration: expiration)
 	}
 }

@@ -28,7 +28,8 @@ public enum UploadType: String, Sendable {
 
 /// Observable view model for async image loading and uploading in SwiftUI.
 ///
-/// Use `AsyncImageModel` with `AsyncNetImageView` for robust, actor-isolated image state management, including loading, error, and upload states.
+/// Use `AsyncImageModel` with `AsyncNetImageView` for robust, actor-isolated image state
+/// management, including loading, error, and upload states.
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
 /// - Note: All state properties are actor-isolated and observable for SwiftUI.
@@ -47,15 +48,15 @@ public class AsyncImageModel {
     public var hasError: Bool = false
     public var isUploading: Bool = false
     public var error: NetworkError?
-    
+
     private let imageService: ImageService
-    
+
     // Store the current task in a box to allow nonisolated access from deinit
     private let taskBox = TaskBox()
 
     private actor TaskBox {
         var task: Task<Void, Never>?
-        
+
         func setTask(_ newTask: Task<Void, Never>?) async -> Task<Void, Never>? {
             // Cancel existing task if present
             let previousTask = task
@@ -98,13 +99,8 @@ public class AsyncImageModel {
                 try Task.checkCancellation()
 
                 guard let url = url else {
-                    await MainActor.run {
-                        guard let self = self else { return }
-                        self.hasError = true
-                        self.error = NetworkError.invalidEndpoint(reason: "URL is required")
-                        self.isLoading = false
-                        self.loadedImage = nil
-                    }
+                    await self?.handleImageLoadError(
+                        NetworkError.invalidEndpoint(reason: "URL is required"))
                     return
                 }
 
@@ -117,38 +113,17 @@ public class AsyncImageModel {
                     self.hasError = false
                     self.error = nil
                 }
-                
+
                 let data = try await imageService.fetchImageData(from: url)
-                
+
                 // Check for cancellation before updating state
                 try Task.checkCancellation()
 
-                await MainActor.run {
-                    guard let self = self else { return }
-                    self.loadedImage = ImageService.platformImage(from: data)
-                    self.hasError = false
-                    self.error = nil
-                    self.isLoading = false
-                }
+                await self?.handleImageLoadSuccess(data)
             } catch is CancellationError {
-                // Task was cancelled, clean up state if self still exists
-                await MainActor.run {
-                    guard let self = self else { return }
-                    self.isLoading = false
-                    self.loadedImage = nil
-                    self.hasError = false
-                    self.error = nil
-                }
+                await self?.handleImageLoadCancellation()
             } catch {
-                // Handle other errors
-                let wrappedError = await NetworkError.wrapAsync(
-                    error, config: AsyncNetConfig.shared)
-                await MainActor.run {
-                    guard let self = self else { return }
-                    self.hasError = true
-                    self.error = wrappedError
-                    self.isLoading = false
-                }
+                await self?.handleImageLoadError(error)
             }
         }
 
@@ -160,6 +135,33 @@ public class AsyncImageModel {
 
         // Await the local task (not the taskBox's current task)
         await task.value
+    }
+
+    /// Handles successful image loading
+    @MainActor
+    private func handleImageLoadSuccess(_ data: Data) {
+        self.loadedImage = ImageService.platformImage(from: data)
+        self.hasError = false
+        self.error = nil
+        self.isLoading = false
+    }
+
+    /// Handles task cancellation cleanup
+    @MainActor
+    private func handleImageLoadCancellation() {
+        self.isLoading = false
+        self.loadedImage = nil
+        self.hasError = false
+        self.error = nil
+    }
+
+    /// Handles image loading errors
+    @MainActor
+    private func handleImageLoadError(_ error: Error) async {
+        let wrappedError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+        self.hasError = true
+        self.error = wrappedError
+        self.isLoading = false
     }
 
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
@@ -221,10 +223,12 @@ public class AsyncImageModel {
 
 /// A complete SwiftUI image view for async image loading and uploading, with progress and error handling.
 ///
-/// Use `AsyncNetImageView` for robust, cross-platform image display and upload in SwiftUI, with support for dependency injection, upload progress, and error states.
+/// Use `AsyncNetImageView` for robust, cross-platform image display and upload in SwiftUI,
+/// with support for dependency injection, upload progress, and error states.
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
-/// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms. The view automatically reloads when the URL changes.
+/// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms. The view
+///   automatically reloads when the URL changes.
 ///
 /// ### Usage Example
 /// ```swift
@@ -346,9 +350,7 @@ public struct AsyncNetImageView: View {
             hasAttemptedAutoUpload = false
             await model.loadImage(from: url)
             // Perform auto-upload immediately after successful load
-            if model.loadedImage != nil && autoUpload && uploadURL != nil
-                && !hasAttemptedAutoUpload
-            {
+            if model.loadedImage != nil && autoUpload && uploadURL != nil && !hasAttemptedAutoUpload {
                 hasAttemptedAutoUpload = true
                 await performUpload(expectedUrl: url)
             }

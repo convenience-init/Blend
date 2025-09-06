@@ -38,7 +38,7 @@ public enum RequestUtilities {
             // Lowercase variants for consistency
             "bearer-token", "api-token", "auth-key", "access-key",
             "secret-key", "private-key", "client-id", "client-secret",
-            "app-key", "app-secret", "token", "auth", "api-secret",
+            "app-key", "app-secret", "token", "auth", "api-secret"
         ]
 
         // Include only non-sensitive headers, normalized to lowercase and sorted
@@ -93,7 +93,6 @@ public enum RequestUtilities {
                         // Return error indicator immediately - don't continue with bad state
                         return "error:sha256-update-failed:\(body.count)"
                     }
-
                 }
 
                 var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
@@ -116,7 +115,7 @@ public enum RequestUtilities {
             return "sha256:\(hash.map { String(format: "%02x", $0) }.joined())"
         #else
             // Fallback to FNV-1a 64-bit hash over the entire body for better collision resistance
-            let fnv1aHash = body.reduce(14_695_981_039_346_656_037) { hash, byte in
+            let fnv1aHash = body.reduce(14_695_981_039_346_656_037) { hash, _ in
                 let hash = hash &* 1_099_511_628_211
             }
             return "fallback:\(String(format: "%016llx", fnv1aHash)):\(body.count)"
@@ -125,8 +124,7 @@ public enum RequestUtilities {
 
     /// Determines if a response should be cached based on HTTP method and Cache-Control headers
     public static func shouldCacheResponse(for request: URLRequest, response: HTTPURLResponse)
-        -> Bool
-    {
+        -> Bool {
         // Only cache responses for safe/idempotent HTTP methods
         let method = request.httpMethod?.uppercased() ?? "GET"
         let safeMethods = ["GET", "HEAD"]
@@ -145,8 +143,7 @@ public enum RequestUtilities {
         }
 
         // Check Cache-Control headers (case-insensitive)
-        let normalizedResponseHeaders = response.allHeaderFields.reduce(into: [String: Any]()) {
-            result, pair in
+        let normalizedResponseHeaders = response.allHeaderFields.reduce(into: [String: Any]()) { result, pair in
             if let keyString = pair.key as? String {
                 result[keyString.lowercased()] = pair.value
             }
@@ -231,7 +228,10 @@ public enum RequestUtilities {
         if attempt + 1 < retryPolicy.maxAttempts && cappedDelay > 0 {
             #if canImport(OSLog)
                 asyncNetLogger.debug(
-                    "Retrying request for key: \(key, privacy: .private) after \(cappedDelay, privacy: .public) seconds"
+                    """
+                    Retrying request for key: \(key, privacy: .private) after \
+                    \(cappedDelay, privacy: .public) seconds
+                    """
                 )
             #endif
             try await Task.sleep(nanoseconds: UInt64(cappedDelay * 1_000_000_000))

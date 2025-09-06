@@ -22,40 +22,49 @@ public enum MIMETypeDetector {
         let bytes = [UInt8](data.prefix(min(32, data.count)))
         let dataCount = data.count
 
-        // Define MIME type detectors as an array of (pattern, mimeType) tuples
-        let detectors: [(pattern: [Int: UInt8], minLength: Int, mimeType: String)] = [
+        // Define MIME type detectors as an array of detector configurations
+        let detectors: [MIMETypeDetector] = [
             // JPEG: FF D8 FF (SOI marker)
-            ([0: 0xFF, 1: 0xD8, 2: 0xFF], 3, "image/jpeg"),
+            MIMETypeDetector(pattern: [0: 0xFF, 1: 0xD8, 2: 0xFF], minLength: 3, mimeType: "image/jpeg"),
             // PNG: 89 50 4E 47 0D 0A 1A 0A
-            (
-                [0: 0x89, 1: 0x50, 2: 0x4E, 3: 0x47, 4: 0x0D, 5: 0x0A, 6: 0x1A, 7: 0x0A], 8,
-                "image/png"
+            MIMETypeDetector(
+                pattern: [0: 0x89, 1: 0x50, 2: 0x4E, 3: 0x47, 4: 0x0D, 5: 0x0A, 6: 0x1A, 7: 0x0A],
+                minLength: 8,
+                mimeType: "image/png"
             ),
             // GIF87a: 47 49 46 38 37 61
-            ([0: 0x47, 1: 0x49, 2: 0x46, 3: 0x38, 4: 0x37, 5: 0x61], 6, "image/gif"),
+            MIMETypeDetector(
+                pattern: [0: 0x47, 1: 0x49, 2: 0x46, 3: 0x38, 4: 0x37, 5: 0x61],
+                minLength: 6,
+                mimeType: "image/gif"
+            ),
             // GIF89a: 47 49 46 38 39 61
-            ([0: 0x47, 1: 0x49, 2: 0x46, 3: 0x38, 4: 0x39, 5: 0x61], 6, "image/gif"),
+            MIMETypeDetector(
+                pattern: [0: 0x47, 1: 0x49, 2: 0x46, 3: 0x38, 4: 0x39, 5: 0x61],
+                minLength: 6,
+                mimeType: "image/gif"
+            ),
             // BMP: 42 4D (BM)
-            ([0: 0x42, 1: 0x4D], 2, "image/bmp"),
+            MIMETypeDetector(pattern: [0: 0x42, 1: 0x4D], minLength: 2, mimeType: "image/bmp"),
             // TIFF Little Endian: 49 49 2A 00
-            ([0: 0x49, 1: 0x49, 2: 0x2A, 3: 0x00], 4, "image/tiff"),
+            MIMETypeDetector(pattern: [0: 0x49, 1: 0x49, 2: 0x2A, 3: 0x00], minLength: 4, mimeType: "image/tiff"),
             // TIFF Big Endian: 4D 4D 00 2A
-            ([0: 0x4D, 1: 0x4D, 2: 0x00, 3: 0x2A], 4, "image/tiff"),
+            MIMETypeDetector(pattern: [0: 0x4D, 1: 0x4D, 2: 0x00, 3: 0x2A], minLength: 4, mimeType: "image/tiff")
         ]
 
         // Check standard patterns
-        for (pattern, minLength, mimeType) in detectors {
-            guard dataCount >= minLength else { continue }
-            let matches = pattern.allSatisfy { offset, expectedByte in
+        for detector in detectors {
+            guard dataCount >= detector.minLength else { continue }
+            let matches = detector.pattern.allSatisfy { offset, expectedByte in
                 bytes[offset] == expectedByte
             }
-            if matches { return mimeType }
+            if matches { return detector.mimeType }
         }
 
         // Check WebP: RIFF header + WEBP at offset 8
         if dataCount >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46
-            && bytes[3] == 0x46
-            && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50
+            && bytes[3] == 0x46 && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42
+            && bytes[11] == 0x50
         {
             return "image/webp"
         }
@@ -96,8 +105,7 @@ public enum MIMETypeDetector {
                 if compatibleBrand1 == (0x68, 0x65, 0x69, 0x63)
                     || compatibleBrand1 == (0x61, 0x76, 0x69, 0x66)
                     || compatibleBrand2 == (0x68, 0x65, 0x69, 0x63)
-                    || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66)
-                {
+                    || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66) {
                     return compatibleBrand1 == (0x61, 0x76, 0x69, 0x66)
                         || compatibleBrand1 == (0x61, 0x76, 0x69, 0x73)
                         || compatibleBrand2 == (0x61, 0x76, 0x69, 0x66)
@@ -147,7 +155,7 @@ public enum MIMETypeDetector {
             "public.tiff": "image/tiff",
             "public.heic": "image/heic",
             "public.heif": "image/heic",
-            "public.avif": "image/avif",
+            "public.avif": "image/avif"
         ]
 
         // Check direct mappings first
@@ -226,5 +234,12 @@ public enum MIMETypeDetector {
             }
         #endif
         return nil
+    }
+
+    /// MIME type detector configuration
+    private struct MIMETypeDetector {
+        let pattern: [Int: UInt8]
+        let minLength: Int
+        let mimeType: String
     }
 }

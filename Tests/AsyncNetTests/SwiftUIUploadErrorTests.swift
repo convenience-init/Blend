@@ -1,0 +1,101 @@
+#if canImport(SwiftUI)
+
+    import Foundation
+    import Testing
+    import SwiftUI
+    @testable import AsyncNet
+
+    /// Actor to coordinate continuation resumption and prevent race conditions
+    /// between timeout tasks and upload callbacks
+    private actor CoordinationActor {
+        private var hasResumed = false
+
+        /// Attempts to resume the continuation. Returns true if this call should
+        /// actually resume (i.e., it's the first call), false if already resumed.
+        func tryResume() -> Bool {
+            if hasResumed {
+                return false
+            }
+            hasResumed = true
+            return true
+        }
+    }
+
+    @Suite("SwiftUI Upload Error Tests")
+    public struct SwiftUIUploadErrorTests {
+        private static let minimalPNGBase64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+
+        /// Decode the minimal PNG Base64 string into Data
+        /// - Returns: The decoded Data
+        /// - Throws: NetworkError if decoding fails
+        private static func decodeMinimalPNGBase64() throws -> Data {
+            guard let data = Data(base64Encoded: minimalPNGBase64) else {
+                throw NetworkError.customError(
+                    "Failed to decode minimalPNGBase64 - invalid Base64 string", details: nil)
+            }
+            return data
+        }
+
+        private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
+
+        @MainActor
+        @Test public func testAsyncNetImageModelUploadErrorState() async throws {
+            // Create a mock session that returns an upload error
+            guard
+                let errorResponse = HTTPURLResponse(
+                    url: Self.defaultUploadURL,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )
+            else {
+                throw NetworkError.customError(
+                    "Failed to create HTTPURLResponse for upload error test - header fields may be invalid",
+                    details: nil)
+            }
+            let mockSession = MockURLSession(
+                nextData: Data("Server Error".utf8), nextResponse: errorResponse)
+            let service = ImageService(
+                imageCacheCountLimit: 100,
+                imageCacheTotalCostLimit: 50 * 1024 * 1024,
+                dataCacheCountLimit: 200,
+                dataCacheTotalCostLimit: 100 * 1024 * 1024,
+                urlSession: mockSession
+            )
+            let model = AsyncImageModel(imageService: service)
+
+            // Guard against nil platform image
+            let testData = try Self.getMinimalPNGData()
+            guard let platformImage = ImageService.platformImage(from: testData) else {
+                throw NetworkError.customError(
+                    "Failed to create platform image from test data", details: nil)
+            }
+
+            // Test the upload by capturing the error through the model's error state
+            await model.uploadImage(
+                platformImage, to: Self.defaultUploadURL, uploadType: .base64,
+                configuration: UploadConfiguration()
+            )
+
+            // Check that the model captured the error
+            #expect(model.hasError, "Model should have error state after failed upload")
+            #expect(model.error != nil, "Model should have captured an error")
+
+            // Assert the error is the expected type
+            if let error = model.error {
+                if case let .serverError(statusCode, _) = error {
+                    #expect(statusCode == 500, "Should receive HTTP 500 error")
+                } else {
+                    Issue.record("Expected server error but got: \(error)")
+                }
+            }
+        }
+
+        /// Test-friendly version that throws instead of crashing
+        private static func getMinimalPNGData() throws -> Data {
+            try decodeMinimalPNGBase64()
+        }
+    }
+
+#endif

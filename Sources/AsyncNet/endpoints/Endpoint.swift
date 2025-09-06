@@ -13,7 +13,8 @@ public enum URLScheme: String, Sendable {
 
 /// A protocol defining the structure of a network endpoint for use with AsyncNet.
 ///
-/// Conform to `Endpoint` to specify all necessary components for a network request, including scheme, host, path, method, headers, query items, and body.
+/// Conform to `Endpoint` to specify all necessary components for a network request, including
+/// scheme, host, path, method, headers, query items, and body.
 ///
 /// - Important: All properties must be thread-safe and immutable for strict Swift 6 concurrency compliance.
 ///               The `headers` property is an exception - it may be mutable during endpoint construction but must be
@@ -159,9 +160,12 @@ extension Endpoint {
 	/// - Starting with all headers from the `headers` property
 	/// - Canonicalizing any existing "content-type" key to "Content-Type" (case-insensitive)
 	/// - Trimming header keys and values, dropping headers with empty/whitespace-only keys or values
-	/// - Rejecting headers containing any ASCII C0 control characters (0x00–0x1F) and DEL (0x7F) to prevent header injection attacks
-	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key exists after normalization
-	/// - Ensuring consistent casing for the Content-Type header only (other header names retain their original casing)
+	/// - Rejecting headers containing any ASCII C0 control characters (0x00–0x1F) and DEL (0x7F)
+	///   to prevent header injection attacks
+	/// - Only injecting `contentType` as "Content-Type" if no case-insensitive "content-type" key
+	///   exists after normalization
+	/// - Ensuring consistent casing for the Content-Type header only (other header names retain
+	///   their original casing)
 	///
 	/// Use this property in request building instead of manually handling both `headers` and `contentType`.
 	public var resolvedHeaders: [String: String]? {
@@ -215,7 +219,7 @@ extension Endpoint {
 			}
 
 			// Store mapping for future de-duplication
-			normalizedKeyMap[normalizedKey] = canonicalKey
+				normalizedKeyMap[normalizedKey] = canonicalKey
 
 			// Set the header value (last value wins for duplicates)
 			canonicalizedHeaders[canonicalKey] = trimmedValue
@@ -226,14 +230,14 @@ extension Endpoint {
 			$0.caseInsensitiveCompare("content-type") == .orderedSame
 		}
 
-		// Only add contentType if no existing content-type header exists, contentType is non-nil with non-empty trimmed value,
-		// and there's an actual request body present and non-empty, and contentType doesn't contain control characters
+		// Only add contentType if no existing content-type header exists, contentType is non-nil with
+		// non-empty trimmed value, and there's an actual request body present and non-empty, and
+		// contentType doesn't contain control characters
 		if !hasContentType,
 			let contentType = contentType?.trimmingCharacters(in: .whitespaces),
 			!contentType.isEmpty,
 			let body = body, !body.isEmpty,
-			!contentType.unicodeScalars.contains(where: { forbiddenCharacters.contains($0) })
-		{
+			!contentType.unicodeScalars.contains(where: { forbiddenCharacters.contains($0) }) {
 			canonicalizedHeaders["Content-Type"] = contentType
 		}
 

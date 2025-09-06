@@ -121,11 +121,30 @@
         /// - Returns: NSBitmapImageRep containing the rasterized image, or nil if creation fails
         @MainActor
         private func rasterizedBitmapOnMainThread() -> NSBitmapImageRep? {
-            // Prevent quality loss: derive pixel dimensions from the best available rep (not points)
-            // Using NSImage.size (points) can downscale high‑DPI images where size ≠ pixel dimensions.
-            // Prefer the largest NSBitmapImageRep or fall back to CGImage dimensions, then rasterize.
-            // Also switch to sRGB and enable high interpolation for better color fidelity and scaling.
+            // Validate image and get dimensions
+            guard let dimensions = validateImageAndGetDimensions() else {
+                return nil
+            }
 
+            // Create bitmap representation
+            guard
+                let bitmapRep = createBitmapRepresentation(
+                    pixelsWide: dimensions.width, pixelsHigh: dimensions.height)
+            else {
+                return nil
+            }
+
+            // Draw image to bitmap
+            drawImageToBitmap(
+                bitmapRep, pixelsWide: dimensions.width, pixelsHigh: dimensions.height)
+
+            return bitmapRep
+        }
+
+        /// Validates the image and determines pixel dimensions
+        /// - Returns: Pixel dimensions as (width: Int, height: Int), or nil if invalid
+        @MainActor
+        private func validateImageAndGetDimensions() -> (width: Int, height: Int)? {
             // Validate image
             guard isValid else { return nil }
 
@@ -133,15 +152,11 @@
             var pixelsWide: Int
             var pixelsHigh: Int
 
-            if let bestRep =
-                representations
-                .max(by: {
-                    // Use Int64 to prevent overflow when calculating area
-                    let area0 = Int64($0.pixelsWide) * Int64($0.pixelsHigh)
-                    let area1 = Int64($1.pixelsWide) * Int64($1.pixelsHigh)
+            if let bestRep = representations.sorted(by: {
+                let area0 = $0.pixelsWide * $0.pixelsHigh
+                let area1 = $1.pixelsWide * $1.pixelsHigh
                     return area0 < area1
-                })
-            {
+            }).first {
                 pixelsWide = bestRep.pixelsWide
                 pixelsHigh = bestRep.pixelsHigh
             } else if let cgImage = cgImage(forProposedRect: nil, context: nil, hints: nil) {
@@ -156,13 +171,11 @@
             }
 
             // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
-            // Check individual dimensions
             guard pixelsWide <= Self.maxDimension, pixelsHigh <= Self.maxDimension else {
                 return nil
             }
 
             // Check total pixel count to prevent excessive memory usage
-            // Use multiplication that checks for overflow
             guard pixelsWide <= Int.max / pixelsHigh else {
                 return nil  // Would overflow
             }
@@ -176,30 +189,47 @@
                 return nil
             }
 
-            // Create bitmap representation with proper configuration
-            guard
-                let bitmapRep = NSBitmapImageRep(
-                    bitmapDataPlanes: nil,
-                    pixelsWide: pixelsWide,
-                    pixelsHigh: pixelsHigh,
-                    bitsPerSample: 8,
-                    samplesPerPixel: 4,
-                    hasAlpha: true,
-                    isPlanar: false,
-                    colorSpaceName: .calibratedRGB,
-                    bytesPerRow: 0,
-                    bitsPerPixel: 32
-                )
-            else {
-                return nil
-            }
+            return (width: pixelsWide, height: pixelsHigh)
+        }
 
+        /// Creates a bitmap representation with the specified dimensions
+        /// - Parameters:
+        ///   - pixelsWide: Width in pixels
+        ///   - pixelsHigh: Height in pixels
+        /// - Returns: Configured NSBitmapImageRep, or nil if creation fails
+        @MainActor
+        private func createBitmapRepresentation(pixelsWide: Int, pixelsHigh: Int) -> NSBitmapImageRep? {
+            let bitmapRep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: pixelsWide,
+                pixelsHigh: pixelsHigh,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 32
+            )
+
+            return bitmapRep
+        }
+
+        /// Draws the image into the bitmap representation
+        /// - Parameters:
+        ///   - bitmapRep: The bitmap to draw into
+        ///   - pixelsWide: Width in pixels
+        ///   - pixelsHigh: Height in pixels
+        @MainActor
+        private func drawImageToBitmap(
+            _ bitmapRep: NSBitmapImageRep, pixelsWide: Int, pixelsHigh: Int
+        ) {
             // Set up graphics context for drawing
             NSGraphicsContext.saveGraphicsState()
             defer { NSGraphicsContext.restoreGraphicsState() }
 
             guard let context = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
-                return nil
+                return
             }
 
             NSGraphicsContext.current = context
@@ -211,8 +241,6 @@
             // Compute explicit source rect from the image's actual bounds
             let sourceRect = NSRect(origin: .zero, size: self.size)
             draw(in: destRect, from: sourceRect, operation: .copy, fraction: 1.0)
-
-            return bitmapRep
         }
     }
 

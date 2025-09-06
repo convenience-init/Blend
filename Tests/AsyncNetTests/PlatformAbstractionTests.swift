@@ -45,9 +45,7 @@ public struct PlatformAbstractionTests {
         ///   - drawingBlock: Closure to execute with the context set as current
         /// - Returns: True if context was successfully created and drawing block executed
         @MainActor
-        private func withGraphicsContext(_ bitmapRep: NSBitmapImageRep, drawingBlock: () -> Void)
-            -> Bool
-        {
+        private func withGraphicsContext(_ bitmapRep: NSBitmapImageRep, drawingBlock: () -> Void) -> Bool {
             guard let ctx = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
                 return false
             }
@@ -185,8 +183,7 @@ public struct PlatformAbstractionTests {
             let customImage = NSImage(size: NSSize(width: 10, height: 10))
 
             // Create a custom image rep that has no TIFF encoder
-            let customRep = NSCustomImageRep(size: NSSize(width: 10, height: 10), flipped: false) {
-                rect in
+            let customRep = NSCustomImageRep(size: NSSize(width: 10, height: 10), flipped: false) { rect in
                 NSColor.blue.setFill()
                 NSBezierPath(rect: rect).fill()
                 return true

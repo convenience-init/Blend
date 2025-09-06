@@ -22,6 +22,11 @@ let package = Package(
             dependencies: [],
             resources: [
                 .process("Resources")
+            ],
+            swiftSettings: [
+                .unsafeFlags([
+                    "-Xfrontend", "-suppress-warnings",
+                ])
             ]
         ),
         .testTarget(

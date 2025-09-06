@@ -24,7 +24,8 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
             let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
             let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
             return
-                "Provide a maximum upload size between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
+                "Provide a maximum upload size between \(AsyncNetConfig.minUploadSize) - " +
+                "\(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
         }
     }
 }
@@ -164,7 +165,8 @@ public actor AsyncNetConfig {
             let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
             let providedMB = Double(size) / 1024.0 / 1024.0
             throw .invalidMaxUploadSize(
-                "Size must be between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB), got \(size) bytes (\(providedMB) MB)"
+                "Size must be between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes " +
+                "(\(minMB) - \(maxMB) MB), got \(size) bytes (\(providedMB) MB)"
             )
         }
         _maxUploadSize = size

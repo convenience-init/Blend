@@ -154,17 +154,6 @@ public struct RetryPolicy: Sendable {
     }
 }
 
-/// Example: Create a retry policy with deterministic jitter for testing
-/// ```swift
-/// let policy = RetryPolicy.exponentialBackoffWithJitter(maxAttempts: 3) { attempt in
-///     return Double(attempt) * 0.1 // Deterministic jitter based on attempt
-/// }
-/// ```
-///
-/// Example: Create a retry policy with seeded jitter for reproducible tests
-/// ```swift
-/// let policy = RetryPolicy.exponentialBackoffWithSeed(maxAttempts: 3, seed: 12345)
-/// ```
 // MARK: - Seeded Random Number Generator
 /// A seeded random number generator for reproducible jitter in tests
 public final class SeededRandomNumberGenerator: RandomNumberGenerator, @unchecked Sendable {

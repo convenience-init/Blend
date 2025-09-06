@@ -1,5 +1,207 @@
 import Foundation
 
+/// Expiration entry for efficient heap-based expiration tracking
+public struct ExpirationEntry {
+    let expirationTime: TimeInterval
+    let key: String  // Changed from NSString to String to prevent memory retention
+    var isValid: Bool = true  // Mark as invalid when entry is removed
+
+    init(expirationTime: TimeInterval, key: String) {
+        self.expirationTime = expirationTime
+        self.key = key
+    }
+}
+
+/// Efficient min-heap for tracking cache entry expirations
+/// Uses a binary heap structure for O(log n) insertions and O(1) min lookups
+/// Maintains a mapping from keys to heap indices for O(1) invalidation
+public final class ExpirationHeap {
+    private var heap: [ExpirationEntry] = []
+    private var keyToIndex: [String: Int] = [:]  // Track position of each key in heap
+    private var validCount: Int = 0  // Cached count of valid entries for O(1) access
+    private var lastCleanupTime: TimeInterval = 0  // Track last cleanup time
+    private let cleanupInterval: TimeInterval = 30.0  // Cleanup every 30 seconds
+    private var operationCount: Int = 0  // Track operations since last cleanup
+    private let operationsPerCleanup: Int = 100  // Trigger cleanup every 100 operations
+
+    /// Push a new expiration entry into the heap
+    func push(_ entry: ExpirationEntry) {
+        heap.append(entry)
+        keyToIndex[entry.key] = heap.count - 1
+        siftUp(heap.count - 1)
+        validCount += 1  // Increment valid count
+        operationCount += 1
+
+        // Trigger lightweight cleanup on rapid growth
+        if operationCount >= operationsPerCleanup {
+            performLightweightCleanup()
+        }
+    }
+
+    /// Pop the earliest expiring entry (if it's still valid)
+    func popExpired(currentTime: TimeInterval) -> ExpirationEntry? {
+        while let first = heap.first, first.expirationTime <= currentTime {
+            let entry = heap.removeFirst()
+            keyToIndex.removeValue(forKey: entry.key)
+
+            // Re-heapify after removal
+            if !heap.isEmpty {
+                heap.insert(heap.removeLast(), at: 0)
+                siftDown(0)
+            }
+
+            // Only return if entry is still valid (not manually removed)
+            if entry.isValid {
+                validCount -= 1  // Decrement valid count for returned entry
+                operationCount += 1
+                return entry
+            }
+            // Entry was invalid, continue to next
+        }
+        return nil
+    }
+
+    /// Mark an entry as invalid (when manually removed)
+    func invalidate(key: String) {
+        if let index = keyToIndex[key] {
+            if heap[index].isValid {
+                heap[index].isValid = false
+                validCount -= 1  // Decrement valid count
+            }
+            keyToIndex.removeValue(forKey: key)
+            operationCount += 1
+
+            // More aggressive pruning: trigger when invalid ratio >10% or >=50 invalid entries
+            let invalidCount = heap.count - validCount
+            if heap.count > 0
+                && (Double(invalidCount) / Double(heap.count) > 0.10 || invalidCount >= 50) {
+                pruneInvalidEntries()
+            }
+        }
+    }
+
+    /// Prune invalid entries and rebuild heap for efficient memory usage
+    /// This method removes all invalid entries and rebuilds the heap structure
+    /// to prevent memory retention of invalidated entries
+    func pruneInvalidEntries() {
+        // Filter out invalid entries and rebuild heap
+        let validEntries = heap.filter { $0.isValid }
+
+        // Clear current heap and keyToIndex
+        heap.removeAll()
+        keyToIndex.removeAll()
+
+        // Rebuild heap with only valid entries
+        for entry in validEntries {
+            heap.append(entry)
+            keyToIndex[entry.key] = heap.count - 1
+        }
+
+        // Re-heapify the entire structure
+        for heapIndex in stride(from: heap.count / 2 - 1, through: 0, by: -1) {
+            siftDown(heapIndex)
+        }
+
+        // Update cached valid count (should match heap.count after pruning)
+        validCount = heap.count
+        lastCleanupTime = Date().timeIntervalSince1970
+        operationCount = 0  // Reset operation counter
+    }
+
+    /// Perform lightweight cleanup without full heap rebuild
+    /// This is called periodically to prevent excessive memory growth
+    private func performLightweightCleanup() {
+        let currentTime = Date().timeIntervalSince1970
+        let timeSinceLastCleanup = currentTime - lastCleanupTime
+
+        // Only perform cleanup if enough time has passed or we have significant invalid entries
+        if timeSinceLastCleanup >= cleanupInterval || operationCount >= operationsPerCleanup {
+            let invalidCount = heap.count - validCount
+
+            // More aggressive cleanup thresholds for background cleanup
+            if heap.count > 0
+                && (Double(invalidCount) / Double(heap.count) > 0.05 || invalidCount >= 25) {
+                pruneInvalidEntries()
+            } else {
+                // Even if we don't prune, reset counters to prevent excessive checks
+                operationCount = 0
+                lastCleanupTime = currentTime
+            }
+        }
+    }
+
+    /// Check if heap has any potentially expired entries
+    func hasExpiredEntries(currentTime: TimeInterval) -> Bool {
+        // Quick check: if no valid entries, no expired entries
+        guard validCount > 0 else { return false }
+
+        // Check the root of the heap (earliest expiration)
+        return heap.first?.expirationTime ?? .infinity <= currentTime
+    }
+
+    /// Get count of valid entries (O(1) with cached value)
+    var count: Int {
+        return validCount
+    }
+
+    private func siftUp(_ index: Int) {
+        var childIndex = index
+        let child = heap[childIndex]
+
+        while childIndex > 0 {
+            let parentIndex = (childIndex - 1) / 2
+            let parent = heap[parentIndex]
+
+            if child.expirationTime >= parent.expirationTime {
+                break
+            }
+
+            // Swap parent and child
+            heap[childIndex] = parent
+            heap[parentIndex] = child
+            keyToIndex[parent.key] = childIndex
+            keyToIndex[child.key] = parentIndex
+
+            childIndex = parentIndex
+        }
+    }
+
+    private func siftDown(_ index: Int) {
+        let count = heap.count
+        var parentIndex = index
+
+        while true {
+            let leftChildIndex = 2 * parentIndex + 1
+            let rightChildIndex = 2 * parentIndex + 2
+
+            var smallestIndex = parentIndex
+
+            if leftChildIndex < count
+                && heap[leftChildIndex].expirationTime < heap[smallestIndex].expirationTime {
+                smallestIndex = leftChildIndex
+            }
+
+            if rightChildIndex < count
+                && heap[rightChildIndex].expirationTime < heap[smallestIndex].expirationTime {
+                smallestIndex = rightChildIndex
+            }
+
+            if smallestIndex == parentIndex {
+                break
+            }
+
+            // Swap parent and smallest child
+            let temp = heap[parentIndex]
+            heap[parentIndex] = heap[smallestIndex]
+            heap[smallestIndex] = temp
+            keyToIndex[temp.key] = smallestIndex
+            keyToIndex[heap[parentIndex].key] = parentIndex
+
+            parentIndex = smallestIndex
+        }
+    }
+}
+
 /// A comprehensive actor-based cache implementation with LRU eviction and efficient expiration tracking
 /// Provides thread-safe storage with automatic cleanup and memory management
 public actor CacheActor {
@@ -46,210 +248,6 @@ public actor CacheActor {
         }
     }
 
-    /// Min-heap for efficient expiration tracking
-    /// Stores expiration entries keyed by (insertionTimestamp + maxAge) for O(log n) expiration
-    private final class ExpirationHeap {
-        private var heap: [ExpirationEntry] = []
-        private var keyToIndex: [String: Int] = [:]  // Track position of each key in heap
-        private var validCount: Int = 0  // Cached count of valid entries for O(1) access
-        private var lastCleanupTime: TimeInterval = 0  // Track last cleanup time
-        private let cleanupInterval: TimeInterval = 30.0  // Cleanup every 30 seconds
-        private var operationCount: Int = 0  // Track operations since last cleanup
-        private let operationsPerCleanup: Int = 100  // Trigger cleanup every 100 operations
-
-        struct ExpirationEntry {
-            let expirationTime: TimeInterval
-            let key: String  // Changed from NSString to String to prevent memory retention
-            var isValid: Bool = true  // Mark as invalid when entry is removed
-
-            init(expirationTime: TimeInterval, key: String) {
-                self.expirationTime = expirationTime
-                self.key = key
-            }
-        }
-
-        /// Push a new expiration entry into the heap
-        func push(_ entry: ExpirationEntry) {
-            heap.append(entry)
-            keyToIndex[entry.key] = heap.count - 1
-            siftUp(heap.count - 1)
-            validCount += 1  // Increment valid count
-            operationCount += 1
-
-            // Trigger lightweight cleanup on rapid growth
-            if operationCount >= operationsPerCleanup {
-                performLightweightCleanup()
-            }
-        }
-
-        /// Pop the earliest expiring entry (if it's still valid)
-        func popExpired(currentTime: TimeInterval) -> ExpirationEntry? {
-            while let first = heap.first, first.expirationTime <= currentTime {
-                let entry = heap.removeFirst()
-                keyToIndex.removeValue(forKey: entry.key)
-
-                // Re-heapify after removal
-                if !heap.isEmpty {
-                    heap.insert(heap.removeLast(), at: 0)
-                    siftDown(0)
-                }
-
-                // Only return if entry is still valid (not manually removed)
-                if entry.isValid {
-                    validCount -= 1  // Decrement valid count for returned entry
-                    operationCount += 1
-                    return entry
-                }
-                // Entry was invalid, continue to next
-            }
-            return nil
-        }
-
-        /// Mark an entry as invalid (when manually removed)
-        func invalidate(key: String) {
-            if let index = keyToIndex[key] {
-                if heap[index].isValid {
-                    heap[index].isValid = false
-                    validCount -= 1  // Decrement valid count
-                }
-                keyToIndex.removeValue(forKey: key)
-                operationCount += 1
-
-                // More aggressive pruning: trigger when invalid ratio >10% or >=50 invalid entries
-                let invalidCount = heap.count - validCount
-                if heap.count > 0
-                    && (Double(invalidCount) / Double(heap.count) > 0.10 || invalidCount >= 50)
-                {
-                    pruneInvalidEntries()
-                }
-            }
-        }
-
-        /// Prune invalid entries and rebuild heap for efficient memory usage
-        /// This method removes all invalid entries and rebuilds the heap structure
-        /// to prevent memory retention of invalidated entries
-        func pruneInvalidEntries() {
-            // Filter out invalid entries and rebuild heap
-            let validEntries = heap.filter { $0.isValid }
-
-            // Clear current heap and keyToIndex
-            heap.removeAll()
-            keyToIndex.removeAll()
-
-            // Rebuild heap with only valid entries
-            for entry in validEntries {
-                heap.append(entry)
-                keyToIndex[entry.key] = heap.count - 1
-            }
-
-            // Re-heapify the entire structure
-            for heapIndex in stride(from: heap.count / 2 - 1, through: 0, by: -1) {
-                siftDown(heapIndex)
-            }
-
-            // Update cached valid count (should match heap.count after pruning)
-            validCount = heap.count
-            lastCleanupTime = Date().timeIntervalSince1970
-            operationCount = 0  // Reset operation counter
-        }
-
-        /// Perform lightweight cleanup without full heap rebuild
-        /// This is called periodically to prevent excessive memory growth
-        private func performLightweightCleanup() {
-            let currentTime = Date().timeIntervalSince1970
-            let timeSinceLastCleanup = currentTime - lastCleanupTime
-
-            // Only perform cleanup if enough time has passed or we have significant invalid entries
-            if timeSinceLastCleanup >= cleanupInterval || operationCount >= operationsPerCleanup {
-                let invalidCount = heap.count - validCount
-
-                // More aggressive cleanup thresholds for background cleanup
-                if heap.count > 0
-                    && (Double(invalidCount) / Double(heap.count) > 0.05 || invalidCount >= 25)
-                {
-                    pruneInvalidEntries()
-                } else {
-                    // Even if we don't prune, reset counters to prevent excessive checks
-                    operationCount = 0
-                    lastCleanupTime = currentTime
-                }
-            }
-        }
-
-        /// Check if heap has any potentially expired entries
-        func hasExpiredEntries(currentTime: TimeInterval) -> Bool {
-            // Quick check: if no valid entries, no expired entries
-            guard validCount > 0 else { return false }
-
-            // Check the root of the heap (earliest expiration)
-            return heap.first?.expirationTime ?? .infinity <= currentTime
-        }
-
-        /// Get count of valid entries (O(1) with cached value)
-        var count: Int {
-            return validCount
-        }
-
-        private func siftUp(_ index: Int) {
-            var childIndex = index
-            let child = heap[childIndex]
-
-            while childIndex > 0 {
-                let parentIndex = (childIndex - 1) / 2
-                let parent = heap[parentIndex]
-
-                if child.expirationTime >= parent.expirationTime {
-                    break
-                }
-
-                // Swap parent and child
-                heap[childIndex] = parent
-                heap[parentIndex] = child
-                keyToIndex[parent.key] = childIndex
-                keyToIndex[child.key] = parentIndex
-
-                childIndex = parentIndex
-            }
-        }
-
-        private func siftDown(_ index: Int) {
-            let count = heap.count
-            var parentIndex = index
-
-            while true {
-                let leftChildIndex = 2 * parentIndex + 1
-                let rightChildIndex = 2 * parentIndex + 2
-
-                var smallestIndex = parentIndex
-
-                if leftChildIndex < count
-                    && heap[leftChildIndex].expirationTime < heap[smallestIndex].expirationTime
-                {
-                    smallestIndex = leftChildIndex
-                }
-
-                if rightChildIndex < count
-                    && heap[rightChildIndex].expirationTime < heap[smallestIndex].expirationTime
-                {
-                    smallestIndex = rightChildIndex
-                }
-
-                if smallestIndex == parentIndex {
-                    break
-                }
-
-                // Swap parent and smallest child
-                let temp = heap[parentIndex]
-                heap[parentIndex] = heap[smallestIndex]
-                heap[smallestIndex] = temp
-                keyToIndex[temp.key] = smallestIndex
-                keyToIndex[heap[parentIndex].key] = parentIndex
-
-                parentIndex = smallestIndex
-            }
-        }
-    }
-
     // MARK: - Properties
 
     private var cacheConfig: CacheConfiguration
@@ -276,8 +274,7 @@ public actor CacheActor {
 
         // Check LRU node and expiration synchronously first
         guard let node = lruDict[key],
-            now - node.insertionTimestamp < cacheConfig.maxAge
-        else {
+            now - node.insertionTimestamp < cacheConfig.maxAge else {
             // Either no node or expired - evict if needed
             if let expiredNode = lruDict[key] {
                 lruDict.removeValue(forKey: key)
@@ -420,7 +417,7 @@ public actor CacheActor {
 
             // Push expiration entry to heap for efficient expiration tracking
             let expirationTime = now + cacheConfig.maxAge
-            let expirationEntry = ExpirationHeap.ExpirationEntry(
+            let expirationEntry = ExpirationEntry(
                 expirationTime: expirationTime, key: key as String)
             expirationHeap.push(expirationEntry)
 
@@ -490,26 +487,28 @@ public actor CacheActor {
     /// - Returns: True if the list is valid, false otherwise
     /// - Note: This method is for debugging and should not be called in production
     private func validateLRUListIntegrity() -> Bool {
+        // Validate forward traversal and bidirectional links
+        let traversalValid = validateLRUTraversal()
+
+        // Validate head and tail consistency
+        let headTailValid = validateLRUHeadTailConsistency()
+
+        // Validate count matches dictionary
+        let countValid = validateLRUCount()
+
+        return traversalValid && headTailValid && countValid
+    }
+
+    /// Validates forward traversal and bidirectional links
+    private func validateLRUTraversal() -> Bool {
         var node = lruHead
         var count = 0
 
         // Traverse forward and check for cycles
         while let current = node {
-            // Check bidirectional links (prev is weak, so it might be nil)
-            if let prev = current.prev {
-                if prev.next !== current {
-                    return false  // Broken backward link
-                }
-            } else if current !== lruHead {
-                return false  // Non-head node should have prev (unless garbage collected)
-            }
-
-            if let next = current.next {
-                if next.prev !== current {
-                    return false  // Broken forward link
-                }
-            } else if current !== lruTail {
-                return false  // Non-tail node should have next
+            // Check bidirectional links
+            if !validateNodeLinks(current) {
+                return false
             }
 
             node = current.next
@@ -521,12 +520,52 @@ public actor CacheActor {
             }
         }
 
+        return true
+    }
+
+    /// Validates bidirectional links for a single node
+    private func validateNodeLinks(_ current: LRUNode) -> Bool {
+        // Check backward link (prev is weak, so it might be nil)
+        if let prev = current.prev {
+            if prev.next !== current {
+                return false  // Broken backward link
+            }
+        } else if current !== lruHead {
+            return false  // Non-head node should have prev (unless garbage collected)
+        }
+
+        // Check forward link
+        if let next = current.next {
+            if next.prev !== current {
+                return false  // Broken forward link
+            }
+        } else if current !== lruTail {
+            return false  // Non-tail node should have next
+        }
+
+        return true
+    }
+
+    /// Validates head and tail consistency
+    private func validateLRUHeadTailConsistency() -> Bool {
         // Check that head and tail are consistent
         if lruHead == nil && lruTail != nil { return false }
         if lruHead != nil && lruTail == nil { return false }
         if lruHead != nil && lruTail != nil {
             if lruHead?.prev != nil { return false }  // Head should not have prev
             if lruTail?.next != nil { return false }  // Tail should not have next
+        }
+        return true
+    }
+
+    /// Validates that the list count matches the dictionary count
+    private func validateLRUCount() -> Bool {
+        var node = lruHead
+        var count = 0
+
+        while let current = node {
+            count += 1
+            node = current.next
         }
 
         return count == lruDict.count

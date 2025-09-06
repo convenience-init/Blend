@@ -13,6 +13,7 @@ import os
     import CommonCrypto
 #endif
 
+// MARK: - Advanced Network Manager Actor
 /// AdvancedNetworkManager provides comprehensive network request management with:
 /// - Request deduplication and caching
 /// - Retry logic with exponential backoff and jitter
@@ -22,8 +23,6 @@ import os
 ///
 /// Dependencies: NetworkError and AsyncNetConfig are defined in the same AsyncNet module
 /// and are accessible without additional imports.
-
-// MARK: - Advanced Network Manager Actor
 public actor AdvancedNetworkManager {
     private var inFlightTasks: [String: Task<Data, Error>] = [:]
     private let cache: NetworkCache
@@ -52,89 +51,65 @@ public actor AdvancedNetworkManager {
         for request: URLRequest, cacheKey: String? = nil, retryPolicy: RetryPolicy = .default
     ) async throws -> Data {
         let key = cacheKey ?? RequestUtilities.generateRequestKey(from: request)
+
+        // Check cache first
         if let cached = await cache.get(forKey: key) {
             #if canImport(OSLog)
                 asyncNetLogger.debug("Cache hit for key: \(key, privacy: .private)")
             #endif
             return cached
         }
+
+        // Check for in-flight request deduplication
         if let task = inFlightTasks[key] {
             #if canImport(OSLog)
                 asyncNetLogger.debug("Request deduplication for key: \(key, privacy: .private)")
             #endif
             return try await task.value
         }
-        // Capture actor-isolated properties before creating Task to avoid isolation violations
+
+        // Create and execute new request with retry logic
+        return try await executeRequestWithRetry(request, key: key, retryPolicy: retryPolicy)
+    }
+
+    private func executeRequestWithRetry(
+        _ request: URLRequest, key: String, retryPolicy: RetryPolicy
+    ) async throws -> Data {
+        // Capture actor-isolated properties before creating Task
         let capturedInterceptors = interceptors
         let capturedURLSession = urlSession
         let capturedCache = cache
-        let newTask = Task<Data, Error> {
-            // Check for cancellation at the start
-            try Task.checkCancellation()
 
+        let newTask = Task<Data, Error> {
             var lastError: Error?
-            // Perform up to maxAttempts total attempts (including the initial attempt)
+
+            // Perform up to maxAttempts total attempts
             for attempt in 0..<retryPolicy.maxAttempts {
-                // Check for cancellation before each retry attempt
                 try Task.checkCancellation()
 
-                // Create fresh request for each attempt, then apply interceptor chain
-                var currentRequest = request
-                for interceptor in capturedInterceptors {
-                    currentRequest = await interceptor.willSend(request: currentRequest)
-                }
-                // Create a new request with the retry policy timeout to avoid mutating the original
-                let requestWithTimeout = {
-                    var newRequest = currentRequest
-                    newRequest.timeoutInterval = retryPolicy.timeoutInterval
-                    return newRequest
-                }()
-
                 do {
-                    let (data, response) = try await capturedURLSession.data(
-                        for: requestWithTimeout)
-                    for interceptor in capturedInterceptors {
-                        await interceptor.didReceive(response: response, data: data)
-                    }
-                    
-                    // Validate HTTP response status code
-                    if let httpResponse = response as? HTTPURLResponse {
-                        try RequestUtilities.validateHTTPResponse(httpResponse, data: data)
-                        // Only cache successful responses for safe/idempotent HTTP methods
-                        let shouldCache = RequestUtilities.shouldCacheResponse(
-                            for: requestWithTimeout, response: httpResponse)
-                        if shouldCache {
-                            await capturedCache.set(data, forKey: key)
-                        }
-                        #if canImport(OSLog)
-                            if attempt > 0 {
-                                asyncNetLogger.info(
-                                    "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .private)"
-                                )
-                            } else {
-                                asyncNetLogger.debug(
-                                    "Request succeeded on first attempt for key: \(key, privacy: .private)"
-                                )
-                            }
-                        #endif
-                        return data
-                    } else {
-                        // Non-HTTP response: return data without caching
-                        #if canImport(OSLog)
-                            asyncNetLogger.debug(
-                                "Non-HTTP response received for key: \(key, privacy: .private)")
-                        #endif
-                        return data
-                    }
+                    let (data, response) = try await performSingleRequest(
+                        request, attempt: attempt, retryPolicy: retryPolicy,
+                        interceptors: capturedInterceptors, urlSession: capturedURLSession)
+
+                    // Cache successful response if appropriate
+                    await cacheSuccessfulResponseIfNeeded(
+                        data, response: response, for: request, key: key, cache: capturedCache)
+
+                    #if canImport(OSLog)
+                        logRequestSuccess(attempt: attempt, key: key)
+                    #endif
+
+                    return data
                 } catch {
                     lastError = error
                     #if canImport(OSLog)
-                        asyncNetLogger.warning(
-                            "Request attempt \(attempt + 1, privacy: .public) failed for key: \(key, privacy: .private), error: \(error.localizedDescription, privacy: .public)"
-                        )
+                        let attemptNum = attempt + 1
+                        let prefix = "Request attempt \(attemptNum) failed for key: \(key)"
+                        let suffix = "error: \(error.localizedDescription)"
+                        asyncNetLogger.warning("\(prefix), \(suffix, privacy: .public)")
                     #endif
-                    
-                    // Handle retry logic
+
                     let shouldContinue = try await RequestUtilities.handleRetryAttempt(
                         error: error, attempt: attempt, retryPolicy: retryPolicy, key: key)
                     if !shouldContinue {
@@ -142,22 +117,11 @@ public actor AdvancedNetworkManager {
                     }
                 }
             }
-            // If last error is a cancellation, propagate it
-            if let lastError = lastError as? CancellationError {
-                throw lastError
-            }
-            #if canImport(OSLog)
-                asyncNetLogger.error(
-                    "All retry attempts exhausted for key: \(key, privacy: .private)")
-            #endif
-            // Wrap non-cancellation errors consistently in NetworkError
-            if let lastError = lastError {
-                throw await NetworkError.wrapAsync(lastError, config: AsyncNetConfig.shared)
-            } else {
-                throw NetworkError.customError(
-                    "Unknown error in AdvancedNetworkManager", details: nil)
-            }
+
+            // Handle final error
+            return try await handleFinalError(lastError, key: key)
         }
+
         inFlightTasks[key] = newTask
         defer {
             inFlightTasks.removeValue(forKey: key)
@@ -166,14 +130,92 @@ public actor AdvancedNetworkManager {
         do {
             return try await newTask.value
         } catch {
-            // If this task was cancelled, cancel the stored task and clean up
             if error is CancellationError {
-                // Atomically cancel the stored task in inFlightTasks to ensure proper cancellation
                 cancelInFlightTask(forKey: key)
-                // Note: Task removal is handled by the defer block above
             }
-            // Wrap non-cancellation errors consistently in NetworkError
             throw await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+        }
+    }
+
+    private func performSingleRequest(
+        _ request: URLRequest, attempt: Int, retryPolicy: RetryPolicy,
+        interceptors: [NetworkInterceptor], urlSession: URLSessionProtocol
+    ) async throws -> (Data, URLResponse) {
+        try Task.checkCancellation()
+
+        // Apply interceptor chain
+        var currentRequest = request
+        for interceptor in interceptors {
+            currentRequest = await interceptor.willSend(request: currentRequest)
+        }
+
+        // Create request with retry timeout
+        let requestWithTimeout = createRequestWithTimeout(currentRequest, retryPolicy: retryPolicy)
+
+        let (data, response) = try await urlSession.data(for: requestWithTimeout)
+
+        // Apply response interceptors
+        for interceptor in interceptors {
+            await interceptor.didReceive(response: response, data: data)
+        }
+
+        // Validate HTTP response
+        if let httpResponse = response as? HTTPURLResponse {
+            try RequestUtilities.validateHTTPResponse(httpResponse, data: data)
+        }
+
+        return (data, response)
+    }
+
+    private func createRequestWithTimeout(
+        _ request: URLRequest, retryPolicy: RetryPolicy
+    ) -> URLRequest {
+        var newRequest = request
+        newRequest.timeoutInterval = retryPolicy.timeoutInterval
+        return newRequest
+    }
+
+    private func cacheSuccessfulResponseIfNeeded(
+        _ data: Data, response: URLResponse, for request: URLRequest, key: String,
+        cache: NetworkCache
+    ) async {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return
+        }
+
+        let shouldCache = RequestUtilities.shouldCacheResponse(for: request, response: httpResponse)
+        if shouldCache {
+            await cache.set(data, forKey: key)
+        }
+    }
+
+    private func logRequestSuccess(attempt: Int, key: String) {
+        #if canImport(OSLog)
+            if attempt > 0 {
+                asyncNetLogger.info(
+                    "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .private)"
+                )
+            } else {
+                asyncNetLogger.debug(
+                    "Request succeeded on first attempt for key: \(key, privacy: .private)"
+                )
+            }
+        #endif
+    }
+
+    private func handleFinalError(_ lastError: Error?, key: String) async throws -> Data {
+        if let lastError = lastError as? CancellationError {
+            throw lastError
+        }
+
+        #if canImport(OSLog)
+            asyncNetLogger.error("All retry attempts exhausted for key: \(key, privacy: .private)")
+        #endif
+
+        if let lastError = lastError {
+            throw await NetworkError.wrapAsync(lastError, config: AsyncNetConfig.shared)
+        } else {
+            throw NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
         }
     }
 

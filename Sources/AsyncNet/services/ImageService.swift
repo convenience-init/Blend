@@ -24,10 +24,13 @@ private let sharedURLSession: URLSession = {
 
 /// A comprehensive, actor-isolated image service for downloading, uploading, and caching images.
 ///
-/// `ImageService` provides strict Swift 6 concurrency, dependency injection, platform abstraction (UIKit/SwiftUI), request/response interceptors, LRU caching, retry/backoff, and deduplication for all image operations.
+/// `ImageService` provides strict Swift 6 concurrency, dependency injection, platform abstraction
+/// (UIKit/SwiftUI), request/response interceptors, LRU caching, retry/backoff, and deduplication
+/// for all image operations.
 ///
 /// - Important: All APIs are actor-isolated and Sendable for thread safety and strict concurrency compliance.
-/// - Note: Use dependency injection for testability and platform abstraction. Supports UIKit (UIImage) and macOS (NSImage).
+/// - Note: Use dependency injection for testability and platform abstraction. Supports UIKit
+///   (UIImage) and macOS (NSImage).
 ///
 /// ### Usage Example
 /// ```swift
@@ -125,57 +128,24 @@ public actor ImageService {
                 let wrappedError = await NetworkError.wrapAsync(
                     error, config: AsyncNetConfig.shared)
                 lastError = wrappedError
-                // Custom error filter
-                if let shouldRetry = config.shouldRetry {
-                    if !shouldRetry(wrappedError) { throw wrappedError }
-                } else {
-                    switch wrappedError {
-                    case .networkUnavailable, .requestTimeout:
-                        break  // eligible for retry
-                    default:
-                        throw wrappedError
-                    }
+
+                // Check if we should retry this error
+                if !shouldRetryError(wrappedError, config: config) {
+                    throw wrappedError
                 }
+
                 // Check if this would be the final attempt - if so, don't sleep, just throw
                 if attempt + 1 >= config.maxAttempts {
                     throw wrappedError
                 }
 
-                // Custom backoff strategy
-                var delay: TimeInterval
-                if let backoff = config.backoff {
-                    delay = backoff(attempt)
-                } else {
-                    // Simplified exponential backoff with safe overflow handling
-                    let exponent = min(Double(attempt), 10.0)  // Cap exponent to prevent overflow
-                    let exponential = pow(2.0, exponent)
-                    delay = min(config.baseDelay * exponential, config.maxDelay)
-                }
-
-                // Cap the delay to prevent unbounded exponential growth
-                let cappedDelay = min(delay, config.maxDelay)
-                let jitter = Double.random(in: 0...config.jitter)
-                let totalDelay = cappedDelay + jitter
+                // Calculate delay for retry
+                let delay = calculateRetryDelay(attempt: attempt, config: config)
 
                 // Check for cancellation before sleeping
                 try Task.checkCancellation()
 
-                // Safe conversion to nanoseconds with overflow protection
-                // Clamp to a reasonable maximum (24 hours) to prevent overflow
-                let maxReasonableDelay: TimeInterval = 24 * 60 * 60  // 24 hours
-                let safeDelay = min(max(totalDelay, 0.0), maxReasonableDelay)
-
-                // Additional validation before nanosecond conversion
-                guard safeDelay.isFinite && !safeDelay.isNaN else {
-                    throw NetworkError.customError(
-                        "Invalid delay calculation",
-                        details: "Delay became non-finite: \(totalDelay)"
-                    )
-                }
-
-                let nanoseconds = UInt64(safeDelay * 1_000_000_000)
-
-                try await Task.sleep(nanoseconds: nanoseconds)
+                try await Task.sleep(nanoseconds: delay)
 
                 // Check for cancellation before next attempt
                 try Task.checkCancellation()
@@ -186,6 +156,54 @@ public actor ImageService {
         }
         throw lastError ?? NetworkError.networkUnavailable
     }
+
+    /// Determines if an error should trigger a retry
+    private func shouldRetryError(_ error: NetworkError, config: RetryConfiguration) -> Bool {
+        // Custom error filter
+        if let shouldRetry = config.shouldRetry {
+            return shouldRetry(error)
+        } else {
+            switch error {
+            case .networkUnavailable, .requestTimeout:
+                return true  // eligible for retry
+            default:
+                return false
+            }
+        }
+    }
+
+    /// Calculates the delay for retry attempts
+    private func calculateRetryDelay(attempt: Int, config: RetryConfiguration) -> UInt64 {
+        // Custom backoff strategy
+        var delay: TimeInterval
+        if let backoff = config.backoff {
+            delay = backoff(attempt)
+        } else {
+            // Simplified exponential backoff with safe overflow handling
+            let exponent = min(Double(attempt), 10.0)  // Cap exponent to prevent overflow
+            let exponential = pow(2.0, exponent)
+            delay = min(config.baseDelay * exponential, config.maxDelay)
+        }
+
+        // Cap the delay to prevent unbounded exponential growth
+        let cappedDelay = min(delay, config.maxDelay)
+        let jitter = Double.random(in: 0...config.jitter)
+        let totalDelay = cappedDelay + jitter
+
+        // Safe conversion to nanoseconds with overflow protection
+        // Clamp to a reasonable maximum (24 hours) to prevent overflow
+        let maxReasonableDelay: TimeInterval = 24 * 60 * 60  // 24 hours
+        let safeDelay = min(max(totalDelay, 0.0), maxReasonableDelay)
+
+        // Additional validation before nanosecond conversion
+        guard safeDelay.isFinite && !safeDelay.isNaN else {
+            // Return a safe default delay instead of throwing
+            return UInt64(1_000_000_000)  // 1 second
+        }
+
+        return UInt64(safeDelay * 1_000_000_000)
+    }
+
     internal let imageCache: Cache<String, SendableImage>
     internal let dataCache: Cache<String, SendableData>
     internal let injectedURLSession: URLSessionProtocol?

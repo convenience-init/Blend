@@ -4,7 +4,7 @@ import AsyncNet
 /// Mock networking utilities for testing AsyncNet components
 public actor MockURLSession: URLSessionProtocol {
     /// Private mutable storage for scripted responses - single array keeps all values aligned
-    private var scriptedScripts: [(data: Data?, response: URLResponse?, error: Error?)]
+    private var scriptedScripts: [MockScript]
     private var _callCount: Int = 0
     private var _recordedRequests: [URLRequest] = []
 
@@ -40,30 +40,22 @@ public actor MockURLSession: URLSessionProtocol {
     }
 
     /// Initialize with multiple scripted results for testing multi-call scenarios
-    public init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?])
-    {
-        precondition(
-            !scriptedData.isEmpty,
-            "MockURLSession arrays must not be empty"
-        )
+    public init(scriptedData: [Data?], scriptedResponses: [URLResponse?], scriptedErrors: [Error?]) {
         precondition(
             scriptedData.count == scriptedResponses.count
                 && scriptedData.count == scriptedErrors.count,
-            "MockURLSession arrays must have equal length. Got data: \(scriptedData.count), responses: \(scriptedResponses.count), errors: \(scriptedErrors.count)"
+            "MockURLSession arrays must have equal length. Got data: \(scriptedData.count), " +
+            "responses: \(scriptedResponses.count), errors: \(scriptedErrors.count)"
         )
         self.artificialDelay = 0
         self.scriptedScripts = (0..<scriptedData.count).map { index in
-            (scriptedData[index], scriptedResponses[index], scriptedErrors[index])
+            MockScript(data: scriptedData[index], response: scriptedResponses[index], error: scriptedErrors[index])
         }
     }
 
-    /// Initialize with an array of tuples to keep scripted triples aligned
-    /// Each tuple contains (data, response, error) for one mock call
-    public init(scriptedCalls: [(Data?, URLResponse?, Error?)]) {
-        precondition(
-            !scriptedCalls.isEmpty,
-            "MockURLSession scriptedCalls must not be empty"
-        )
+    /// Initialize with an array of scripts to keep scripted triples aligned
+    /// Each script contains (data, response, error) for one mock call
+    public init(scriptedCalls: [MockScript]) {
         self.artificialDelay = 0
         self.scriptedScripts = scriptedCalls
     }
@@ -89,7 +81,7 @@ public actor MockURLSession: URLSessionProtocol {
             "MockURLSession.init requires at least one of nextData, nextResponse, or nextError"
         )
         // Create array using Array(repeating:count:) to preserve types and simplify
-        scriptedScripts = Array(repeating: (nextData, nextResponse, nextError), count: maxCalls)
+        scriptedScripts = Array(repeating: MockScript(data: nextData, response: nextResponse, error: nextError), count: maxCalls)
     }
 
     /// Load a new script sequence for the mock session
@@ -103,15 +95,12 @@ public actor MockURLSession: URLSessionProtocol {
         data: [Data?], responses: [URLResponse?], errors: [Error?], keepPosition: Bool = false
     ) {
         precondition(
-            !data.isEmpty,
-            "MockURLSession arrays must not be empty"
-        )
-        precondition(
             data.count == responses.count && data.count == errors.count,
-            "MockURLSession arrays must have equal length. Got data: \(data.count), responses: \(responses.count), errors: \(errors.count)"
+            "MockURLSession arrays must have equal length. Got data: \(data.count), "
+                + "responses: \(responses.count), errors: \(errors.count)"
         )
         scriptedScripts = (0..<data.count).map { index in
-            (data[index], responses[index], errors[index])
+            MockScript(data: data[index], response: responses[index], error: errors[index])
         }
         if !keepPosition {
             _callCount = 0
@@ -135,11 +124,11 @@ public actor MockURLSession: URLSessionProtocol {
 
         // Capture immutable state before suspension to prevent race conditions
         let delay = artificialDelay
-        let script: (data: Data?, response: URLResponse?, error: Error?)
+        let script: MockScript
         if currentCallIndex < scriptedScripts.count {
             script = scriptedScripts[currentCallIndex]
         } else {
-            script = (nil, nil, NetworkError.outOfScriptBounds(call: currentCallIndex))
+            script = MockScript(data: nil, response: nil, error: NetworkError.outOfScriptBounds(call: currentCallIndex))
         }
 
         // Add artificial delay to simulate network latency
@@ -156,14 +145,15 @@ public actor MockURLSession: URLSessionProtocol {
         guard let data = script.data, let response = script.response else {
             let missingData = script.data == nil
             let missingResponse = script.response == nil
+            let message =
+                "Invalid mock configuration: Call \(currentCallIndex) is missing "
+                + "\(missingData ? "data" : "")"
+                + "\(missingData && missingResponse ? " and " : "")"
+                + "\(missingResponse ? "response" : "")"
             #if canImport(OSLog)
-                asyncNetLogger.warning(
-                    "Invalid mock configuration: Call \(currentCallIndex, privacy: .public) is missing \(missingData ? "data" : "")\(missingData && missingResponse ? " and " : "")\(missingResponse ? "response" : "")"
-                )
+                asyncNetLogger.warning("\(message, privacy: .public)")
             #else
-                print(
-                    "Invalid mock configuration: Call \(currentCallIndex) is missing \(missingData ? "data" : "")\(missingData && missingResponse ? " and " : "")\(missingResponse ? "response" : "")"
-                )
+                print(message)
             #endif
             throw NetworkError.invalidMockConfiguration(
                 callIndex: currentCallIndex,
@@ -261,9 +251,7 @@ extension MockEndpoint {
     ///   - duration: Duration-based timeout (takes precedence if both are provided)
     ///   - legacy: Legacy TimeInterval-based timeout
     /// - Returns: Configured MockEndpoint
-    public static func withTimeout(duration: Duration? = nil, legacy: TimeInterval? = nil)
-        -> MockEndpoint
-    {
+    public static func withTimeout(duration: Duration? = nil, legacy: TimeInterval? = nil) -> MockEndpoint {
         return MockEndpoint(timeout: legacy, timeoutDuration: duration)
     }
 
@@ -280,5 +268,18 @@ extension MockEndpoint {
     /// Test endpoint with both timeout types (Duration takes precedence)
     public static var withBothTimeouts: MockEndpoint {
         withTimeout(duration: .seconds(15), legacy: 60.0)  // 15 seconds (Duration), 60 seconds (legacy, ignored)
+    }
+}
+
+/// Script entry for mock networking
+public struct MockScript {
+    let data: Data?
+    let response: URLResponse?
+    let error: Error?
+
+    public init(data: Data?, response: URLResponse?, error: Error?) {
+        self.data = data
+        self.response = response
+        self.error = error
     }
 }

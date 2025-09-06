@@ -36,9 +36,7 @@ extension ImageService {
     ///   - image: The image to cache
     ///   - key: The cache key (typically the URL string)
     ///   - data: Optional image data to cache alongside the image
-    public func storeImageInCache(_ image: PlatformImage, forKey key: String, data: Data? = nil)
-        async
-    {
+    public func storeImageInCache(_ image: PlatformImage, forKey key: String, data: Data? = nil) async {
         let cacheKey = key
         await imageCache.setObject(SendableImage(image), forKey: cacheKey)
         if let data = data {
