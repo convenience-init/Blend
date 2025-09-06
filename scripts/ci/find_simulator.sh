@@ -93,7 +93,7 @@ validate_device_name() {
     fi
     
     # Check for basic pattern: letters, numbers, spaces, hyphens, parentheses
-    if ! echo "$device_name" | grep -q '^[a-zA-Z0-9 ()-]\+$'; then
+    if ! echo "$device_name" | grep -q '^[a-zA-Z0-9 ()\-]\+$'; then
         echo "ERROR: Device name contains invalid characters (only letters, numbers, spaces, hyphens, parentheses allowed): '$device_name'"
         return 1
     fi
