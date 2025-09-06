@@ -71,7 +71,7 @@ public struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor public func testNSImageExtensionJPEGData() {
+    @Test @MainActor public func testNSImageExtensionJPEGData() async {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
@@ -87,7 +87,7 @@ public struct PlatformAbstractionTests {
             }
             let image = NSImage(size: size)
             image.addRepresentation(rep)
-            let jpeg = image.jpegData(compressionQuality: 0.8)
+            let jpeg = await image.jpegData(compressionQuality: 0.8)
             #expect(jpeg != nil)
             #expect(jpeg?.count ?? 0 > 0)
 
@@ -100,7 +100,7 @@ public struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor public func testNSImageExtensionPNGData() {
+    @Test @MainActor public func testNSImageExtensionPNGData() async {
         #if canImport(AppKit) && !canImport(UIKit)
             let size = NSSize(width: 1, height: 1)
             guard let rep = createTestBitmapImageRep(size: size) else {
@@ -116,7 +116,7 @@ public struct PlatformAbstractionTests {
             }
             let image = NSImage(size: size)
             image.addRepresentation(rep)
-            let png = image.pngData()
+            let png = await image.pngData()
             #expect(png != nil)
             #expect(png?.count ?? 0 > 0)
 
@@ -168,16 +168,16 @@ public struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor public func testNSImageExtensionZeroSizeImage() {
+    @Test @MainActor public func testNSImageExtensionZeroSizeImage() async {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with zero-sized image
             let zeroSizeImage = NSImage(size: NSSize(width: 0, height: 0))
-            #expect(zeroSizeImage.pngData() == nil)
-            #expect(zeroSizeImage.jpegData(compressionQuality: 0.8) == nil)
+            #expect(await zeroSizeImage.pngData() == nil)
+            #expect(await zeroSizeImage.jpegData(compressionQuality: 0.8) == nil)
         #endif
     }
 
-    @Test @MainActor public func testNSImageExtensionRasterizationFallback() {
+    @Test @MainActor public func testNSImageExtensionRasterizationFallback() async {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with image that has no TIFF encoder (forces rasterization)
             let customImage = NSImage(size: NSSize(width: 10, height: 10))
@@ -191,8 +191,8 @@ public struct PlatformAbstractionTests {
             customImage.addRepresentation(customRep)
 
             // Both should succeed via rasterization fallback
-            let customPngData = customImage.pngData()
-            let customJpegData = customImage.jpegData(compressionQuality: 0.8)
+            let customPngData = await customImage.pngData()
+            let customJpegData = await customImage.jpegData(compressionQuality: 0.8)
             #expect(customPngData != nil)
             #expect(customJpegData != nil)
             #expect(customPngData?.count ?? 0 > 0)
@@ -200,7 +200,7 @@ public struct PlatformAbstractionTests {
         #endif
     }
 
-    @Test @MainActor public func testNSImageExtensionCorruptedTIFFHandling() {
+    @Test @MainActor public func testNSImageExtensionCorruptedTIFFHandling() async {
         #if canImport(AppKit) && !canImport(UIKit)
             // Test with actually corrupted TIFF data
             let corruptedImage = NSImage(size: NSSize(width: 10, height: 10))
@@ -238,8 +238,8 @@ public struct PlatformAbstractionTests {
             }
 
             // The methods should still work via the fallback rasterization path
-            let pngData = corruptedImage.pngData()
-            let jpegData = corruptedImage.jpegData(compressionQuality: 0.8)
+            let pngData = await corruptedImage.pngData()
+            let jpegData = await corruptedImage.jpegData(compressionQuality: 0.8)
 
             // Both should succeed via rasterization fallback
             #expect(pngData != nil)

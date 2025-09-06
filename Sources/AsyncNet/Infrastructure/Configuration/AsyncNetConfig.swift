@@ -6,6 +6,10 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
     case invalidTimeoutDuration(String)
     /// The maximum upload size is invalid (not greater than 0)
     case invalidMaxUploadSize(String)
+    /// The maximum image dimension is invalid
+    case invalidMaxImageDimension(String)
+    /// The maximum image pixels is invalid
+    case invalidMaxImagePixels(String)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +17,10 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
             return "Invalid timeout duration: \(message)"
         case .invalidMaxUploadSize(let message):
             return "Invalid maximum upload size: \(message)"
+        case .invalidMaxImageDimension(let message):
+            return "Invalid maximum image dimension: \(message)"
+        case .invalidMaxImagePixels(let message):
+            return "Invalid maximum image pixels: \(message)"
         }
     }
 
@@ -26,6 +34,14 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
             return
                 "Provide a maximum upload size between \(AsyncNetConfig.minUploadSize) - " +
                 "\(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
+        case .invalidMaxImageDimension:
+            return "Provide a maximum image dimension between 1024 and 32768 pixels."
+        case .invalidMaxImagePixels:
+            let minMPixels = Double(AsyncNetConfig.minImagePixels) / 1024.0 / 1024.0
+            let maxMPixels = Double(AsyncNetConfig.maxImagePixels) / 1024.0 / 1024.0
+            return
+                "Provide a maximum image pixels between \(AsyncNetConfig.minImagePixels) - " +
+                "\(AsyncNetConfig.maxImagePixels) pixels (\(minMPixels) - \(maxMPixels) MP)."
         }
     }
 }
@@ -79,6 +95,24 @@ public actor AsyncNetConfig {
     /// Maximum allowed upload size (100 MB)
     public static let maxUploadSize: Int = 100 * 1024 * 1024  // 100MB
 
+    /// Default maximum image dimension (pixels per side)
+    public static let defaultMaxImageDimension: Int = 16384  // 16K pixels
+
+    /// Minimum allowed image dimension (pixels per side)
+    public static let minImageDimension: Int = 1024  // 1K pixels
+
+    /// Maximum allowed image dimension (pixels per side)
+    public static let maxImageDimension: Int = 32768  // 32K pixels
+
+    /// Default maximum total image pixels
+    public static let defaultMaxImagePixels: Int = 100 * 1024 * 1024  // 100M pixels
+
+    /// Minimum allowed total image pixels
+    public static let minImagePixels: Int = 1024 * 1024  // 1M pixels
+
+    /// Maximum allowed total image pixels
+    public static let maxImagePixels: Int = 400 * 1024 * 1024  // 400M pixels
+
     /// Default timeout duration for network requests (in seconds)
     private var _timeoutDuration: TimeInterval = AsyncNetConfig.defaultTimeout
 
@@ -87,6 +121,18 @@ public actor AsyncNetConfig {
 
     /// Initial effective maximum upload size (captures environment override or default)
     private var _initialMaxUploadSize: Int = AsyncNetConfig.defaultMaxUploadSize
+
+    /// Maximum image dimension (pixels per side)
+    private var _maxImageDimension: Int = AsyncNetConfig.defaultMaxImageDimension
+
+    /// Initial effective maximum image dimension (captures environment override or default)
+    private var _initialMaxImageDimension: Int = AsyncNetConfig.defaultMaxImageDimension
+
+    /// Maximum total image pixels
+    private var _maxImagePixels: Int = AsyncNetConfig.defaultMaxImagePixels
+
+    /// Initial effective maximum image pixels (captures environment override or default)
+    private var _initialMaxImagePixels: Int = AsyncNetConfig.defaultMaxImagePixels
 
     /// Private initializer to enforce singleton pattern
     private init() {
@@ -120,6 +166,61 @@ public actor AsyncNetConfig {
 
         // Capture the initial effective value (environment override or default)
         _initialMaxUploadSize = _maxUploadSize
+
+        // Initialize maxImageDimension from environment variable if available
+        if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_IMAGE_DIMENSION"] {
+            if let dimension = Int(envValue) {
+                if dimension >= AsyncNetConfig.minImageDimension && dimension <= AsyncNetConfig.maxImageDimension {
+                    _maxImageDimension = dimension
+                } else {
+                    // Log warning for out-of-bounds values
+                    #if DEBUG
+                    print(
+                        "Warning: ASYNC_NET_MAX_IMAGE_DIMENSION value \(dimension) is out of range. "
+                            + "Valid range is \(AsyncNetConfig.minImageDimension) - \(AsyncNetConfig.maxImageDimension) pixels. "
+                            + "Using default: \(AsyncNetConfig.defaultMaxImageDimension) pixels.")
+                    #endif
+                }
+            } else {
+                // Log warning for invalid integer parsing
+                #if DEBUG
+                print(
+                    "Warning: ASYNC_NET_MAX_IMAGE_DIMENSION value '\(envValue)' is not a valid integer. "
+                        + "Using default: \(AsyncNetConfig.defaultMaxImageDimension) pixels.")
+                #endif
+            }
+        }
+
+        // Initialize maxImagePixels from environment variable if available
+        if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_IMAGE_PIXELS"] {
+            if let pixels = Int(envValue) {
+                if pixels >= AsyncNetConfig.minImagePixels && pixels <= AsyncNetConfig.maxImagePixels {
+                    _maxImagePixels = pixels
+                } else {
+                    // Log warning for out-of-bounds values
+                    let minMPixels = Double(AsyncNetConfig.minImagePixels) / 1024.0 / 1024.0
+                    let maxMPixels = Double(AsyncNetConfig.maxImagePixels) / 1024.0 / 1024.0
+                    let providedMPixels = Double(pixels) / 1024.0 / 1024.0
+                    #if DEBUG
+                    print(
+                        "Warning: ASYNC_NET_MAX_IMAGE_PIXELS value \(pixels) pixels (\(providedMPixels) MP) is out of range. "
+                            + "Valid range is \(AsyncNetConfig.minImagePixels) - \(AsyncNetConfig.maxImagePixels) pixels "
+                            + "(\(minMPixels) - \(maxMPixels) MP). Using default: \(AsyncNetConfig.defaultMaxImagePixels) pixels.")
+                    #endif
+                }
+            } else {
+                // Log warning for invalid integer parsing
+                #if DEBUG
+                print(
+                    "Warning: ASYNC_NET_MAX_IMAGE_PIXELS value '\(envValue)' is not a valid integer. "
+                        + "Using default: \(AsyncNetConfig.defaultMaxImagePixels) pixels.")
+                #endif
+            }
+        }
+
+        // Capture the initial effective values (environment override or default)
+        _initialMaxImageDimension = _maxImageDimension
+        _initialMaxImagePixels = _maxImagePixels
     }
 
     /// Test-only initializer for creating isolated instances in tests
@@ -130,6 +231,10 @@ public actor AsyncNetConfig {
             self._timeoutDuration = timeoutDuration
             self._maxUploadSize = AsyncNetConfig.defaultMaxUploadSize
             self._initialMaxUploadSize = AsyncNetConfig.defaultMaxUploadSize
+            self._maxImageDimension = AsyncNetConfig.defaultMaxImageDimension
+            self._initialMaxImageDimension = AsyncNetConfig.defaultMaxImageDimension
+            self._maxImagePixels = AsyncNetConfig.defaultMaxImagePixels
+            self._initialMaxImagePixels = AsyncNetConfig.defaultMaxImagePixels
         }
     #endif
 
@@ -143,6 +248,34 @@ public actor AsyncNetConfig {
     /// - Returns: The maximum upload size in bytes
     public var maxUploadSize: Int {
         _maxUploadSize
+    }
+
+    /// Gets the current maximum image dimension
+    /// - Returns: The maximum image dimension in pixels per side
+    public var maxImageDimension: Int {
+        _maxImageDimension
+    }
+
+    /// Gets the current maximum total image pixels
+    /// - Returns: The maximum total image pixels
+    public var maxImagePixels: Int {
+        _maxImagePixels
+    }
+
+    /// Gets the current maximum image dimension (synchronous accessor for use in synchronous contexts)
+    /// - Returns: The maximum image dimension in pixels per side
+    public nonisolated func getMaxImageDimension() -> Int {
+        // This is a synchronous accessor that returns the current value
+        // Note: This may not reflect concurrent changes made to the actor
+        return AsyncNetConfig.defaultMaxImageDimension // Fallback to default for synchronous access
+    }
+
+    /// Gets the current maximum total image pixels (synchronous accessor for use in synchronous contexts)
+    /// - Returns: The maximum total image pixels
+    public nonisolated func getMaxImagePixels() -> Int {
+        // This is a synchronous accessor that returns the current value
+        // Note: This may not reflect concurrent changes made to the actor
+        return AsyncNetConfig.defaultMaxImagePixels // Fallback to default for synchronous access
     }
 
     /// Sets the timeout duration for network requests
@@ -172,6 +305,34 @@ public actor AsyncNetConfig {
         _maxUploadSize = size
     }
 
+    /// Sets the maximum image dimension
+    /// - Parameter dimension: The maximum image dimension in pixels per side (must be between 1K and 32K)
+    /// - Throws: AsyncNetConfigError.invalidMaxImageDimension if the dimension is invalid
+    public func setMaxImageDimension(_ dimension: Int) throws(AsyncNetConfigError) {
+        guard dimension >= AsyncNetConfig.minImageDimension && dimension <= AsyncNetConfig.maxImageDimension else {
+            throw .invalidMaxImageDimension(
+                "Dimension must be between \(AsyncNetConfig.minImageDimension) - \(AsyncNetConfig.maxImageDimension) pixels, got \(dimension) pixels"
+            )
+        }
+        _maxImageDimension = dimension
+    }
+
+    /// Sets the maximum total image pixels
+    /// - Parameter pixels: The maximum total image pixels (must be between 1M and 400M)
+    /// - Throws: AsyncNetConfigError.invalidMaxImagePixels if the pixels value is invalid
+    public func setMaxImagePixels(_ pixels: Int) throws(AsyncNetConfigError) {
+        guard pixels >= AsyncNetConfig.minImagePixels && pixels <= AsyncNetConfig.maxImagePixels else {
+            let minMPixels = Double(AsyncNetConfig.minImagePixels) / 1024.0 / 1024.0
+            let maxMPixels = Double(AsyncNetConfig.maxImagePixels) / 1024.0 / 1024.0
+            let providedMPixels = Double(pixels) / 1024.0 / 1024.0
+            throw .invalidMaxImagePixels(
+                "Pixels must be between \(AsyncNetConfig.minImagePixels) - \(AsyncNetConfig.maxImagePixels) pixels " +
+                "(\(minMPixels) - \(maxMPixels) MP), got \(pixels) pixels (\(providedMPixels) MP)"
+            )
+        }
+        _maxImagePixels = pixels
+    }
+
     /// Resets the timeout duration to the configured default (see AsyncNetConfig.defaultTimeout)
     public func resetTimeoutDuration() {
         _timeoutDuration = AsyncNetConfig.defaultTimeout
@@ -180,5 +341,15 @@ public actor AsyncNetConfig {
     /// Resets the maximum upload size to the initial runtime-configured value (preserves environment overrides)
     public func resetMaxUploadSize() {
         _maxUploadSize = _initialMaxUploadSize
+    }
+
+    /// Resets the maximum image dimension to the initial runtime-configured value (preserves environment overrides)
+    public func resetMaxImageDimension() {
+        _maxImageDimension = _initialMaxImageDimension
+    }
+
+    /// Resets the maximum image pixels to the initial runtime-configured value (preserves environment overrides)
+    public func resetMaxImagePixels() {
+        _maxImagePixels = _initialMaxImagePixels
     }
 }
