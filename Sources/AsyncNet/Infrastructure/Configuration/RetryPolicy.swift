@@ -13,6 +13,13 @@ import os
     import CommonCrypto
 #endif
 
+// MARK: - Constants
+
+/// Hash multiplier for jitter generation using SplitMix64 algorithm.
+/// This constant provides good statistical properties for hash-based randomization.
+/// The value is chosen to have high entropy and uniform distribution properties.
+private let hashMultiplier: UInt64 = 0x9E37_79B9_7F4A_7C15
+
 // MARK: - Retry Policy
 public struct RetryPolicy: Sendable {
     /// Total number of attempts (initial attempt + retries). For example:
@@ -48,7 +55,7 @@ public struct RetryPolicy: Sendable {
         },
         backoff: { attempt in
             // Use hash-based jitter for better distribution
-            let hash = UInt64(attempt).multipliedFullWidth(by: 0x9E37_79B9_7F4A_7C15).high
+            let hash = UInt64(attempt).multipliedFullWidth(by: hashMultiplier).high
             let jitter = Double(hash % 500) / 1000.0  // 0 to 0.5
             return pow(2.0, Double(attempt)) + jitter
         },
@@ -132,7 +139,7 @@ public struct RetryPolicy: Sendable {
         let jitterProvider: (@Sendable (Int) -> TimeInterval) = { attempt in
             // Use SplitMix64 PRNG for better statistical properties and uniform distribution
             var randomState =
-                seed &+ UInt64(attempt).multipliedFullWidth(by: 0x9E37_79B9_7F4A_7C15).high
+                seed &+ UInt64(attempt).multipliedFullWidth(by: hashMultiplier).high
 
             // SplitMix64 algorithm - deterministic PRNG with good statistical properties
             randomState = (randomState ^ (randomState >> 30)) &* 0xBF58_476D_1CE4_E5B9
