@@ -155,9 +155,9 @@ boot_simulator_if_needed() {
     
     echo "Checking boot status for $label: $name ($udid)"
     
-    # Check current state by parsing xcrun simctl list devices output
+    # Check current state by parsing xcrun simctl list devices --json output
     local state
-    state=$(xcrun simctl list devices 2>/dev/null | grep "$udid" | sed 's/.*(\([^)]*\)).*/\1/' | tr -d ' ')
+    state=$(xcrun simctl list devices --json 2>/dev/null | jq -r --arg udid "$udid" '.devices[] | to_entries[] | select(.value.udid == $udid) | .value.state' || echo "")
     
     if [ "$state" = "Booted" ]; then
         echo "✓ $label is already booted: $name ($udid)"
