@@ -20,8 +20,9 @@ extension ImageService {
     /// - Returns: The size of the data after base64 encoding
     private func calculateBase64EncodedSize(_ rawSize: Int) -> Int {
         // Prevent integer overflow for very large input sizes
-        // Base64 encoding converts 3 bytes to 4 bytes, so max safe input is Int.max / 4 * 3
-        guard rawSize <= Int.max / 4 * 3 else { return Int.max }
+        // Base64 encoding converts 3 bytes to 4 bytes, so max safe input is (Int.max / 4) * 3
+        // (Int.max / 4) * 3 ensures we never exceed Int.max when encoding (3 input bytes → 4 output bytes)
+        guard rawSize <= (Int.max / 4) * 3 else { return Int.max }
         return ((rawSize + 2) / 3) * 4
     }
 
