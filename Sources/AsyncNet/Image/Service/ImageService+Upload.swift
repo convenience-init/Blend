@@ -14,11 +14,11 @@ extension ImageService {
         configuration: UploadConfiguration = UploadConfiguration()
     ) async throws -> Data {
         // Pre-check to avoid memory issues with very large images
-        let maxSafeRawSize = try await calculateMaxSafeRawSize()
+        let maxSafeRawSize = await calculateMaxSafeRawSize()
         try validateImageSize(imageData.count, maxSafeRawSize)
 
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
-        let effectiveMaxUploadSize = try await getEffectiveMaxUploadSize()
+        let effectiveMaxUploadSize = await getEffectiveMaxUploadSize()
         let encodedSize = ((imageData.count + 2) / 3) * 4
         try validateEncodedSize(encodedSize, effectiveMaxUploadSize, imageData.count)
 
@@ -64,19 +64,19 @@ extension ImageService {
         if imageSize > maxSafeRawSize {
             #if canImport(OSLog)
                 #if DEBUG
-                asyncNetLogger.warning(
-                    """
-                    Upload rejected: Image size \(imageSize, privacy: .public) bytes \
-                    exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes
-                    """
-                )
+                    asyncNetLogger.warning(
+                        """
+                        Upload rejected: Image size \(imageSize, privacy: .public) bytes \
+                        exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes
+                        """
+                    )
                 #else
-                asyncNetLogger.warning(
-                    """
-                    Upload rejected: Image size \(imageSize, privacy: .private) bytes \
-                    exceeds raw size limit of \(maxSafeRawSize, privacy: .private) bytes
-                    """
-                )
+                    asyncNetLogger.warning(
+                        """
+                        Upload rejected: Image size \(imageSize, privacy: .private) bytes \
+                        exceeds raw size limit of \(maxSafeRawSize, privacy: .private) bytes
+                        """
+                    )
                 #endif
             #else
                 print(
@@ -89,22 +89,29 @@ extension ImageService {
     }
 
     /// Validates the encoded size against limits
-    private func validateEncodedSize(_ encodedSize: Int, _ maxUploadSize: Int, _ rawSize: Int) throws {
+    private func validateEncodedSize(_ encodedSize: Int, _ maxUploadSize: Int, _ rawSize: Int)
+        throws
+    {
         if encodedSize > maxUploadSize {
             #if canImport(OSLog)
                 #if DEBUG
-                let message = "Upload rejected: Base64-encoded image size \(encodedSize) bytes " +
-                    "exceeds limit of \(maxUploadSize) bytes " + "(raw size: \(rawSize) bytes)"
-                asyncNetLogger.warning("\(message, privacy: .public)")
+                    let message =
+                        "Upload rejected: Base64-encoded image size \(encodedSize) bytes "
+                        + "exceeds limit of \(maxUploadSize) bytes "
+                        + "(raw size: \(rawSize) bytes)"
+                    asyncNetLogger.warning("\(message, privacy: .public)")
                 #else
-                let message = "Upload rejected: Base64-encoded image size \(encodedSize) bytes " +
-                    "exceeds limit of \(maxUploadSize) bytes " + "(raw size: \(rawSize) bytes)"
-                asyncNetLogger.warning("\(message, privacy: .private)")
+                    let message =
+                        "Upload rejected: Base64-encoded image size \(encodedSize) bytes "
+                        + "exceeds limit of \(maxUploadSize) bytes "
+                        + "(raw size: \(rawSize) bytes)"
+                    asyncNetLogger.warning("\(message, privacy: .private)")
                 #endif
             #else
                 print(
-                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes " +
-                        "exceeds limit of \(maxUploadSize) bytes " + "(raw size: \(rawSize) bytes)"
+                    "Upload rejected: Base64-encoded image size \(encodedSize) bytes "
+                        + "exceeds limit of \(maxUploadSize) bytes "
+                        + "(raw size: \(rawSize) bytes)"
                 )
             #endif
             throw NetworkError.payloadTooLarge(size: encodedSize, limit: maxUploadSize)
@@ -171,21 +178,19 @@ extension ImageService {
 
         if payloadSize > effectiveMaxUploadSize {
             #if DEBUG
-            let message =
-                "Upload rejected: JSON payload size \(payloadSize) bytes "
-                + "exceeds limit of \(effectiveMaxUploadSize) bytes "
-                +
-                "(base64 image: \(imageSize) bytes, "
-                + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
-            asyncNetLogger.warning("\(message, privacy: .public)")
+                let message =
+                    "Upload rejected: JSON payload size \(payloadSize) bytes "
+                    + "exceeds limit of \(effectiveMaxUploadSize) bytes "
+                    + "(base64 image: \(imageSize) bytes, "
+                    + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
+                asyncNetLogger.warning("\(message, privacy: .public)")
             #else
-            let message =
-                "Upload rejected: JSON payload size \(payloadSize) bytes "
-                + "exceeds limit of \(effectiveMaxUploadSize) bytes "
-                +
-                "(base64 image: \(imageSize) bytes, "
-                + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
-            asyncNetLogger.warning("\(message, privacy: .private)")
+                let message =
+                    "Upload rejected: JSON payload size \(payloadSize) bytes "
+                    + "exceeds limit of \(effectiveMaxUploadSize) bytes "
+                    + "(base64 image: \(imageSize) bytes, "
+                    + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
+                asyncNetLogger.warning("\(message, privacy: .private)")
             #endif
             throw NetworkError.payloadTooLarge(size: payloadSize, limit: effectiveMaxUploadSize)
         }
@@ -194,23 +199,25 @@ extension ImageService {
         let maxRecommendedSize = (effectiveMaxUploadSize * 3) / 4
         if payloadSize > maxRecommendedSize {
             #if DEBUG
-            let message =
-                "Warning: Large JSON payload (\(payloadSize) bytes, "
-                + "base64 image: \(imageSize) bytes) approaches upload limit. "
-                + "Consider using multipart upload."
-            asyncNetLogger.info("\(message, privacy: .public)")
+                let message =
+                    "Warning: Large JSON payload (\(payloadSize) bytes, "
+                    + "base64 image: \(imageSize) bytes) approaches upload limit. "
+                    + "Consider using multipart upload."
+                asyncNetLogger.info("\(message, privacy: .public)")
             #else
-            let message =
-                "Warning: Large JSON payload (\(payloadSize) bytes, "
-                + "base64 image: \(imageSize) bytes) approaches upload limit. "
-                + "Consider using multipart upload."
-            asyncNetLogger.info("\(message, privacy: .private)")
+                let message =
+                    "Warning: Large JSON payload (\(payloadSize) bytes, "
+                    + "base64 image: \(imageSize) bytes) approaches upload limit. "
+                    + "Consider using multipart upload."
+                asyncNetLogger.info("\(message, privacy: .private)")
             #endif
         }
     }
 
     /// Creates upload request with interceptors applied
-    private func createUploadRequest(url: URL, body: Data, contentType: String) async throws -> URLRequest {
+    private func createUploadRequest(url: URL, body: Data, contentType: String) async throws
+        -> URLRequest
+    {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -261,21 +268,21 @@ extension ImageService {
         let encodedSize = ((imageData.count + 2) / 3) * 4
         #if canImport(OSLog)
             #if DEBUG
-            asyncNetLogger.info(
-                """
-                Using streaming multipart upload for large image \
-                (\(encodedSize, privacy: .public) bytes encoded, \
-                \(imageData.count, privacy: .public) bytes raw) to prevent memory spikes
-                """
-            )
+                asyncNetLogger.info(
+                    """
+                    Using streaming multipart upload for large image \
+                    (\(encodedSize, privacy: .public) bytes encoded, \
+                    \(imageData.count, privacy: .public) bytes raw) to prevent memory spikes
+                    """
+                )
             #else
-            asyncNetLogger.info(
-                """
-                Using streaming multipart upload for large image \
-                (\(encodedSize, privacy: .private) bytes encoded, \
-                \(imageData.count, privacy: .private) bytes raw) to prevent memory spikes
-                """
-            )
+                asyncNetLogger.info(
+                    """
+                    Using streaming multipart upload for large image \
+                    (\(encodedSize, privacy: .private) bytes encoded, \
+                    \(imageData.count, privacy: .private) bytes raw) to prevent memory spikes
+                    """
+                )
             #endif
         #else
             print(
@@ -357,13 +364,13 @@ extension ImageService {
 
         if imageSize > effectiveMaxUploadSize {
             #if DEBUG
-            let message =
-                "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
-            asyncNetLogger.warning("\(message, privacy: .public)")
+                let message =
+                    "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
+                asyncNetLogger.warning("\(message, privacy: .public)")
             #else
-            let message =
-                "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
-            asyncNetLogger.warning("\(message, privacy: .private)")
+                let message =
+                    "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
+                asyncNetLogger.warning("\(message, privacy: .private)")
             #endif
             throw NetworkError.payloadTooLarge(size: imageSize, limit: effectiveMaxUploadSize)
         }
@@ -372,15 +379,15 @@ extension ImageService {
         let maxRecommendedSize = effectiveMaxUploadSize / 4 * 3
         if imageSize > maxRecommendedSize {
             #if DEBUG
-            let message =
-                "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
-                + "Base64 encoding will increase size by ~33%."
-            asyncNetLogger.info("\(message, privacy: .public)")
+                let message =
+                    "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
+                    + "Base64 encoding will increase size by ~33%."
+                asyncNetLogger.info("\(message, privacy: .public)")
             #else
-            let message =
-                "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
-                + "Base64 encoding will increase size by ~33%."
-            asyncNetLogger.info("\(message, privacy: .private)")
+                let message =
+                    "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
+                    + "Base64 encoding will increase size by ~33%."
+                asyncNetLogger.info("\(message, privacy: .private)")
             #endif
         }
     }

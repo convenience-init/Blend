@@ -119,9 +119,9 @@ public class AsyncImageModel {
                 // Check for cancellation before updating state
                 try Task.checkCancellation()
 
-                await self?.handleImageLoadSuccess(data)
+                self?.handleImageLoadSuccess(data)
             } catch is CancellationError {
-                await self?.handleImageLoadCancellation()
+                self?.handleImageLoadCancellation()
             } catch {
                 await self?.handleImageLoadError(error)
             }
@@ -296,26 +296,29 @@ public struct AsyncNetImageView: View {
 
                     // Upload button overlay when uploadURL is provided
                     if uploadURL != nil {
-                        Button(action: {
-                            Task {
-                                await performUpload(expectedUrl: url)
-                            }
+                        Button(
+                            action: {
+                                Task {
+                                    await performUpload(expectedUrl: url)
+                                }
                             },
                             label: {
-                            Image(
-                                systemName: model.isUploading
-                                    ? "arrow.up.circle.fill" : "arrow.up.circle"
-                            )
-                            .font(.title2)
-                            .foregroundStyle(model.isUploading ? .blue : .white)
-                            .padding(8)
-                            .background(.ultraThinMaterial, in: Circle())
-                            .shadow(radius: 2)
-                            .accessibilityLabel(
-                                model.isUploading
-                                    ? LocalizedStringKey("Uploading") : LocalizedStringKey("Upload")
-                            )
-                            })
+                                Image(
+                                    systemName: model.isUploading
+                                        ? "arrow.up.circle.fill" : "arrow.up.circle"
+                                )
+                                .font(.title2)
+                                .foregroundStyle(model.isUploading ? .blue : .white)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .shadow(radius: 2)
+                                .accessibilityLabel(
+                                    model.isUploading
+                                        ? LocalizedStringKey("Uploading")
+                                        : LocalizedStringKey("Upload")
+                                )
+                            }
+                        )
                         .disabled(model.isUploading)
                         .padding(12)
                         .transition(.scale.combined(with: .opacity))
@@ -354,7 +357,8 @@ public struct AsyncNetImageView: View {
             hasAttemptedAutoUpload = false
             await model.loadImage(from: url)
             // Perform auto-upload immediately after successful load
-            if model.loadedImage != nil && autoUpload && uploadURL != nil && !hasAttemptedAutoUpload {
+            if model.loadedImage != nil && autoUpload && uploadURL != nil && !hasAttemptedAutoUpload
+            {
                 hasAttemptedAutoUpload = true
                 await performUpload(expectedUrl: url)
             }

@@ -21,12 +21,7 @@ let package = Package(
             name: "AsyncNet",
             dependencies: [],
             resources: [
-                .process("Resources")
-            ],
-            swiftSettings: [
-                .unsafeFlags([
-                    "-Xfrontend", "-suppress-warnings",
-                ])
+                .process("Infrastructure/Resources")
             ]
         ),
         .testTarget(
