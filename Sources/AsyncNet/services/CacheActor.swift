@@ -223,6 +223,12 @@ public actor CacheActor {
     /// All mutations must occur on the CacheActor's executor for thread safety.
     /// The class is private to prevent external access and misuse.
     ///
+    /// Thread Safety Analysis:
+    /// - This class is private to CacheActor and never shared across concurrency domains
+    /// - All access occurs within the actor's isolation boundary (single-threaded execution)
+    /// - No @unchecked Sendable needed since it's never sent across actor boundaries
+    /// - The class remains a reference type for proper weak reference support in doubly-linked list
+    ///
     /// Memory Management:
     /// - Weak reference for prev prevents retain cycles in doubly-linked list
     /// - Strong reference for next maintains forward traversal integrity
