@@ -165,7 +165,7 @@ public class AsyncImageModel {
     /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
     public func uploadImage(
         _ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType,
-        configuration: ImageService.UploadConfiguration, onSuccess: ((Data) -> Void)? = nil,
+        configuration: UploadConfiguration, onSuccess: ((Data) -> Void)? = nil,
         onError: ((NetworkError) -> Void)? = nil
     ) async {
         isUploading = true
@@ -247,7 +247,7 @@ public struct AsyncNetImageView: View {
     private let url: String?
     private let uploadURL: URL?
     private let uploadType: UploadType
-    private let configuration: ImageService.UploadConfiguration
+    private let configuration: UploadConfiguration
     private let onUploadSuccess: ((Data) -> Void)?
     /// Error callback always receives NetworkError
     private let onUploadError: ((NetworkError) -> Void)?
@@ -262,7 +262,7 @@ public struct AsyncNetImageView: View {
         url: String? = nil,
         uploadURL: URL? = nil,
         uploadType: UploadType = .multipart,
-        configuration: ImageService.UploadConfiguration = ImageService.UploadConfiguration(),
+        configuration: UploadConfiguration = UploadConfiguration(),
         onUploadSuccess: ((Data) -> Void)? = nil,
         onUploadError: ((NetworkError) -> Void)? = nil,
         autoUpload: Bool = false,

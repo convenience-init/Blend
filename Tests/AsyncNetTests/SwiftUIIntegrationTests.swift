@@ -482,7 +482,7 @@ import Testing
                         imageCopy,
                         to: url,
                         uploadType: .multipart,
-                        configuration: ImageService.UploadConfiguration(),
+                        configuration: UploadConfiguration(),
                         onSuccess: { data in
                             timeoutTask.cancel()
                             Task { @MainActor in
