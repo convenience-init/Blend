@@ -2,6 +2,20 @@ import Foundation
 
 extension ImageService {
     /// Calculates the size of data after base64 encoding
+    ///
+    /// Base64 encoding converts 3 bytes of input data into 4 bytes of output.
+    /// The formula `((rawSize + 2) / 3) * 4` ensures proper handling of:
+    /// - **Integer division**: `(rawSize + 2) / 3` rounds up to account for partial groups
+    /// - **Padding**: The +2 ensures we don't truncate when rawSize isn't divisible by 3
+    /// - **4:3 ratio**: Base64 encodes every 3 input bytes as 4 output bytes
+    ///
+    /// Examples:
+    /// - 0 bytes → 0 bytes (empty input)
+    /// - 1 byte → 4 bytes (1 group of 4, with padding)
+    /// - 2 bytes → 4 bytes (1 group of 4, with padding)
+    /// - 3 bytes → 4 bytes (1 complete group)
+    /// - 4 bytes → 8 bytes (1 group + 1 partial group)
+    ///
     /// - Parameter rawSize: The size of the raw data in bytes
     /// - Returns: The size of the data after base64 encoding
     private func calculateBase64EncodedSize(_ rawSize: Int) -> Int {
