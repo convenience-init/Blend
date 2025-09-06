@@ -6,9 +6,11 @@ set -euo pipefail
 
 # Validate arguments
 if [ $# -ne 4 ]; then
-    echo "ERROR: Invalid number of arguments"
-    echo "Usage: $0 <PLATFORM_KEY> <DEVICE_MATCH> <FALLBACK_DEVICE> <OUTPUT_PREFIX>"
-    echo "Example: $0 'iOS' 'iPhone' 'iPhone 14' 'ios'"
+    cat << EOF >&2
+ERROR: Invalid number of arguments
+Usage: $0 <PLATFORM_KEY> <DEVICE_MATCH> <FALLBACK_DEVICE> <OUTPUT_PREFIX>
+Example: $0 'iOS' 'iPhone' 'iPhone 14' 'ios'
+EOF
     exit 1
 fi
 
@@ -59,8 +61,10 @@ timeout_bootstatus() {
     
     # Handle timeout case
     if [ "$exit_code" -eq 124 ]; then
-        echo "ERROR: $context_message timed out after ${TIMEOUT_SEC}s for '$simulator_name' (UDID: $simulator_udid)"
-        echo "Available devices from xcrun simctl:"
+        cat << EOF >&2
+ERROR: $context_message timed out after ${TIMEOUT_SEC}s for '$simulator_name' (UDID: $simulator_udid)
+Available devices from xcrun simctl:
+EOF
         xcrun simctl list devices available || true
         echo ""
         echo "Device details:"
@@ -271,24 +275,26 @@ find_simulator() {
 
     # Check if jq is available
     if ! command -v jq >/dev/null 2>&1; then
-        echo "ERROR: jq is required but not found in PATH" >&2
-        echo "jq is needed to parse simulator device information from xcrun output" >&2
-        echo "" >&2
-        echo "For CI/GitHub Actions, add jq to your runner image:" >&2
-        echo "  - name: Install jq" >&2
-        echo "    run: |" >&2
-        echo "      if command -v brew >/dev/null 2>&1; then" >&2
-        echo "        brew install jq" >&2
-        echo "      elif command -v apt-get >/dev/null 2>&1; then" >&2
-        echo "        sudo apt-get update && sudo apt-get install -y jq" >&2
-        echo "      elif command -v choco >/dev/null 2>&1; then" >&2
-        echo "        choco install jq -y" >&2
-        echo "      fi" >&2
-        echo "" >&2
-        echo "For manual installation:" >&2
-        echo "  macOS: brew install jq" >&2
-        echo "  Linux: sudo apt-get install jq" >&2
-        echo "  Windows: choco install jq" >&2
+        cat << EOF >&2
+ERROR: jq is required but not found in PATH
+jq is needed to parse simulator device information from xcrun output
+
+For CI/GitHub Actions, add jq to your runner image:
+  - name: Install jq
+    run: |
+      if command -v brew >/dev/null 2>&1; then
+        brew install jq
+      elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update && sudo apt-get install -y jq
+      elif command -v choco >/dev/null 2>&1; then
+        choco install jq -y
+      fi
+
+For manual installation:
+  macOS: brew install jq
+  Linux: sudo apt-get install jq
+  Windows: choco install jq
+EOF
         echo "Available devices list:" >&2
         xcrun simctl list devices available || true
         exit 1
@@ -456,23 +462,25 @@ find_simulator() {
         echo "Wrote environment variables to GITHUB_ENV."
     fi
     export SIMULATOR_NAME SIMULATOR_UDID
-    echo "You can now run your tests or build your app targeting this simulator."
-    echo "For example, to run tests with xcodebuild:"
-    echo "  xcodebuild test -destination 'id=$SIMULATOR_UDID'"
-    echo ""
-    echo "To open the simulator in Xcode, use the following menu:"
-    echo "  Window > Devices and Simulators > Select your simulator > Open Console"
-    echo ""
-    echo "To uninstall the app from the simulator:"
-    echo "  xcrun simctl uninstall $SIMULATOR_UDID <app_bundle_identifier>"
-    echo ""
-    echo "To shutdown the simulator:"
-    echo "  xcrun simctl shutdown $SIMULATOR_UDID"
-    echo ""
-    echo "To delete the simulator (if no longer needed):"
-    echo "  xcrun simctl delete $SIMULATOR_UDID"
-    echo ""
-    echo "=== Simulator Discovery Completed ==="
+    cat << EOF
+You can now run your tests or build your app targeting this simulator.
+For example, to run tests with xcodebuild:
+  xcodebuild test -destination 'id=$SIMULATOR_UDID'
+
+To open the simulator in Xcode, use the following menu:
+  Window > Devices and Simulators > Select your simulator > Open Console
+
+To uninstall the app from the simulator:
+  xcrun simctl uninstall $SIMULATOR_UDID <app_bundle_identifier>
+
+To shutdown the simulator:
+  xcrun simctl shutdown $SIMULATOR_UDID
+
+To delete the simulator (if no longer needed):
+  xcrun simctl delete $SIMULATOR_UDID
+
+=== Simulator Discovery Completed ===
+EOF
 }
 
 # Call the main function with parsed parameters
