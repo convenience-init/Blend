@@ -429,14 +429,16 @@ find_simulator() {
         
         # Ensure fallback device is booted
         if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "fallback simulator"; then
-            exit $?
+            BOOT_EXIT_CODE=$?
+            exit $BOOT_EXIT_CODE
         fi
     fi
 
     # Note: Fallback device is already booted above, so we only need to handle the primary device here
     if [ -n "$SIMULATOR_UDID" ] && [ "$USED_FALLBACK" = false ]; then
         if ! boot_simulator_if_needed "$SIMULATOR_NAME" "$SIMULATOR_UDID" "simulator"; then
-            exit $?
+            BOOT_EXIT_CODE=$?
+            exit $BOOT_EXIT_CODE
         fi
     fi
 
