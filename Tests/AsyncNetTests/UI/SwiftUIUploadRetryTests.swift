@@ -155,45 +155,45 @@
             url: URL,
             timeoutNanoseconds: UInt64 = 5_000_000_000  // 5 seconds
         ) async throws -> Result<Data, NetworkError> {
-            try await withCheckedThrowingContinuation { continuation in
-                let coordinationActor = TestHelpers.CoordinationActor()
-
-                // Create timeout task using Swift 6 concurrency patterns
-                let timeoutTask = Task {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    if await coordinationActor.tryResume() {
-                        continuation.resume(
-                            throwing: NetworkError.customError(
-                                "Test timeout", details: "Upload operation took too long"))
-                    }
-                }
-
-                // Create upload task with proper coordination - capture image safely
-                let imageCopy = image
+            let uploadStream = AsyncStream<Result<Data, NetworkError>> { continuation in
                 Task { @MainActor in
                     await model.uploadImage(
-                        imageCopy,
+                        image,
                         to: url,
                         uploadType: .multipart,
                         configuration: UploadConfiguration(),
                         onSuccess: { data in
-                            timeoutTask.cancel()
-                            Task { @MainActor in
-                                if await coordinationActor.tryResume() {
-                                    continuation.resume(returning: .success(data))
-                                }
-                            }
+                            continuation.yield(.success(data))
+                            continuation.finish()
                         },
                         onError: { error in
-                            timeoutTask.cancel()
-                            Task { @MainActor in
-                                if await coordinationActor.tryResume() {
-                                    continuation.resume(returning: .failure(error))
-                                }
-                            }
+                            continuation.yield(.failure(error))
+                            continuation.finish()
                         }
                     )
                 }
+            }
+
+            return try await withThrowingTaskGroup(of: Result<Data, NetworkError>.self) { group in
+                // Add timeout task
+                group.addTask {
+                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    throw NetworkError.customError(
+                        "Test timeout", details: "Upload operation took too long")
+                }
+
+                // Add upload task
+                group.addTask {
+                    for try await result in uploadStream {
+                        return result
+                    }
+                    throw NetworkError.customError("Upload stream ended unexpectedly", details: nil)
+                }
+
+                // Return the first completed task result, cancel others
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
             }
         }
     }
