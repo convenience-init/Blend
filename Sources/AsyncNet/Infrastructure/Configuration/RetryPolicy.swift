@@ -54,9 +54,12 @@ public struct RetryPolicy: Sendable {
             return true
         },
         backoff: { attempt in
-            // Use hash-based jitter for better distribution
+            // Use hash-based jitter for better distribution to avoid retry storms.
+            // The magic number 0x9E37_79B9_7F4A_7C15 is a large odd constant (derived from the golden ratio for 64-bit hashing)
+            // commonly used in hash functions to achieve good distribution of values.
+            // The constants 500 and 1000.0 scale the jitter to a range between 0 and 0.5 seconds.
             let hash = UInt64(attempt).multipliedFullWidth(by: hashMultiplier).high
-            let jitter = Double(hash % 500) / 1000.0  // 0 to 0.5
+            let jitter = Double(hash % 500) / 1000.0  // Jitter in [0, 0.5) seconds
             return pow(2.0, Double(attempt)) + jitter
         },
         maxBackoff: 60.0,
