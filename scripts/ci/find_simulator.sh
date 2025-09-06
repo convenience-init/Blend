@@ -28,53 +28,37 @@ timeout_bootstatus() {
     
     echo "Starting bootstatus check with ${TIMEOUT_SEC}s timeout: $simulator_name ($simulator_udid)"
     
-    # Create a secure temporary marker file for timeout detection
-    local marker_file
-    marker_file=$(mktemp) || {
-        echo "ERROR: Failed to create temporary marker file"
-        return 1
-    }
+    # Run bootstatus with timeout using macOS-compatible approach
+    local exit_code=0
+    local timed_out=false
     
     # Start bootstatus in background
     xcrun simctl bootstatus "$simulator_udid" -b 2>&1 &
     local bootstatus_pid=$!
     
-    # Start timeout sleeper in background with marker file path
+    # Start timeout monitor in background
     (
         sleep "$TIMEOUT_SEC"
-        # Check if bootstatus is still running before attempting to kill
+        # Check if bootstatus is still running and kill it if so
         if kill -0 "$bootstatus_pid" 2>/dev/null; then
-            echo "TIMEOUT: bootstatus command timed out after ${TIMEOUT_SEC}s for $simulator_name ($simulator_udid)"
-            # Write timeout marker to file
-            echo "TIMEOUT" > "$marker_file"
-            # Kill the bootstatus process
             kill "$bootstatus_pid" 2>/dev/null || true
+            exit 124  # Use 124 to indicate timeout (same as GNU timeout)
         fi
     ) &
-    local sleeper_pid=$!
+    local timeout_pid=$!
     
     # Wait for bootstatus to finish
-    local exit_code
     wait "$bootstatus_pid" 2>/dev/null
     exit_code=$?
     
-    # Clean up sleeper process if still running
-    if kill -0 "$sleeper_pid" 2>/dev/null; then
-        kill "$sleeper_pid" 2>/dev/null || true
-        wait "$sleeper_pid" 2>/dev/null || true
+    # Clean up timeout process if still running
+    if kill -0 "$timeout_pid" 2>/dev/null; then
+        kill "$timeout_pid" 2>/dev/null || true
+        wait "$timeout_pid" 2>/dev/null || true
     fi
-    
-    # Check for timeout marker file to deterministically detect timeout
-    local timed_out=false
-    if [ -f "$marker_file" ] && [ "$(cat "$marker_file" 2>/dev/null)" = "TIMEOUT" ]; then
-        timed_out=true
-    fi
-    
-    # Clean up marker file
-    rm -f "$marker_file"
     
     # Handle timeout case
-    if [ "$timed_out" = true ]; then
+    if [ "$exit_code" -eq 124 ]; then
         echo "ERROR: $context_message timed out after ${TIMEOUT_SEC}s for '$simulator_name' (UDID: $simulator_udid)"
         echo "Available devices from xcrun simctl:"
         xcrun simctl list devices available || true
