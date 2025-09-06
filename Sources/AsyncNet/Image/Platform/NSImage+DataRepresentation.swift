@@ -11,7 +11,7 @@
         @MainActor
         public var cgImage: CGImage? {
             // Ensure we're on main thread for AppKit compatibility
-            assert(Thread.isMainThread, "NSImage.cgImage must be accessed from main thread")
+            guard Thread.isMainThread else { return nil }
             return cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
 
