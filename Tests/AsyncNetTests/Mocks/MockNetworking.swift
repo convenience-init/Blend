@@ -174,6 +174,61 @@ public actor MockURLSession: URLSessionProtocol {
     }
 }
 
+/// MockURLSession for testing concurrent loads with multiple URLs
+public actor ConcurrentMockSession: URLSessionProtocol {
+    private let imageData: Data
+    private let supportedURLs: [URL]
+    private var _callCount: Int = 0
+    private let artificialDelay: UInt64 = 100_000_000  // 100ms delay for stable timing
+
+    public init(imageData: Data, urls: [URL]) {
+        self.imageData = imageData
+        self.supportedURLs = urls
+    }
+
+    /// Thread-safe getter for call count (safe to call after concurrent work completes)
+    public var callCount: Int {
+        _callCount
+    }
+
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        // Thread-safe increment of call count
+        _callCount += 1
+
+        // Add artificial delay to simulate network latency
+        if artificialDelay > 0 {
+            try await Task.sleep(nanoseconds: artificialDelay)
+        }
+
+        // Verify the request URL is one of our supported URLs
+        guard let requestURL = request.url,
+            supportedURLs.contains(where: { $0.absoluteString == requestURL.absoluteString })
+        else {
+            throw NetworkError.customError(
+                "Unsupported URL: \(request.url?.absoluteString ?? "nil")",
+                details: nil
+            )
+        }
+
+        // Create HTTP response for the requested URL
+        guard
+            let response = HTTPURLResponse(
+                url: requestURL,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "image/png"]
+            )
+        else {
+            throw NetworkError.customError(
+                "Failed to create HTTPURLResponse for URL: \(requestURL.absoluteString)",
+                details: nil
+            )
+        }
+
+        return (imageData, response)
+    }
+}
+
 /// MockEndpoint for testing Endpoint protocol
 public struct MockEndpoint: Endpoint, Equatable {
     /// Properties are immutable for thread-safety and Swift 6 concurrency compliance.

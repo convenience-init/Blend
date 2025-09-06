@@ -5,22 +5,6 @@
     import SwiftUI
     @testable import AsyncNet
 
-    /// Actor to coordinate continuation resumption and prevent race conditions
-    /// between timeout tasks and upload callbacks
-    private actor CoordinationActor {
-        private var hasResumed = false
-
-        /// Attempts to resume the continuation. Returns true if this call should
-        /// actually resume (i.e., it's the first call), false if already resumed.
-        func tryResume() -> Bool {
-            if hasResumed {
-                return false
-            }
-            hasResumed = true
-            return true
-        }
-    }
-
     @Suite("SwiftUI Upload Error Tests")
     public struct SwiftUIUploadErrorTests {
         private static let minimalPNGBase64 =
