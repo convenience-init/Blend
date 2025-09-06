@@ -21,6 +21,10 @@ import os
 /// 0x9E37_79B9_7F4A_7C15 is a large odd constant derived from the fractional part of the golden ratio for 64-bit hashing.
 /// It is commonly used in hash functions (e.g., SplitMix64) to achieve good distribution of values.
 /// Reference: https://prng.di.unimi.it/splitmix64.c
+/// Specifically, it is floor(2^64 * φ), where φ = (sqrt(5) - 1) / 2 ≈ 0.6180339887.
+/// This constant is recommended in the original SplitMix64 paper for its mixing properties:
+///   "Fast Splittable Pseudorandom Number Generators" by Sebastiano Vigna (2016), https://doi.org/10.1145/2998574
+/// See also: https://prng.di.unimi.it/splitmix64.c
 private let hashMultiplier: UInt64 = 0x9E37_79B9_7F4A_7C15
 
 // MARK: - Retry Policy
