@@ -160,10 +160,14 @@ struct CustomDecoderTestService: AdvancedAsyncRequestable {
 @Suite("AsyncRequestable & Endpoint Tests")
 public struct AsyncRequestableProtocolTests {
     @Test public func testSendRequestReturnsDecodedModel() async throws {
+        guard let testURL = URL(string: "https://mock.api/test") else {
+            #expect(Bool(false), "Invalid test URL")
+            return
+        }
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
+                url: testURL,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
@@ -175,10 +179,14 @@ public struct AsyncRequestableProtocolTests {
     }
 
     @Test public func testSendRequestAdvancedReturnsDecodedModel() async throws {
+        guard let testURL = URL(string: "https://mock.api/test") else {
+            #expect(Bool(false), "Invalid test URL")
+            return
+        }
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
+                url: testURL,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
@@ -192,10 +200,14 @@ public struct AsyncRequestableProtocolTests {
     }
 
     @Test public func testSendRequestThrowsInvalidBodyForGET() async throws {
+        guard let testURL = URL(string: "https://mock.api/test") else {
+            #expect(Bool(false), "Invalid test URL")
+            return
+        }
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
+                url: testURL,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
@@ -220,10 +232,14 @@ public struct AsyncRequestableProtocolTests {
     }
 
     @Test public func testTimeoutResolutionPrefersDurationOverLegacy() async throws {
+        guard let testURL = URL(string: "https://mock.api/test") else {
+            #expect(Bool(false), "Invalid test URL")
+            return
+        }
         let mockSession = MockURLSession(
             nextData: Data("{\"value\":42}".utf8),
             nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/test")!,
+                url: testURL,
                 statusCode: 200,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
@@ -267,10 +283,14 @@ public struct AsyncRequestableProtocolTests {
 
     @Test public func testSendRequestThrowsForNon2xxStatusCode() async throws {
         // Test that non-2xx HTTP status codes throw NetworkError.customError with status code in message
+        guard let errorURL = URL(string: "https://mock.api/error") else {
+            #expect(Bool(false), "Invalid test URL")
+            return
+        }
         let mockSession = MockURLSession(
             nextData: Data(),  // Empty data for 500 response
             nextResponse: HTTPURLResponse(
-                url: URL(string: "https://mock.api/error")!,
+                url: errorURL,
                 statusCode: 500,
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]

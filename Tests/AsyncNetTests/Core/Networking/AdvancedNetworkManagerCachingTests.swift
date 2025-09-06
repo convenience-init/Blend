@@ -28,7 +28,7 @@ public struct AdvancedNetworkManagerCachingTests {
     ) async throws {
         let testData = Data([UInt8(statusCode % 256), 0x02, 0x03])
         let response = HTTPURLResponse(
-            url: URL(string: "https://mock.api/test\(statusCode)")!,
+            url: testURL(for: statusCode),
             statusCode: statusCode,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
@@ -36,7 +36,7 @@ public struct AdvancedNetworkManagerCachingTests {
         let session = MockURLSession(nextData: testData, nextResponse: response)
         let manager = AdvancedNetworkManager(cache: cache, urlSession: session)
 
-        let request = URLRequest(url: URL(string: "https://mock.api/test\(statusCode)")!)
+        let request = URLRequest(url: testURL(for: statusCode))
         let result = try await manager.fetchData(for: request, cacheKey: "key-\(statusCode)")
         #expect(result == testData)
 
@@ -49,7 +49,7 @@ public struct AdvancedNetworkManagerCachingTests {
     private func testErrorResponseNotCached(cache: DefaultNetworkCache) async throws {
         let errorData = Data("Not Found".utf8)
         let errorResponse = HTTPURLResponse(
-            url: URL(string: "https://mock.api/error")!,
+            url: errorURL,
             statusCode: 404,
             httpVersion: nil,
             headerFields: ["Content-Type": "text/plain"]
@@ -58,7 +58,7 @@ public struct AdvancedNetworkManagerCachingTests {
         let session = MockURLSession(nextData: errorData, nextResponse: errorResponse)
         let manager = AdvancedNetworkManager(cache: cache, urlSession: session)
 
-        let request = URLRequest(url: URL(string: "https://mock.api/error")!)
+        let request = URLRequest(url: errorURL)
         do {
             _ = try await manager.fetchData(for: request, cacheKey: "error-404-key")
             #expect(Bool(false), "Expected NetworkError.notFound for 404 status code")
@@ -83,12 +83,12 @@ public struct AdvancedNetworkManagerCachingTests {
     private func testNonHttpResponseNotCached(cache: DefaultNetworkCache) async throws {
         let nonHttpData = Data([0x07, 0x08, 0x09])
         let nonHttpResponse = URLResponse(
-            url: URL(string: "https://mock.api/nonhttp")!, mimeType: nil, expectedContentLength: 0,
+            url: nonHttpURL, mimeType: nil, expectedContentLength: 0,
             textEncodingName: nil)
         let session = MockURLSession(nextData: nonHttpData, nextResponse: nonHttpResponse)
         let manager = AdvancedNetworkManager(cache: cache, urlSession: session)
 
-        let request = URLRequest(url: URL(string: "https://mock.api/nonhttp")!)
+        let request = URLRequest(url: nonHttpURL)
         let result = try await manager.fetchData(for: request, cacheKey: "nonhttp-key")
         #expect(result == nonHttpData)
 
@@ -97,5 +97,28 @@ public struct AdvancedNetworkManagerCachingTests {
         #expect(
             cachedNonHttpData == nil,
             "Non-HTTP response should not be cached (only HTTP 2xx responses are cached)")
+    }
+
+    // MARK: - Test URLs
+
+    private func testURL(for statusCode: Int) -> URL {
+        guard let url = URL(string: "https://mock.api/test\(statusCode)") else {
+            fatalError("Invalid test URL for status code \(statusCode)")
+        }
+        return url
+    }
+
+    private var errorURL: URL {
+        guard let url = URL(string: "https://mock.api/error") else {
+            fatalError("Invalid error test URL")
+        }
+        return url
+    }
+
+    private var nonHttpURL: URL {
+        guard let url = URL(string: "https://mock.api/nonhttp") else {
+            fatalError("Invalid non-HTTP test URL")
+        }
+        return url
     }
 }

@@ -25,7 +25,12 @@
             try decodeMinimalPNGBase64()
         }
 
-        private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
+        private static let defaultUploadURL: URL = {
+            guard let url = URL(string: "https://mock.api/upload") else {
+                fatalError("Invalid test URL: https://mock.api/upload")
+            }
+            return url
+        }()
 
         @MainActor
         @Test public func testAsyncNetImageModelUploadRetry() async throws {
@@ -191,7 +196,11 @@
                 }
 
                 // Return the first completed task result, cancel others
-                let result = try await group.next()!
+                guard let result = try await group.next() else {
+                    throw NetworkError.customError(
+                        "No task result available from task group",
+                        details: "Both timeout and upload tasks failed to produce a result")
+                }
                 group.cancelAll()
                 return result
             }

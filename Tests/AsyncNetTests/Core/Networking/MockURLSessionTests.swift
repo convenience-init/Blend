@@ -6,7 +6,12 @@ import Testing
 /// Unit tests for MockURLSession functionality
 @Suite("Mock URL Session Tests")
 public struct MockURLSessionTests {
-    private let testURL = URL(string: "https://mock.api/test")!
+    private var testURL: URL {
+        guard let url = URL(string: "https://mock.api/test") else {
+            fatalError("Invalid test URL: https://mock.api/test")
+        }
+        return url
+    }
 
     @Test public func testBasicFunctionality() async {
         // Basic test to ensure MockURLSession works

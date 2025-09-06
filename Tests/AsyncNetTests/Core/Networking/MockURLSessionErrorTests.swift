@@ -6,7 +6,12 @@ import Testing
 /// Unit tests for MockURLSession error handling
 @Suite("Mock URL Session Error Tests")
 public struct MockURLSessionErrorTests {
-    private let testURL = URL(string: "https://mock.api/test")!
+    private var testURL: URL {
+        guard let url = URL(string: "https://mock.api/test") else {
+            fatalError("Invalid test URL: https://mock.api/test")
+        }
+        return url
+    }
 
     @Test public func testErrorPrecedenceOverData() async {
         // Test that scripted errors take precedence over scripted data/responses

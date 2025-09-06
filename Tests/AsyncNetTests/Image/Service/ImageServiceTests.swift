@@ -181,7 +181,10 @@ import Testing
         let recordedRequests = await mockSession.recordedRequests
         let request = recordedRequests[0]
         let contentType = request.value(forHTTPHeaderField: "Content-Type")!
-        let body = request.httpBody!
+        guard let body = request.httpBody else {
+            #expect(Bool(false), "Request should have httpBody for multipart upload")
+            return
+        }
 
         // Parse boundary from Content-Type header
         guard let boundaryRange = contentType.range(of: "boundary=") else {
@@ -240,7 +243,10 @@ import Testing
 
         let recordedRequests = await mockSession.recordedRequests
         let request = recordedRequests[0]
-        let body = request.httpBody!
+        guard let body = request.httpBody else {
+            #expect(Bool(false), "Request should have httpBody for multipart structure validation")
+            return
+        }
 
         // Look for Content-Disposition header
         let dispositionMarker = Data("Content-Disposition: form-data".utf8)
