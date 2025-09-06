@@ -19,7 +19,10 @@ extension ImageService {
     /// - Parameter rawSize: The size of the raw data in bytes
     /// - Returns: The size of the data after base64 encoding
     private func calculateBase64EncodedSize(_ rawSize: Int) -> Int {
-        ((rawSize + 2) / 3) * 4
+        // Prevent integer overflow for very large input sizes
+        // Base64 encoding converts 3 bytes to 4 bytes, so max safe input is Int.max / 4 * 3
+        guard rawSize <= Int.max / 4 * 3 else { return Int.max }
+        return ((rawSize + 2) / 3) * 4
     }
 
     /// Uploads image data as a JSON payload with a base64-encoded image field
