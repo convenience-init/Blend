@@ -63,12 +63,21 @@ extension ImageService {
     private func validateImageSize(_ imageSize: Int, _ maxSafeRawSize: Int) throws {
         if imageSize > maxSafeRawSize {
             #if canImport(OSLog)
+                #if DEBUG
                 asyncNetLogger.warning(
                     """
                     Upload rejected: Image size \(imageSize, privacy: .public) bytes \
                     exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes
                     """
                 )
+                #else
+                asyncNetLogger.warning(
+                    """
+                    Upload rejected: Image size \(imageSize, privacy: .private) bytes \
+                    exceeds raw size limit of \(maxSafeRawSize, privacy: .private) bytes
+                    """
+                )
+                #endif
             #else
                 print(
                     "Upload rejected: Image size \(imageSize) bytes "
@@ -83,9 +92,15 @@ extension ImageService {
     private func validateEncodedSize(_ encodedSize: Int, _ maxUploadSize: Int, _ rawSize: Int) throws {
         if encodedSize > maxUploadSize {
             #if canImport(OSLog)
+                #if DEBUG
                 let message = "Upload rejected: Base64-encoded image size \(encodedSize) bytes " +
                     "exceeds limit of \(maxUploadSize) bytes " + "(raw size: \(rawSize) bytes)"
                 asyncNetLogger.warning("\(message, privacy: .public)")
+                #else
+                let message = "Upload rejected: Base64-encoded image size \(encodedSize) bytes " +
+                    "exceeds limit of \(maxUploadSize) bytes " + "(raw size: \(rawSize) bytes)"
+                asyncNetLogger.warning("\(message, privacy: .private)")
+                #endif
             #else
                 print(
                     "Upload rejected: Base64-encoded image size \(encodedSize) bytes " +
@@ -155,6 +170,7 @@ extension ImageService {
         }
 
         if payloadSize > effectiveMaxUploadSize {
+            #if DEBUG
             let message =
                 "Upload rejected: JSON payload size \(payloadSize) bytes "
                 + "exceeds limit of \(effectiveMaxUploadSize) bytes "
@@ -162,17 +178,34 @@ extension ImageService {
                 "(base64 image: \(imageSize) bytes, "
                 + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
             asyncNetLogger.warning("\(message, privacy: .public)")
+            #else
+            let message =
+                "Upload rejected: JSON payload size \(payloadSize) bytes "
+                + "exceeds limit of \(effectiveMaxUploadSize) bytes "
+                +
+                "(base64 image: \(imageSize) bytes, "
+                + "encoded: \(((imageSize + 2) / 3) * 4) bytes)"
+            asyncNetLogger.warning("\(message, privacy: .private)")
+            #endif
             throw NetworkError.payloadTooLarge(size: payloadSize, limit: effectiveMaxUploadSize)
         }
 
         // Warn if payload is large
         let maxRecommendedSize = (effectiveMaxUploadSize * 3) / 4
         if payloadSize > maxRecommendedSize {
+            #if DEBUG
             let message =
                 "Warning: Large JSON payload (\(payloadSize) bytes, "
                 + "base64 image: \(imageSize) bytes) approaches upload limit. "
                 + "Consider using multipart upload."
             asyncNetLogger.info("\(message, privacy: .public)")
+            #else
+            let message =
+                "Warning: Large JSON payload (\(payloadSize) bytes, "
+                + "base64 image: \(imageSize) bytes) approaches upload limit. "
+                + "Consider using multipart upload."
+            asyncNetLogger.info("\(message, privacy: .private)")
+            #endif
         }
     }
 
@@ -227,6 +260,7 @@ extension ImageService {
         // Log that we're using streaming upload for large images
         let encodedSize = ((imageData.count + 2) / 3) * 4
         #if canImport(OSLog)
+            #if DEBUG
             asyncNetLogger.info(
                 """
                 Using streaming multipart upload for large image \
@@ -234,6 +268,15 @@ extension ImageService {
                 \(imageData.count, privacy: .public) bytes raw) to prevent memory spikes
                 """
             )
+            #else
+            asyncNetLogger.info(
+                """
+                Using streaming multipart upload for large image \
+                (\(encodedSize, privacy: .private) bytes encoded, \
+                \(imageData.count, privacy: .private) bytes raw) to prevent memory spikes
+                """
+            )
+            #endif
         #else
             print(
                 "Using streaming multipart upload for large image "
@@ -313,19 +356,32 @@ extension ImageService {
         }
 
         if imageSize > effectiveMaxUploadSize {
+            #if DEBUG
             let message =
                 "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
             asyncNetLogger.warning("\(message, privacy: .public)")
+            #else
+            let message =
+                "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
+            asyncNetLogger.warning("\(message, privacy: .private)")
+            #endif
             throw NetworkError.payloadTooLarge(size: imageSize, limit: effectiveMaxUploadSize)
         }
 
         // Warn if image is large
         let maxRecommendedSize = effectiveMaxUploadSize / 4 * 3
         if imageSize > maxRecommendedSize {
+            #if DEBUG
             let message =
                 "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
                 + "Base64 encoding will increase size by ~33%."
             asyncNetLogger.info("\(message, privacy: .public)")
+            #else
+            let message =
+                "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
+                + "Base64 encoding will increase size by ~33%."
+            asyncNetLogger.info("\(message, privacy: .private)")
+            #endif
         }
     }
 }
