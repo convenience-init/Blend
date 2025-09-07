@@ -12,3 +12,11 @@ DerivedData/
 !/.vscode/extensions.json
 /blend-output.*
 /DevDocs/
+
+# Example build folders
+Examples/AdvancedNetworking/.build/
+Examples/BasicNetworking/.build/
+Examples/ErrorHandling/.build/
+Examples/ImageOperations/.build/
+Examples/Shared/.build/
+Examples/SwiftUIIntegration/.build/
