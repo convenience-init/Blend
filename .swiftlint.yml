@@ -1,0 +1,12 @@
+included:
+  - Sources
+  - Tests
+
+opt_in_rules:
+
+excluded:
+  - .build/
+  - .swiftpm/
+
+disabled_rules:
+  - explicit_top_level_acl

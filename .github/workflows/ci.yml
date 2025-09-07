@@ -1,0 +1,456 @@
+# AsyncNet CI/CD Pipeline
+
+name: AsyncNet CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Minimal permissions following principle of least privilege
+# 
+# actions: write is REQUIRED because:
+# - actions/cache needs write permission to save new cache entries
+# - actions/upload-artifact needs write permission to upload artifacts
+# - cancel-in-progress: true may benefit from write permissions for workflow management
+#
+# contents: read is sufficient because:
+# - This workflow only reads repository contents via checkout
+# - No repository modifications are performed
+permissions:
+  contents: read
+  actions: write
+
+# Prevent duplicate workflow runs and cancel in-progress jobs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ${{ matrix.runner }}
+    # Increased timeout to 45 minutes to accommodate large matrix runs with multiple
+    # runners, targets, Xcode versions, and Swift versions. This reduces CI failures
+    # when runners queue or tests run slowly due to system load or network conditions.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15]
+        target: [macos, ios, tvos]
+        xcode: [16]
+        swift: [6.0.3]  # Matches Xcode 16's bundled Swift toolchain to prevent version mismatches
+        build: [spm, xcode]
+        # Exclude incompatible combinations
+        exclude:
+          - target: ios
+            build: spm
+          - target: tvos
+            build: spm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+
+      - name: Cache SPM
+        if: matrix.target == 'macos' && matrix.build == 'spm'
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ matrix.swift }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-spm-${{ matrix.swift }}-
+
+      - name: Cache Xcode DerivedData
+        if: matrix.build == 'xcode'
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-xcode${{ matrix.xcode }}-swift-${{ matrix.swift }}-deriveddata-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-xcode${{ matrix.xcode }}-swift-${{ matrix.swift }}-deriveddata-
+
+      - name: Set up Swift (macOS SPM)
+        if: runner.os == 'macOS' && matrix.target == 'macos' && matrix.build == 'spm'
+        uses: swift-actions/setup-swift@682457186b71c25a884c45c06f859febbe259240 # v2.3.0
+        with:
+          swift-version: ${{ matrix.swift }}
+
+      - name: Set up Xcode (macOS/iOS/tvOS)
+        if: runner.os == 'macOS' && matrix.build == 'xcode'
+        uses: maxim-lobanov/setup-xcode@60606e260d2fc5762a71e64e74b2174e8ea3c8bd # v1
+        with:
+          xcode-version: ${{ matrix.xcode }}
+
+      - name: Validate Xcode availability
+        if: runner.os == 'macOS' && matrix.build == 'xcode'
+        run: |
+          #!/bin/bash
+          # Validate selected Xcode is available on the runner
+          if ! xcodebuild -version; then
+            echo "ERROR: xcodebuild -version failed. The selected Xcode version may not be available on this runner."
+            exit 1
+          fi
+
+      - name: Build (macOS SPM)
+        if: matrix.target == 'macos' && matrix.build == 'spm'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "=== Building Universal macOS Binaries ==="
+          
+          # Clean any previous builds
+          swift package clean
+          
+          # Build for ARM64 (Apple Silicon)
+          echo "Building for ARM64..."
+          swift build --configuration debug \
+            --arch arm64 \
+            -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
+          
+          # Move ARM64 build to temporary location
+          mkdir -p .build/arm64
+          cp -r .build/debug .build/arm64/
+          
+          # Clean and build for x86_64 (Intel)
+          echo "Building for x86_64..."
+          swift package clean
+          swift build --configuration debug \
+            --arch x86_64 \
+            -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types
+          
+          # Move x86_64 build to temporary location
+          mkdir -p .build/x86_64
+          cp -r .build/debug .build/x86_64/
+          
+          # Create universal binaries using lipo
+          echo "Creating universal binaries..."
+          mkdir -p .build/universal
+          
+          # Find all executable binaries and libraries
+          find .build/x86_64/debug -type f \( -name "*.o" -o -name "*.a" -o -perm +111 \) | while read -r file; do
+            # Get relative path from build directory
+            rel_path="${file#.build/x86_64/debug/}"
+            arm64_file=".build/arm64/debug/$rel_path"
+            universal_file=".build/universal/$rel_path"
+            
+            # Create directory structure
+            mkdir -p "$(dirname "$universal_file")"
+            
+            # Check if corresponding ARM64 file exists
+            if [ -f "$arm64_file" ]; then
+              echo "Creating universal binary: $rel_path"
+              lipo -create "$file" "$arm64_file" -output "$universal_file"
+            else
+              echo "ARM64 version missing for $rel_path, copying x86_64 version"
+              cp "$file" "$universal_file"
+            fi
+          done
+          
+          # Replace the debug build with universal binaries
+          rm -rf .build/debug
+          cp -r .build/universal .build/debug
+          
+          echo "Universal binary creation completed"
+
+      - name: Build (macOS Xcode)
+        if: matrix.target == 'macos' && matrix.build == 'xcode'
+        run: xcodebuild -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Find iOS Simulator
+        if: matrix.target == 'ios'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "=== iOS Simulator Discovery ==="
+          
+          # List all available devices for debugging
+          echo "Available devices:"
+          xcrun simctl list devices available
+          
+          # Try to find an existing iOS simulator
+          SIMULATOR=$(xcrun simctl list devices available | grep 'iPhone' | grep -v unavailable | head -n 1 || true)
+          
+          if [ -z "$SIMULATOR" ]; then
+            echo "No existing iOS simulators found. Creating one..."
+            
+            # Create a new iOS simulator
+            SIM_NAME="iPhone 15"
+            SIM_RUNTIME=$(xcrun simctl list runtimes | grep 'iOS' | tail -n 1 | awk -F' - ' '{print $2}' | awk '{print $1}' || echo "com.apple.CoreSimulator.SimRuntime.iOS-18-6")
+            echo "Available runtimes:"
+            xcrun simctl list runtimes
+            echo "Selected iOS runtime: $SIM_RUNTIME"
+            
+            echo "Creating simulator: $SIM_NAME with runtime: $SIM_RUNTIME"
+            SIM_UDID=$(xcrun simctl create "$SIM_NAME" "com.apple.CoreSimulator.SimDeviceType.iPhone-15" "$SIM_RUNTIME")
+            
+            echo "Created simulator with UDID: $SIM_UDID"
+          else
+            echo "Found existing simulator: $SIMULATOR"
+            
+            # Parse the existing simulator info more reliably
+            SIM_NAME=$(echo "$SIMULATOR" | sed 's/ (.*//')
+            # Extract the UDID using a more robust method
+            SIM_UDID=$(echo "$SIMULATOR" | awk -F'[()]' '{print $(NF-3)}')
+          fi
+          
+          # Boot the simulator if it's not already booted
+          if xcrun simctl list devices | grep "$SIM_UDID" | grep -q "Shutdown"; then
+            echo "Booting simulator..."
+            xcrun simctl boot "$SIM_UDID"
+          fi
+          
+          echo "Using iOS simulator: $SIM_NAME ($SIM_UDID)"
+          echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
+          echo "SIM_UDID=$SIM_UDID" >> $GITHUB_ENV
+
+      - name: Build (iOS)
+        if: matrix.target == 'ios'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          SIM_UDID="${{ env.SIM_UDID }}"
+          SIM_NAME="${{ env.SIM_NAME }}"
+          
+          # Validate that at least one simulator output is available
+          if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
+            echo "ERROR: Both iOS simulator UDID and name outputs are empty or missing" >&2
+            echo "" >&2
+            echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
+            echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "" >&2
+            echo "Cannot proceed with iOS build without valid simulator information." >&2
+            exit 1
+          fi
+          
+          # Set destination based on available outputs
+          if [ -n "$SIM_UDID" ]; then
+            DEST="id=$SIM_UDID"
+          else
+            DEST="platform=iOS Simulator,name=$SIM_NAME"
+          fi
+          
+          echo "Building for iOS simulator: $DEST"
+          xcodebuild -scheme AsyncNet -destination "$DEST" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Install tvOS Runtime
+        if: matrix.target == 'tvos'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "=== tvOS Runtime Installation ==="
+          
+          # Check if xcodes is available
+          if ! command -v xcodes &> /dev/null; then
+            echo "Installing xcodes..."
+            brew install xcodesorg/made/xcodes
+          fi
+          
+          # List available runtimes first
+          echo "Available runtimes before installation:"
+          xcrun simctl list runtimes
+          
+          # Try to install tvOS runtime
+          echo "Installing tvOS simulator runtime..."
+          if xcodes runtimes install tvOS --latest; then
+            echo "tvOS runtime installation completed successfully"
+          else
+            echo "tvOS runtime installation failed, but continuing..."
+          fi
+          
+          # Verify installation
+          echo "Available runtimes after installation:"
+          xcrun simctl list runtimes
+          
+          # Check if tvOS runtime is available
+          if xcrun simctl list runtimes | grep -q tvOS; then
+            echo "tvOS runtime is available"
+          else
+            echo "WARNING: tvOS runtime not found, but continuing with available runtimes"
+          fi
+
+      - name: Find tvOS Simulator
+        if: matrix.target == 'tvos'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "=== tvOS Simulator Discovery ==="
+          
+          # List all available devices for debugging
+          echo "Available devices:"
+          xcrun simctl list devices available
+          
+          # List available runtimes
+          echo "Available runtimes:"
+          xcrun simctl list runtimes
+          
+          # Try to find an existing tvOS simulator
+          SIMULATOR=$(xcrun simctl list devices available | grep 'Apple TV' | grep -v unavailable | head -n 1 || true)
+          
+          if [ -z "$SIMULATOR" ]; then
+            echo "No existing tvOS simulators found. Creating one..."
+            
+            # Get the latest available tvOS runtime
+            TVOS_RUNTIME=$(xcrun simctl list runtimes | grep 'tvOS' | grep -v unavailable | tail -n 1 | awk '{print $1}' || true)
+            
+            if [ -z "$TVOS_RUNTIME" ]; then
+              echo "No tvOS runtime found. Trying to use iOS runtime as fallback..."
+              # Fallback to iOS runtime if tvOS is not available
+              TVOS_RUNTIME=$(xcrun simctl list runtimes | grep 'iOS' | tail -n 1 | awk -F' - ' '{print $2}' | awk '{print $1}' || echo "com.apple.CoreSimulator.SimRuntime.iOS-18-6")
+              SIM_DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-15"
+              SIM_NAME="iPhone 15 (tvOS Fallback)"
+            else
+              SIM_DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.Apple-TV-4K"
+              SIM_NAME="Apple TV"
+            fi
+            
+            echo "Creating simulator: $SIM_NAME with runtime: $TVOS_RUNTIME"
+            SIM_UDID=$(xcrun simctl create "$SIM_NAME" "$SIM_DEVICE_TYPE" "$TVOS_RUNTIME")
+            
+            echo "Created simulator with UDID: $SIM_UDID"
+          else
+            echo "Found existing simulator: $SIMULATOR"
+            
+            # Parse the existing simulator info more reliably
+            SIM_NAME=$(echo "$SIMULATOR" | sed 's/ (.*//')
+            # Extract the UDID using a more robust method
+            SIM_UDID=$(echo "$SIMULATOR" | awk -F'[()]' '{print $(NF-3)}')
+          fi
+          
+          # Boot the simulator if it's not already booted
+          if xcrun simctl list devices | grep "$SIM_UDID" | grep -q "Shutdown"; then
+            echo "Booting simulator..."
+            xcrun simctl boot "$SIM_UDID"
+          fi
+          
+          echo "Using tvOS simulator: $SIM_NAME ($SIM_UDID)"
+          echo "SIM_NAME=$SIM_NAME" >> $GITHUB_ENV
+          echo "SIM_UDID=$SIM_UDID" >> $GITHUB_ENV
+
+      - name: Verify iOS Simulators
+        if: matrix.target == 'ios'
+        run: |
+          echo "Available iOS Simulators:"
+          xcrun simctl list devices available | grep -A 5 -B 5 "iOS" || true
+          echo "Using simulator: ${{ env.SIM_NAME }}"
+
+      - name: Verify tvOS Simulators
+        if: matrix.target == 'tvos'
+        run: |
+          echo "Available tvOS Simulators:"
+          xcrun simctl list devices available | grep -A 5 -B 5 "tvOS" || true
+          echo "Using simulator: ${{ env.SIM_NAME }}"
+
+      - name: Test macOS SPM
+        if: matrix.target == 'macos' && matrix.build == 'spm'
+        run: |
+          # Test with universal binaries
+          swift test --configuration debug \
+            -Xswiftc -Xfrontend -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -Xfrontend -Xswiftc -warn-concurrency \
+            -Xswiftc -Xfrontend -Xswiftc -disable-round-trip-debug-types \
+            --enable-code-coverage
+
+      - name: Test macOS Xcode
+        if: matrix.target == 'macos' && matrix.build == 'xcode'
+        run: xcodebuild test -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Test iOS
+        if: matrix.target == 'ios'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          SIM_UDID="${{ env.SIM_UDID }}"
+          SIM_NAME="${{ env.SIM_NAME }}"
+          
+          # Validate that at least one simulator output is available
+          if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
+            echo "ERROR: Both iOS simulator UDID and name outputs are empty or missing" >&2
+            echo "" >&2
+            echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
+            echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "" >&2
+            echo "Cannot proceed with iOS tests without valid simulator information." >&2
+            exit 1
+          fi
+          
+          # Set destination based on available outputs
+          if [ -n "$SIM_UDID" ]; then
+            DEST="id=$SIM_UDID"
+          else
+            DEST="platform=iOS Simulator,name=$SIM_NAME"
+          fi
+          
+          echo "Testing on iOS simulator: $DEST"
+          xcodebuild test -scheme AsyncNet -destination "$DEST" -destination-timeout 180 -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Test tvOS
+        if: matrix.target == 'tvos'
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          SIM_UDID="${{ env.SIM_UDID }}"
+          SIM_NAME="${{ env.SIM_NAME }}"
+          
+          # Validate that at least one simulator output is available
+          if [ -z "$SIM_UDID" ] && [ -z "$SIM_NAME" ]; then
+            echo "ERROR: Both tvOS simulator UDID and name outputs are empty or missing" >&2
+            echo "" >&2
+            echo "  - UDID: '${SIM_UDID:-<empty>}'" >&2
+            echo "  - Name: '${SIM_NAME:-<empty>}'" >&2
+            echo "" >&2
+            echo "Cannot proceed with tvOS tests without valid simulator information." >&2
+            exit 1
+          fi
+          
+          # Set destination based on available outputs
+          if [ -n "$SIM_UDID" ]; then
+            DEST="id=$SIM_UDID"
+          else
+            DEST="platform=tvOS Simulator,name=$SIM_NAME"
+          fi
+          
+          echo "Testing on tvOS simulator: $DEST"
+          xcodebuild test -scheme AsyncNet -destination "$DEST" -destination-timeout 180 -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Check coverage profdata
+        if: matrix.target == 'macos' && matrix.build == 'spm'
+        id: coverage_profdata_check
+        run: |
+          # Find the first .profdata file in the workspace
+          PROFDATA_PATH=$(find . -name "*.profdata" -type f | head -1)
+          
+          if [ -n "$PROFDATA_PATH" ] && [ -f "$PROFDATA_PATH" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "profdata_path=$PROFDATA_PATH" >> "$GITHUB_OUTPUT"
+            echo "Found profdata at: $PROFDATA_PATH"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No profdata files found"
+          fi
+
+      - name: Upload coverage profdata
+        if: matrix.target == 'macos' && matrix.build == 'spm' && steps.coverage_profdata_check.outputs.exists == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-profdata-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.build }}-xcode${{ matrix.xcode }}-swift${{ matrix.swift }}
+          path: ${{ steps.coverage_profdata_check.outputs.profdata_path }}
+
+# Note: iPadOS builds are not included because iPadOS and iOS have been unified
+# Starting with iOS 18/iPadOS 18 (September 2024), Apple merged the platforms:
+# - iPadOS SDK was discontinued
+# - iPads now run iOS natively
+# - Single iOS build covers both iPhone and iPad devices
+# - No separate iPadOS target is needed in the matrix
