@@ -204,7 +204,7 @@ public enum RequestUtilities {
             // Default behavior: always retry (maxAttempts controls total attempts)
             let wrappedError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
             #if canImport(OSLog)
-                asyncNetLogger.debug(
+                blendLogger.debug(
                     """
                     Default retry behavior triggered for wrapped error: \
                     \(wrappedError.localizedDescription, privacy: .public)
@@ -230,7 +230,7 @@ public enum RequestUtilities {
         // Only sleep if this is not the final attempt
         if attempt + 1 < retryPolicy.maxAttempts && cappedDelay > 0 {
             #if canImport(OSLog)
-                asyncNetLogger.debug(
+                blendLogger.debug(
                     """
                     Retrying request for key: \(key, privacy: .private) after \
                     \(cappedDelay, privacy: .public) seconds

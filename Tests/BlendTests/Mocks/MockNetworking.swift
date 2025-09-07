@@ -154,7 +154,7 @@ public actor MockURLSession: URLSessionProtocol {
                 + "\(missingData && missingResponse ? " and " : "")"
                 + "\(missingResponse ? "response" : "")"
             #if canImport(OSLog)
-                asyncNetLogger.warning("\(message, privacy: .public)")
+                blendLogger.warning("\(message, privacy: .public)")
             #else
                 print(message)
             #endif

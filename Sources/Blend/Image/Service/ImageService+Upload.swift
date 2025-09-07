@@ -90,14 +90,14 @@ extension ImageService {
         if imageSize > maxSafeRawSize {
             #if canImport(OSLog)
                 #if DEBUG
-                    asyncNetLogger.warning(
+                    blendLogger.warning(
                         """
                         Upload rejected: Image size \(imageSize, privacy: .public) bytes \
                         exceeds raw size limit of \(maxSafeRawSize, privacy: .public) bytes
                         """
                     )
                 #else
-                    asyncNetLogger.warning(
+                    blendLogger.warning(
                         """
                         Upload rejected: Image size \(imageSize, privacy: .private) bytes \
                         exceeds raw size limit of \(maxSafeRawSize, privacy: .private) bytes
@@ -125,13 +125,13 @@ extension ImageService {
                         "Upload rejected: Base64-encoded image size \(encodedSize) bytes "
                         + "exceeds limit of \(maxUploadSize) bytes "
                         + "(raw size: \(rawSize) bytes)"
-                    asyncNetLogger.warning("\(message, privacy: .public)")
+                    blendLogger.warning("\(message, privacy: .public)")
                 #else
                     let message =
                         "Upload rejected: Base64-encoded image size \(encodedSize) bytes "
                         + "exceeds limit of \(maxUploadSize) bytes "
                         + "(raw size: \(rawSize) bytes)"
-                    asyncNetLogger.warning("\(message, privacy: .private)")
+                    blendLogger.warning("\(message, privacy: .private)")
                 #endif
             #else
                 print(
@@ -209,14 +209,14 @@ extension ImageService {
                     + "exceeds limit of \(effectiveMaxUploadSize) bytes "
                     + "(base64 image: \(imageSize) bytes, "
                     + "encoded: \(calculateBase64EncodedSize(imageSize)) bytes)"
-                asyncNetLogger.warning("\(message, privacy: .public)")
+                blendLogger.warning("\(message, privacy: .public)")
             #else
                 let message =
                     "Upload rejected: JSON payload size \(payloadSize) bytes "
                     + "exceeds limit of \(effectiveMaxUploadSize) bytes "
                     + "(base64 image: \(imageSize) bytes, "
                     + "encoded: \(calculateBase64EncodedSize(imageSize)) bytes)"
-                asyncNetLogger.warning("\(message, privacy: .private)")
+                blendLogger.warning("\(message, privacy: .private)")
             #endif
             throw NetworkError.payloadTooLarge(size: payloadSize, limit: effectiveMaxUploadSize)
         }
@@ -229,13 +229,13 @@ extension ImageService {
                     "Warning: Large JSON payload (\(payloadSize) bytes, "
                     + "base64 image: \(imageSize) bytes) approaches upload limit. "
                     + "Consider using multipart upload."
-                asyncNetLogger.info("\(message, privacy: .public)")
+                blendLogger.info("\(message, privacy: .public)")
             #else
                 let message =
                     "Warning: Large JSON payload (\(payloadSize) bytes, "
                     + "base64 image: \(imageSize) bytes) approaches upload limit. "
                     + "Consider using multipart upload."
-                asyncNetLogger.info("\(message, privacy: .private)")
+                blendLogger.info("\(message, privacy: .private)")
             #endif
         }
     }
@@ -294,7 +294,7 @@ extension ImageService {
         let encodedSize = calculateBase64EncodedSize(imageData.count)
         #if canImport(OSLog)
             #if DEBUG
-                asyncNetLogger.info(
+                blendLogger.info(
                     """
                     Using streaming multipart upload for large image \
                     (\(encodedSize, privacy: .public) bytes encoded, \
@@ -302,7 +302,7 @@ extension ImageService {
                     """
                 )
             #else
-                asyncNetLogger.info(
+                blendLogger.info(
                     """
                     Using streaming multipart upload for large image \
                     (\(encodedSize, privacy: .private) bytes encoded, \
@@ -392,11 +392,11 @@ extension ImageService {
             #if DEBUG
                 let message =
                     "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
-                asyncNetLogger.warning("\(message, privacy: .public)")
+                blendLogger.warning("\(message, privacy: .public)")
             #else
                 let message =
                     "Upload rejected: Image size \(imageSize) bytes exceeds limit of \(effectiveMaxUploadSize) bytes"
-                asyncNetLogger.warning("\(message, privacy: .private)")
+                blendLogger.warning("\(message, privacy: .private)")
             #endif
             throw NetworkError.payloadTooLarge(size: imageSize, limit: effectiveMaxUploadSize)
         }
@@ -408,12 +408,12 @@ extension ImageService {
                 let message =
                     "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
                     + "Base64 encoding will increase size by ~33%."
-                asyncNetLogger.info("\(message, privacy: .public)")
+                blendLogger.info("\(message, privacy: .public)")
             #else
                 let message =
                     "Warning: Large image (\(imageSize) bytes) approaches upload limit. "
                     + "Base64 encoding will increase size by ~33%."
-                asyncNetLogger.info("\(message, privacy: .private)")
+                blendLogger.info("\(message, privacy: .private)")
             #endif
         }
     }

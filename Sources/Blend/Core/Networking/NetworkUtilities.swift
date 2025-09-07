@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(OSLog)
 import OSLog
-#endif
 
 /// Public logger for Blend library consumers to access internal logging.
 ///
@@ -13,12 +11,10 @@ import OSLog
 /// Example usage:
 /// ```swift
 /// // Attach a custom log handler
-/// asyncNetLogger.log(level: .debug, "Custom debug message")
+/// blendLogger.log(level: .debug, "Custom debug message")
 ///
 /// // Or use OSLog's built-in methods
-/// asyncNetLogger.info("Network request started")
-/// asyncNetLogger.error("Network request failed: \(error)")
+/// blendLogger.info("Network request started")
+/// blendLogger.error("Network request failed: \(error)")
 /// ```
-#if canImport(OSLog)
-public let asyncNetLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
-#endif
+public let blendLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")

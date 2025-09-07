@@ -55,7 +55,7 @@ public actor AdvancedNetworkManager {
         // Check cache first
         if let cached = await cache.get(forKey: key) {
             #if canImport(OSLog)
-                asyncNetLogger.debug("Cache hit for key: \(key, privacy: .private)")
+                blendLogger.debug("Cache hit for key: \(key, privacy: .private)")
             #endif
             return cached
         }
@@ -63,7 +63,7 @@ public actor AdvancedNetworkManager {
         // Check for in-flight request deduplication
         if let task = inFlightTasks[key] {
             #if canImport(OSLog)
-                asyncNetLogger.debug("Request deduplication for key: \(key, privacy: .private)")
+                blendLogger.debug("Request deduplication for key: \(key, privacy: .private)")
             #endif
             return try await task.value
         }
@@ -107,7 +107,7 @@ public actor AdvancedNetworkManager {
                         let attemptNum = attempt + 1
                         let prefix = "Request attempt \(attemptNum) failed for key: \(key)"
                         let suffix = "error: \(error.localizedDescription)"
-                        asyncNetLogger.warning("\(prefix), \(suffix, privacy: .public)")
+                        blendLogger.warning("\(prefix), \(suffix, privacy: .public)")
                     #endif
 
                     let shouldContinue = try await RequestUtilities.handleRetryAttempt(
@@ -192,11 +192,11 @@ public actor AdvancedNetworkManager {
     private func logRequestSuccess(attempt: Int, key: String) {
         #if canImport(OSLog)
             if attempt > 0 {
-                asyncNetLogger.info(
+                blendLogger.info(
                     "Request succeeded after \(attempt, privacy: .public) retries for key: \(key, privacy: .private)"
                 )
             } else {
-                asyncNetLogger.debug(
+                blendLogger.debug(
                     "Request succeeded on first attempt for key: \(key, privacy: .private)"
                 )
             }
@@ -209,7 +209,7 @@ public actor AdvancedNetworkManager {
         }
 
         #if canImport(OSLog)
-            asyncNetLogger.error("All retry attempts exhausted for key: \(key, privacy: .private)")
+            blendLogger.error("All retry attempts exhausted for key: \(key, privacy: .private)")
         #endif
 
         if let lastError = lastError {
