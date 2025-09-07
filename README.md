@@ -1,4 +1,4 @@
-# AsyncNet
+# Blend
 
 A powerful Swift networking library with comprehensive image handling capabilities, built for iOS, iPadOS, and macOS with full SwiftUI support.
 
@@ -15,7 +15,7 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 
 > **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 >
-> **Support Note**: AsyncNet requires iOS 18+/macOS 15+ for full functionality.
+> **Support Note**: Blend requires iOS 18+/macOS 15+ for full functionality.
 > **Platform Feature Matrix**:
 
 | Feature | iOS 18+ | macOS 15+ |
@@ -35,17 +35,17 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 
 ### Swift Package Manager
 
-Add AsyncNet to your project through Xcode:
+Add Blend to your project through Xcode:
 
 1. File → Add Package Dependency…
-2. Enter the repository URL: `https://github.com/convenience-init/async-net`
+2. Enter the repository URL: `https://github.com/convenience-init/Blend`
 3. Select your version requirements
 
 Or add it to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
+    .package(url: "https://github.com/convenience-init/Blend", from: "1.0.0")
 ]
 ```
 
@@ -62,20 +62,20 @@ let package = Package(
         .macOS(.v15)
     ],
     dependencies: [
-        .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
+        .package(url: "https://github.com/convenience-init/Blend", from: "1.0.0")
     ],
     targets: [
         .target(
             name: "MyApp",
             dependencies: [
-                .product(name: "AsyncNet", package: "async-net")
+                .product(name: "Blend", package: "Blend")
             ]
         ),
         .testTarget(
             name: "MyAppTests",
             dependencies: [
                 "MyApp",
-                .product(name: "AsyncNet", package: "async-net")
+                .product(name: "Blend", package: "Blend")
             ]
         )
     ]
@@ -89,14 +89,14 @@ let package = Package(
 - **iOS**: 18.0+ (includes iPadOS 18.0+)
 - **macOS**: 15.0+
 
-These platforms are both the minimum supported versions and the recommended/tested versions. AsyncNet requires these minimum versions for full Swift 6 concurrency support and modern SwiftUI integration.
+These platforms are both the minimum supported versions and the recommended/tested versions. Blend requires these minimum versions for full Swift 6 concurrency support and modern SwiftUI integration.
 
 ## Quick Start
 
 ### Basic Network Request
 
 ```swift
-import AsyncNet
+import Blend
 
 // Define your endpoint
 struct UsersEndpoint: Endpoint {
@@ -127,7 +127,7 @@ For services requiring master-detail patterns, CRUD operations, or complex type 
 #### Master-Detail Pattern Example
 
 ```swift
-import AsyncNet
+import Blend
 
 // Define endpoints for list and detail views
 struct UsersEndpoint: Endpoint {
@@ -170,7 +170,7 @@ class UserService: AdvancedAsyncRequestable {
 #### CRUD Operations with Different Response Types
 
 ```swift
-import AsyncNet
+import Blend
 
 class ProductService: AdvancedAsyncRequestable {
     typealias ResponseModel = [ProductSummary]     // List operations
@@ -206,7 +206,7 @@ class ProductService: AdvancedAsyncRequestable {
 #### Generic Service Composition
 
 ```swift
-import AsyncNet
+import Blend
 
 // Generic CRUD service that works with any AdvancedAsyncRequestable
 class GenericCrudService<T: AdvancedAsyncRequestable> {
@@ -240,7 +240,7 @@ let productCrudService = GenericCrudService(service: ProductService())
 #### Type-Safe Service Hierarchies
 
 ```swift
-import AsyncNet
+import Blend
 
 // Base protocol for all API services
 protocol ApiService: AdvancedAsyncRequestable {
@@ -287,7 +287,7 @@ class ConcreteProductService: ProductManagementService {
 #### Download Images
 
 ```swift
-import AsyncNet
+import Blend
 import SwiftUI
 // Platform-conditional imports at the top level
 #if canImport(UIKit)
@@ -313,7 +313,7 @@ do {
     }
     #endif
 
-    // AsyncNet convenience helper (requires: import AsyncNet)
+    // Blend convenience helper (requires: import Blend)
     // let swiftUIImage = ImageService.swiftUIImage(from: imageData)
 
     // Use swiftUIImage in your SwiftUI view
@@ -324,7 +324,7 @@ do {
 
 // Check cache first (returns PlatformImage/UIImage/NSImage)
 if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image.jpg") {
-    // Safe conversion using AsyncNet helper (recommended approach)
+    // Safe conversion using Blend helper (recommended approach)
     if let swiftUIImage = Image.from(platformImage: cachedImage) {
         // Use swiftUIImage in your SwiftUI view
         swiftUIImage.resizable().frame(width: 200, height: 200)
@@ -353,7 +353,7 @@ if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image
 #### Upload Images
 
 ```swift
-import AsyncNet
+import Blend
 
 // Dependency-injected image service
 let imageService = ImageService()
@@ -363,7 +363,7 @@ let uploadURL = URL(string: "https://api.example.com/upload")!
 let platformImage: PlatformImage = ... // Load or create your PlatformImage here
 
 // Cross-platform PlatformImage helpers
-// Note: NSImage does not natively expose jpegData/pngData - AsyncNet provides these as extensions
+// Note: NSImage does not natively expose jpegData/pngData - Blend provides these as extensions
 // for consistent cross-platform API (iOS/macOS)
 
 // jpegData(compressionQuality: CGFloat) -> Data?
@@ -407,7 +407,7 @@ let base64Response = try await imageService.uploadImageBase64(imageData, to: upl
 // - Multipart uploads are recommended as the default choice
 ```
 
-> **Note on Image Conversion Examples**: The examples above use platform-standard SwiftUI `Image` initializers (`Image(uiImage:)` for iOS and `Image(nsImage:)` for macOS) to demonstrate universal compatibility. AsyncNet provides convenience helpers `ImageService.swiftUIImage(from:)` and `Image.from(platformImage:)` in the `AsyncNet` module for cross-platform image conversion. To use these helpers, add `import AsyncNet` to your file. The AsyncNet helpers abstract platform differences and provide consistent error handling.
+> **Note on Image Conversion Examples**: The examples above use platform-standard SwiftUI `Image` initializers (`Image(uiImage:)` for iOS and `Image(nsImage:)` for macOS) to demonstrate universal compatibility. Blend provides convenience helpers `ImageService.swiftUIImage(from:)` and `Image.from(platformImage:)` in the `Blend` module for cross-platform image conversion. To use these helpers, add `import Blend` to your file. Blend helpers abstract platform differences and provide consistent error handling.
 
 ### SwiftUI Integration
 
@@ -415,7 +415,7 @@ let base64Response = try await imageService.uploadImageBase64(imageData, to: upl
 
 ```swift
 import SwiftUI
-import AsyncNet  // Required for .asyncImage modifier
+import Blend  // Required for .asyncImage modifier
 
 struct ProfileView: View {
     let imageURL: String
@@ -424,7 +424,7 @@ struct ProfileView: View {
     var body: some View {
         Rectangle()
             .frame(width: 200, height: 200)
-            .asyncImage(  // AsyncNet extension (requires: import AsyncNet)
+            .asyncImage(  // Blend extension (requires: import Blend)
                 from: imageURL,
                 imageService: imageService,
                 placeholder: ProgressView().controlSize(.large),
@@ -440,15 +440,15 @@ struct ProfileView: View {
 // - **Framework**: SwiftUI framework
 //
 // **Note on SwiftUI Compatibility**: 
-// - AsyncNet requires iOS 18.0+/macOS 15.0+ for full functionality
-// - SwiftUI itself is available on iOS 15.0+/macOS 12.0+, but AsyncNet's modern concurrency features require the newer OS versions
+// - Blend requires iOS 18.0+/macOS 15.0+ for full functionality
+// - SwiftUI itself is available on iOS 15.0+/macOS 12.0+, but Blend's modern concurrency features require the newer OS versions
 ```
 
 #### Complete Image Component with Upload
 
 ```swift
 import SwiftUI
-import AsyncNet
+import Blend
 
 struct ImageGalleryView: View {
     let imageService: ImageService // Dependency injection required
@@ -484,14 +484,14 @@ struct ImageGalleryView: View {
 // Thread Safety Guarantee:
 // - Upload callbacks are guaranteed to execute on the main thread via @MainActor isolation
 // - The AsyncImageModel class is marked @MainActor, ensuring all callback invocations run on the main thread
-// - Implementation location: Sources/AsyncNet/extensions/SwiftUIExtensions.swift - AsyncImageModel.uploadImage()
+// - Implementation location: Sources/Blend/extensions/SwiftUIExtensions.swift - AsyncImageModel.uploadImage()
 ```
 
 #### Image Upload with Progress
 
 ```swift
 import SwiftUI
-import AsyncNet
+import Blend
 
 struct PhotoUploadView: View {
     @State private var selectedImage: PlatformImage?
@@ -500,7 +500,7 @@ struct PhotoUploadView: View {
     var body: some View {
         VStack {
             if let platformImage = selectedImage {
-                // Safe conversion using AsyncNet helper (recommended approach)
+                // Safe conversion using Blend helper (recommended approach)
                 if let swiftUIImage = Image.from(platformImage: platformImage) {
                     swiftUIImage
                         .resizable()
@@ -581,6 +581,11 @@ struct PhotoUploadView: View {
 - Use `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
 
 ```swift
+import Blend
+
+let imageService = ImageService()
+
+// Fetch image data and convert to SwiftUI Image
 do {
     // Modern error handling with NetworkError
     let imageData = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
@@ -621,7 +626,7 @@ do {
 
 ### NetworkError Cases
 
-AsyncNet provides comprehensive error handling through the `NetworkError` enum:
+Blend provides comprehensive error handling through the `NetworkError` enum:
 
 - **`.httpError(statusCode: Int, data: Data?)`**: HTTP errors with status code and optional response data
 - **`.decodingError(underlyingDescription: String, data: Data?)`**: JSON decoding failures
@@ -639,7 +644,7 @@ AsyncNet provides comprehensive error handling through the `NetworkError` enum:
 ### Cache Management
 
 ```swift
-import AsyncNet
+import Blend
 
 let imageService = ImageService()
 
@@ -689,7 +694,7 @@ Implement cache clearing using SwiftUI's ScenePhase for modern, cross-platform l
 
 ```swift
 import SwiftUI
-import AsyncNet
+import Blend
 
 // Environment key for ImageService injection
 private struct ImageServiceKey: EnvironmentKey {

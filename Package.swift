@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "AsyncNet",
+    name: "Blend",
     defaultLocalization: "en",
     platforms: [
         .iOS(.v18),
@@ -12,21 +12,21 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "AsyncNet",
-            targets: ["AsyncNet"])
+            name: "Blend",
+            targets: ["Blend"])
     ],
     dependencies: [],
     targets: [
         .target(
-            name: "AsyncNet",
+            name: "Blend",
             dependencies: [],
             resources: [
                 .process("Infrastructure/Resources")
             ]
         ),
         .testTarget(
-            name: "AsyncNetTests",
-            dependencies: ["AsyncNet"]
+            name: "BlendTests",
+            dependencies: ["Blend"]
         ),
     ]
 )
