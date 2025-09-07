@@ -28,5 +28,6 @@ let package = Package(
             name: "BlendTests",
             dependencies: ["Blend"]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )

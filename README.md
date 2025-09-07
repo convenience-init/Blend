@@ -2,7 +2,11 @@
 
 A powerful Swift networking library with comprehensive image handling capabilities, built for iOS, iPadOS, and macOS with full SwiftUI support.
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/convenience-init/Blend/releases/tag/v1.0.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Swift](https://img.shields.io/badge/Swift-6.0-orange.svg)](https://swift.org)
+[![iOS](https://img.shields.io/badge/iOS-18+-lightgrey.svg)](https://developer.apple.com/ios/)
+[![macOS](https://img.shields.io/badge/macOS-15+-lightgrey.svg)](https://developer.apple.com/macos/)
 
 ## Features
 
@@ -314,7 +318,10 @@ do {
     #endif
 
     // Blend convenience helper (requires: import Blend)
-    // let swiftUIImage = ImageService.swiftUIImage(from: imageData)
+    // Convert data to PlatformImage, then to SwiftUI Image:
+    // if let platformImage = ImageService.platformImage(from: imageData) {
+    //     let swiftUIImage = Image.from(platformImage: platformImage)
+    // }
 
     // Use swiftUIImage in your SwiftUI view
     // swiftUIImage.resizable().frame(width: 200, height: 200)
@@ -386,7 +393,7 @@ if let jpeg = platformImage.jpegData(compressionQuality: 0.8) {
     throw NetworkError.imageProcessingFailed
 }
 
-let uploadConfig = ImageService.UploadConfiguration(
+let uploadConfig = UploadConfiguration(
     fieldName: "photo",
     fileName: "profile.jpg",
     compressionQuality: 0.8,
@@ -459,7 +466,7 @@ struct ImageGalleryView: View {
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload")!,
                 uploadType: .multipart,
-                configuration: ImageService.UploadConfiguration(),
+                configuration: UploadConfiguration(),
                 onUploadSuccess: { data in
                     print("Upload successful: \(data)")
                 },
@@ -555,7 +562,7 @@ struct PhotoUploadView: View {
                                 return
                             }
                             
-                            let config = ImageService.UploadConfiguration()
+                            let config = UploadConfiguration()
                             let response = try await imageService.uploadImageMultipart(
                                 imageData,
                                 to: URL(string: "https://api.example.com/photos")!,

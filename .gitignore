@@ -10,5 +10,5 @@ DerivedData/
 /.vscode/*
 !/.vscode/settings.json
 !/.vscode/extensions.json
-/async-net-output.*
+/blend-output.*
 /DevDocs/
