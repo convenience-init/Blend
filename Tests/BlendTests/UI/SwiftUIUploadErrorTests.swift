@@ -64,10 +64,6 @@
                 )
                 Issue.record("Expected upload to fail but it succeeded")
             } catch {
-                // Check that the model captured the error
-                #expect(model.hasError, "Model should have error state after failed upload")
-                #expect(model.error != nil, "Model should have captured an error")
-
                 // Assert the error is the expected type
                 if let modelError = model.error {
                     if case let .serverError(statusCode, _) = modelError {
@@ -77,6 +73,10 @@
                     }
                 }
             }
+            
+            // Check that the model captured the error after the operation
+            #expect(model.hasError, "Model should have error state after failed upload")
+            #expect(model.error != nil, "Model should have captured an error")
         }
 
         /// Test-friendly version that throws instead of crashing

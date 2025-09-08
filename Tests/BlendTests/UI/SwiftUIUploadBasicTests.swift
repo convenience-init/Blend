@@ -168,17 +168,16 @@
                     )
                 }
 
-                // Create timeout task
-                let timeoutTask = Task<Data, Error> {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    throw NetworkError.customError(
-                        "Test timeout", details: "Upload operation took too long")
-                }
-
                 // Race the upload against the timeout
                 let result = try await withThrowingTaskGroup(of: Data.self) { group in
                     group.addTask { try await uploadTask.value }
-                    group.addTask { try await timeoutTask.value }
+
+                    // Add timeout task that throws after delay
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                        throw NetworkError.customError(
+                            "Test timeout", details: "Upload operation took too long")
+                    }
 
                     guard let result = try await group.next() else {
                         throw NetworkError.customError(
@@ -186,7 +185,6 @@
                     }
                     group.cancelAll()
                     uploadTask.cancel()
-                    timeoutTask.cancel()
                     return result
                 }
 
