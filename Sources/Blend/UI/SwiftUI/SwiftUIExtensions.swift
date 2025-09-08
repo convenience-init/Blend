@@ -164,12 +164,18 @@ public class AsyncImageModel {
         self.isLoading = false
     }
 
-    /// Uploads an image and calls the result callbacks. Error callback always receives NetworkError.
+    /// Uploads an image and returns the response data. Throws NetworkError on failure.
+    /// - Parameters:
+    ///   - image: The PlatformImage to upload
+    ///   - uploadURL: The URL to upload the image to
+    ///   - uploadType: The type of upload (.multipart or .base64)
+    ///   - configuration: Upload configuration including field names and compression
+    /// - Returns: The response data from the upload endpoint
+    /// - Throws: NetworkError if the upload fails
     public func uploadImage(
         _ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType,
-        configuration: UploadConfiguration, onSuccess: ((Data) -> Void)? = nil,
-        onError: ((NetworkError) -> Void)? = nil
-    ) async {
+        configuration: UploadConfiguration
+    ) async throws -> Data {
         isUploading = true
         defer { isUploading = false }
 
@@ -177,8 +183,7 @@ public class AsyncImageModel {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
             self.hasError = true
             self.error = error
-            onError?(error)
-            return
+            throw error
         }
 
         guard
@@ -188,8 +193,7 @@ public class AsyncImageModel {
             let error = NetworkError.imageProcessingFailed
             self.hasError = true
             self.error = error
-            onError?(error)
-            return
+            throw error
         }
 
         do {
@@ -209,7 +213,7 @@ public class AsyncImageModel {
                 )
             }
             self.error = nil  // Clear any previous error on successful upload
-            onSuccess?(responseData)
+            return responseData
         } catch {
             let netError: NetworkError
             if let existingError = error as? NetworkError {
@@ -219,7 +223,7 @@ public class AsyncImageModel {
             }
             self.hasError = true
             self.error = netError
-            onError?(netError)
+            throw netError
         }
     }
 }
@@ -241,23 +245,23 @@ public class AsyncImageModel {
 ///     uploadType: .multipart,
 ///     configuration: ImageService.UploadConfiguration(),
 ///     autoUpload: true, // Automatically upload after loading
-///     onUploadSuccess: { data in print("Upload successful: \(data)") },
-///     onUploadError: { error in print("Upload failed: \(error)") },
 ///     imageService: imageService
 /// )
 ///
 /// // Or trigger upload programmatically:
 /// let imageView = AsyncNetImageView(/* parameters */)
-/// let success = await imageView.uploadImage()
+/// do {
+///     let result = try await imageView.uploadImage()
+///     print("Upload successful: \(result)")
+/// } catch {
+///     print("Upload failed: \(error)")
+/// }
 /// ```
 public struct AsyncNetImageView: View {
     private let url: String?
     private let uploadURL: URL?
     private let uploadType: UploadType
     private let configuration: UploadConfiguration
-    private let onUploadSuccess: ((Data) -> Void)?
-    /// Error callback always receives NetworkError
-    private let onUploadError: ((NetworkError) -> Void)?
     private let imageService: ImageService
     private let autoUpload: Bool
     /// Use @State for correct SwiftUI lifecycle management of @Observable model
@@ -270,8 +274,6 @@ public struct AsyncNetImageView: View {
         uploadURL: URL? = nil,
         uploadType: UploadType = .multipart,
         configuration: UploadConfiguration = UploadConfiguration(),
-        onUploadSuccess: ((Data) -> Void)? = nil,
-        onUploadError: ((NetworkError) -> Void)? = nil,
         autoUpload: Bool = false,
         imageService: ImageService
     ) {
@@ -279,8 +281,6 @@ public struct AsyncNetImageView: View {
         self.uploadURL = uploadURL
         self.uploadType = uploadType
         self.configuration = configuration
-        self.onUploadSuccess = onUploadSuccess
-        self.onUploadError = onUploadError
         self.autoUpload = autoUpload
         self.imageService = imageService
         self._model = State(wrappedValue: AsyncImageModel(imageService: imageService))
@@ -373,22 +373,37 @@ public struct AsyncNetImageView: View {
         }
         guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else { return }
 
-        await model.uploadImage(
-            loadedImage,
-            to: uploadURL,
-            uploadType: uploadType,
-            configuration: configuration,
-            onSuccess: onUploadSuccess,
-            onError: onUploadError
-        )
+        do {
+            let result = try await model.uploadImage(
+                loadedImage,
+                to: uploadURL,
+                uploadType: uploadType,
+                configuration: configuration
+            )
+            // Upload successful - result contains response data
+            // In a real app, you might want to handle the response data here
+            print("Upload successful: \(result)")
+        } catch {
+            // Upload failed - error is already handled by AsyncImageModel
+            // The model's error state is updated, which will be reflected in the UI
+            print("Upload failed: \(error)")
+        }
     }
 
     /// Public method to programmatically trigger image upload
-    /// - Returns: True if upload was initiated, false if no image loaded or uploadURL not set
+    /// - Returns: The response data from the upload endpoint
+    /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
-    public func uploadImage() async -> Bool {
-        guard model.loadedImage != nil, uploadURL != nil else { return false }
-        await performUpload(expectedUrl: url)
-        return true
+    public func uploadImage() async throws -> Data {
+        guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else {
+            throw NetworkError.invalidEndpoint(reason: "No image loaded or upload URL not set")
+        }
+
+        return try await model.uploadImage(
+            loadedImage,
+            to: uploadURL,
+            uploadType: uploadType,
+            configuration: configuration
+        )
     }
 }

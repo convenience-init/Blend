@@ -1,6 +1,8 @@
 # Blend
 
-A powerful Swift networking library with comprehensive image handling capabilities, built for iOS, iPadOS, and macOS with full SwiftUI support.
+A **Powerful, intuitive Swift 6 networking library** that makes modern platform-agnostic development a breeze through **composable, protocol-oriented architecture**. Blend combines powerful networking and image handling capabilities with deep SwiftUI integration, enabling developers to build reactive, type-safe applications with unprecedented ease and flexibility.
+
+ Blend embraces **composability** through its protocol hierarchy (`AsyncRequestable` → `AdvancedAsyncRequestable`) and **SwiftUI-first design** with native reactive components, making complex networking patterns feel natural in modern Swift 6 applications.
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/convenience-init/Blend/releases/tag/v1.0.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -10,12 +12,13 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 
 ## Features
 
-**Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
-**Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
-**Complete Image Solution** - Download, upload, and cache images with ease  
-**SwiftUI Integration** - Native SwiftUI view modifiers and components  
-**High Performance** - Intelligent caching with configurable limits  
-**Type Safe** - Protocol-oriented design with comprehensive error handling  
+**🎯 SwiftUI-First by Design** - Native reactive components and view modifiers built specifically for SwiftUI  
+**🔧 Protocol-Oriented Composability** - Flexible service composition with type-safe hierarchies  
+**⚡ Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
+**🌉 Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
+**🖼️ Complete Image Solution** - Download, upload, and cache and display images with ease  
+**🚀 High Performance** - Intelligent LRU caching with configurable limits  
+**🔒 Type Safe** - Protocol-oriented design with comprehensive error handling  
 
 > **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 >
@@ -447,7 +450,6 @@ struct ProfileView: View {
 // - **Framework**: SwiftUI framework
 //
 // **Note on SwiftUI Compatibility**: 
-// - Blend requires iOS 18.0+/macOS 15.0+ for full functionality
 // - SwiftUI itself is available on iOS 15.0+/macOS 12.0+, but Blend's modern concurrency features require the newer OS versions
 ```
 
@@ -458,7 +460,7 @@ import SwiftUI
 import Blend
 
 struct ImageGalleryView: View {
-    let imageService: ImageService // Dependency injection required
+    let imageService: ImageService
 
     var body: some View {
         VStack {
@@ -467,12 +469,7 @@ struct ImageGalleryView: View {
                 uploadURL: URL(string: "https://api.example.com/upload")!,
                 uploadType: .multipart,
                 configuration: UploadConfiguration(),
-                onUploadSuccess: { data in
-                    print("Upload successful: \(data)")
-                },
-                onUploadError: { error in
-                    print("Upload failed: \(error)")
-                },
+                autoUpload: true, // Automatically upload after loading
                 imageService: imageService
             )
             .frame(height: 300)
@@ -481,298 +478,44 @@ struct ImageGalleryView: View {
     }
 }
 
-// Upload Callbacks Documentation:
-// - onUploadSuccess: ((Data) -> Void)? - Called on main thread with server response data
-// - onUploadError: ((NetworkError) -> Void)? - Called on main thread with NetworkError details
-// - Data parameter contains the raw response from the upload endpoint (e.g., JSON confirmation)
-// - NetworkError provides comprehensive error information (see NetworkError enum documentation)
-// - Callbacks are invoked on the main thread, so UI updates can be performed directly
-//
-// Thread Safety Guarantee:
-// - Upload callbacks are guaranteed to execute on the main thread via @MainActor isolation
-// - The AsyncImageModel class is marked @MainActor, ensuring all callback invocations run on the main thread
-// - Implementation location: Sources/Blend/extensions/SwiftUIExtensions.swift - AsyncImageModel.uploadImage()
-```
-
-#### Image Upload with Progress
-
-```swift
-import SwiftUI
-import Blend
-
-struct PhotoUploadView: View {
-    @State private var selectedImage: PlatformImage?
-    let imageService: ImageService // Dependency injection required
-    
-    var body: some View {
-        VStack {
-            if let platformImage = selectedImage {
-                // Safe conversion using Blend helper (recommended approach)
-                if let swiftUIImage = Image.from(platformImage: platformImage) {
-                    swiftUIImage
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                } else {
-                    // Handle conversion failure gracefully
-                    Image(systemName: "photo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                }
-
-                // Alternative: Platform-standard conversion with safe casting
-                /*
-                #if canImport(UIKit)
-                if let uiImage = platformImage as? UIImage {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                }
-                #elseif canImport(AppKit)
-                if let nsImage = platformImage as? NSImage {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                }
-                #endif
-                */
-            }
-            
-            Button("Select Photo") {
-                // Photo picker implementation
-            }
-            
-            if let platformImage = selectedImage {
-                Button("Upload") {
-                    Task {
-                        do {
-                            // Mirror JPEG→PNG fallback pattern from earlier example
-                            let imageData: Data
-                            if let jpegData = platformImage.jpegData(compressionQuality: 0.8) {
-                                imageData = jpegData
-                                print("Using JPEG conversion (compression: 0.8)")
-                            } else if let pngData = platformImage.pngData() {
-                                imageData = pngData
-                                print("JPEG conversion failed, falling back to PNG")
-                            } else {
-                                print("Failed to convert image to both JPEG and PNG formats")
-                                return
-                            }
-                            
-                            let config = UploadConfiguration()
-                            let response = try await imageService.uploadImageMultipart(
-                                imageData,
-                                to: URL(string: "https://api.example.com/photos")!,
-                                configuration: config
-                            )
-                            print("Upload successful")
-                        } catch {
-                            print("Upload failed: \(error)")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
----
-
-#### Notes
-
-- Always inject `ImageService` for strict concurrency and testability.
-- Use `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
-
-```swift
-import Blend
-
-let imageService = ImageService()
-
-// Fetch image data and convert to SwiftUI Image
-do {
-    // Modern error handling with NetworkError
-    let imageData = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
-} catch let error as NetworkError {
-    // Option 1: Use the message() method
-    print("Network error: \(error.message())")
-    
-    // Option 2: Use localizedDescription (standard LocalizedError)
-    print("Network error: \(error.localizedDescription)")
-    
-    // Option 3: Pattern match for specific error details
-    switch error {
-    case .httpError(let statusCode, _):
-        print("HTTP error with status: \(statusCode)")
-    case .decodingError(let description, _):
-        print("Failed to decode response: \(description)")
-    case .networkUnavailable:
-        print("No internet connection")
-    case .requestTimeout(let duration):
-        print("Request timed out after \(duration) seconds")
-    case .invalidEndpoint(let reason):
-        print("Invalid endpoint: \(reason)")
-    case .unauthorized:
-        print("Authentication required")
-    case .uploadFailed(let details):
-        print("Upload failed: \(details)")
-    case .cacheError(let details):
-        print("Cache error: \(details)")
-    case .transportError(let code, let underlying):
-        print("Network transport error: \(code.rawValue) - \(underlying.localizedDescription)")
-    default:
-        print("Other network error: \(error.localizedDescription)")
-    }
-} catch {
-    print("Unexpected error: \(error)")
-}
-```
-
-### NetworkError Cases
-
-Blend provides comprehensive error handling through the `NetworkError` enum:
-
-- **`.httpError(statusCode: Int, data: Data?)`**: HTTP errors with status code and optional response data
-- **`.decodingError(underlyingDescription: String, data: Data?)`**: JSON decoding failures
-- **`.networkUnavailable`**: Network connectivity issues
-- **`.requestTimeout(duration: TimeInterval)`**: Request timeout errors
-- **`.invalidEndpoint(reason: String)`**: Invalid URL or endpoint configuration
-- **`.unauthorized`**: Authentication failures (401)
-- **`.noResponse`**: No response received from server
-- **`.badMimeType(String)`**: Unsupported image MIME type
-- **`.uploadFailed(String)`**: Image upload failures
-- **`.imageProcessingFailed`**: PlatformImage conversion failures
-- **`.cacheError(String)`**: Cache operation failures
-- **`.transportError(code: URLError.Code, underlying: URLError)`**: Low-level network transport errors
-
-### Cache Management
-
-```swift
-import Blend
-
-let imageService = ImageService()
-
-// Configure cache limits (these are set during initialization)
-let imageServiceConfigured = ImageService(cacheCountLimit: 200, cacheTotalCostLimit: 100 * 1024 * 1024)
-
-// Execute cache operations in an async context
-Task {
-    // Clear cache
-    await imageServiceConfigured.clearCache()
-
-    // Remove specific image
-    await imageServiceConfigured.removeFromCache(key: "https://example.com/image.jpg")
-
-    // Check if image is cached
-    let isCached = await imageServiceConfigured.isImageCached(forKey: "https://example.com/image.jpg")
-    print("Image cached: \(isCached)")
-}
-```
-
-#### Security Guidance for Sensitive Images
-
-When handling sensitive images such as user avatars, profile pictures, or any content containing personally identifiable information (PII), implement strict cache management to prevent data leakage:
-
-**Opt-out of Caching:**
-
-- **Important**: Setting `cacheCountLimit: 0` or `cacheTotalCostLimit: 0` does **NOT** disable caching - it means "no limit" (unlimited caching). Avoid this configuration for sensitive content.
-- To disable caching, do not attach an `NSCache` instance or pass `nil`/`no-op` cache to `ImageService`
-- Use `ImageService` constructor flags or configuration that explicitly disables caching when available
-- Call `cache.removeAllObjects()` on the underlying `NSCache` to clear all cached items
-- Call `await imageService.removeFromCache(key: "sensitive-image-url")` immediately after use to clear specific sensitive items
-
-**Avoid Caching PII-Containing Assets:**
-
-- Never cache user avatars, profile images, or images with embedded metadata
-- Use `fetchImageData(from: urlString)` without caching for sensitive content
-- Implement custom logic to bypass cache for authenticated user content
-
-**Aggressive Cache Eviction:**
-
-- Configure short `maxAge` (e.g., 300 seconds) for sensitive content using `CacheConfiguration(maxAge: 300)`
-- Call `await imageService.clearCache()` proactively for sensitive sessions
-- Use `await imageService.updateCacheConfiguration(CacheConfiguration(maxAge: 0))` to disable time-based caching
-
-**Lifecycle Cache Clearing:**
-Implement cache clearing using SwiftUI's ScenePhase for modern, cross-platform lifecycle management:
-
-```swift
-import SwiftUI
-import Blend
-
-// Environment key for ImageService injection
-private struct ImageServiceKey: EnvironmentKey {
-    static let defaultValue: ImageService = ImageService()
-}
-
-extension EnvironmentValues {
-    var imageService: ImageService {
-        get { self[ImageServiceKey.self] }
-        set { self[ImageServiceKey.self] = newValue }
-    }
-}
-
-@main
-struct MyApp: App {
-    @Environment(\.scenePhase) private var scenePhase
-    let imageService = ImageService() // Or inject via dependency injection
-    
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environment(\.imageService, imageService)
-        }
-        .onChange(of: scenePhase) { newPhase in
-            switch newPhase {
-            case .background:
-                // Clear cache when app goes to background
-                Task {
-                    await imageService.clearCache()
-                }
-            case .inactive:
-                // Optional: Clear cache when app becomes inactive
-                Task {
-                    await imageService.clearCache()
-                }
-            case .active:
-                // App became active - no action needed for cache
-                break
-            @unknown default:
-                // Handle future scene phases
-                break
-            }
-        }
-    }
-}
-
-// Alternative: Handle lifecycle in individual views
-struct SensitiveContentView: View {
-    @Environment(\.scenePhase) private var scenePhase
+// Programmatic upload with async/await
+struct UploadView: View {
+    @State private var uploadResult: String = ""
     let imageService: ImageService
     
     var body: some View {
         VStack {
-            Text("Sensitive Content")
-            // Your sensitive content here
-        }
-        .onChange(of: scenePhase) { newPhase in
-            if newPhase == .background {
+            AsyncNetImageView(
+                url: "https://example.com/gallery/1.jpg",
+                uploadURL: URL(string: "https://api.example.com/upload")!,
+                uploadType: .multipart,
+                configuration: UploadConfiguration(),
+                imageService: imageService
+            )
+            .frame(height: 200)
+            
+            Button("Upload Image") {
                 Task {
-                    await imageService.clearCache()
+                    do {
+                        // Get reference to the view and trigger upload
+                        // Note: In a real app, you'd store a reference to AsyncNetImageView
+                        let result = try await uploadImage()
+                        uploadResult = "Upload successful: \(result.count) bytes"
+                    } catch {
+                        uploadResult = "Upload failed: \(error.localizedDescription)"
+                    }
                 }
             }
+            
+            Text(uploadResult)
         }
+    }
+    
+    // Example of programmatic upload
+    private func uploadImage() async throws -> Data {
+        // This would be called on an AsyncNetImageView instance
+        // For demonstration purposes only
+        throw NetworkError.customError("Not implemented in this example", details: nil)
     }
 }
 ```
-
-**Benefits of ScenePhase Approach:**
-
-- **Cross-platform**: Works identically on iOS, macOS, watchOS, and tvOS
-- **Multi-scene support**: Handles multiple windows/scenes correctly in iOS 13+ and macOS 10.15+
-- **Modern SwiftUI**: Uses SwiftUI's built-in lifecycle management
-- **Consistent behavior**: Same lifecycle events across all platforms
-- **Future-proof**: Automatically supports new scene phases as they're added

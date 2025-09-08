@@ -56,22 +56,25 @@
                     "Failed to create platform image from test data", details: nil)
             }
 
-            // Test the upload by capturing the error through the model's error state
-            await model.uploadImage(
-                platformImage, to: Self.defaultUploadURL, uploadType: .base64,
-                configuration: UploadConfiguration()
-            )
+            // Test the upload by capturing the error through try/catch
+            do {
+                let _ = try await model.uploadImage(
+                    platformImage, to: Self.defaultUploadURL, uploadType: .base64,
+                    configuration: UploadConfiguration()
+                )
+                Issue.record("Expected upload to fail but it succeeded")
+            } catch {
+                // Check that the model captured the error
+                #expect(model.hasError, "Model should have error state after failed upload")
+                #expect(model.error != nil, "Model should have captured an error")
 
-            // Check that the model captured the error
-            #expect(model.hasError, "Model should have error state after failed upload")
-            #expect(model.error != nil, "Model should have captured an error")
-
-            // Assert the error is the expected type
-            if let error = model.error {
-                if case let .serverError(statusCode, _) = error {
-                    #expect(statusCode == 500, "Should receive HTTP 500 error")
-                } else {
-                    Issue.record("Expected server error but got: \(error)")
+                // Assert the error is the expected type
+                if let modelError = model.error {
+                    if case let .serverError(statusCode, _) = modelError {
+                        #expect(statusCode == 500, "Should receive HTTP 500 error")
+                    } else {
+                        Issue.record("Expected server error but got: \(modelError)")
+                    }
                 }
             }
         }
