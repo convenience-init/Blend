@@ -33,12 +33,22 @@ public enum UploadType: String, Sendable {
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
 /// - Note: All state properties are actor-isolated and observable for SwiftUI.
+/// - Note: Supports progress tracking during image uploads via optional progress handlers.
 ///
 /// ### Usage Example
 /// ```swift
 /// @State var model = AsyncImageModel(imageService: imageService)
 /// await model.loadImage(from: url)
-/// await model.uploadImage(image, to: uploadURL, uploadType: .multipart, configuration: config)
+///
+/// // Upload with progress tracking
+/// let result = try await model.uploadImage(
+///     image,
+///     to: uploadURL,
+///     uploadType: .multipart,
+///     configuration: config
+/// ) { progress in
+///     print("Upload progress: \(progress * 100)%")
+/// }
 /// ```
 @MainActor
 @Observable
@@ -176,6 +186,29 @@ public class AsyncImageModel {
         _ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType,
         configuration: UploadConfiguration
     ) async throws -> Data {
+        try await uploadImage(
+            image,
+            to: uploadURL,
+            uploadType: uploadType,
+            configuration: configuration,
+            onProgress: nil
+        )
+    }
+
+    /// Uploads an image with progress tracking and returns the response data. Throws NetworkError on failure.
+    /// - Parameters:
+    ///   - image: The PlatformImage to upload
+    ///   - uploadURL: The URL to upload the image to
+    ///   - uploadType: The type of upload (.multipart or .base64)
+    ///   - configuration: Upload configuration including field names and compression
+    ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0)
+    /// - Returns: The response data from the upload endpoint
+    /// - Throws: NetworkError if the upload fails
+    public func uploadImage(
+        _ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType,
+        configuration: UploadConfiguration,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> Data {
         isUploading = true
         defer { isUploading = false }
 
@@ -236,6 +269,7 @@ public class AsyncImageModel {
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
 /// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms. The view
 ///   automatically reloads when the URL changes.
+/// - Note: Supports progress tracking during uploads via optional progress handlers.
 ///
 /// ### Usage Example
 /// ```swift
@@ -248,10 +282,12 @@ public class AsyncImageModel {
 ///     imageService: imageService
 /// )
 ///
-/// // Or trigger upload programmatically:
+/// // Or trigger upload programmatically with progress:
 /// let imageView = AsyncNetImageView(/* parameters */)
 /// do {
-///     let result = try await imageView.uploadImage()
+///     let result = try await imageView.uploadImage { progress in
+///         print("Upload progress: \(progress * 100)%")
+///     }
 ///     print("Upload successful: \(result)")
 /// } catch {
 ///     print("Upload failed: \(error)")
@@ -367,6 +403,11 @@ public struct AsyncNetImageView: View {
 
     /// Performs the image upload with proper error handling
     private func performUpload(expectedUrl: String? = nil) async {
+        await performUpload(expectedUrl: expectedUrl, onProgress: nil)
+    }
+
+    /// Performs the image upload with progress tracking and proper error handling
+    private func performUpload(expectedUrl: String? = nil, onProgress: (@Sendable (Double) -> Void)? = nil) async {
         // If expectedUrl is provided, ensure it still matches
         if let expectedUrl = expectedUrl, expectedUrl != url {
             return
@@ -378,7 +419,8 @@ public struct AsyncNetImageView: View {
                 loadedImage,
                 to: uploadURL,
                 uploadType: uploadType,
-                configuration: configuration
+                configuration: configuration,
+                onProgress: onProgress
             )
             // Upload successful - result contains response data
             // In a real app, you might want to handle the response data here
@@ -395,6 +437,15 @@ public struct AsyncNetImageView: View {
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
     public func uploadImage() async throws -> Data {
+        try await uploadImage(onProgress: nil)
+    }
+
+    /// Public method to programmatically trigger image upload with progress tracking
+    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0)
+    /// - Returns: The response data from the upload endpoint
+    /// - Throws: NetworkError if the upload fails or no image is loaded
+    @MainActor
+    public func uploadImage(onProgress: (@Sendable (Double) -> Void)? = nil) async throws -> Data {
         guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else {
             throw NetworkError.invalidEndpoint(reason: "No image loaded or upload URL not set")
         }
@@ -403,7 +454,8 @@ public struct AsyncNetImageView: View {
             loadedImage,
             to: uploadURL,
             uploadType: uploadType,
-            configuration: configuration
+            configuration: configuration,
+            onProgress: onProgress
         )
     }
 }
