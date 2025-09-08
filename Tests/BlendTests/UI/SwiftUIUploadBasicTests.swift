@@ -158,6 +158,7 @@
             timeoutNanoseconds: UInt64 = 5_000_000_000  // 5 seconds
         ) async throws -> Result<Data, NetworkError> {
             do {
+                // Create upload task that runs on main actor
                 let uploadTask = Task { @MainActor in
                     try await model.uploadImage(
                         image,
@@ -167,6 +168,7 @@
                     )
                 }
 
+                // Create timeout task
                 let timeoutTask = Task<Data, Error> {
                     try await Task.sleep(nanoseconds: timeoutNanoseconds)
                     throw NetworkError.customError(
