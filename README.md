@@ -403,11 +403,17 @@ let uploadConfig = UploadConfiguration(
     additionalFields: ["userId": "123"]
 )
 
-// Multipart form upload (Data-based)
+// Option 1: Simple async/await upload (no progress tracking)
 let multipartResponse = try await imageService.uploadImageMultipart(imageData, to: uploadURL, configuration: uploadConfig)
 
-// Base64 upload (Data-based)
-let base64Response = try await imageService.uploadImageBase64(imageData, to: uploadURL, configuration: uploadConfig)
+// Option 2: Upload with progress tracking callback
+let base64Response = try await imageService.uploadImageBase64(
+    imageData, 
+    to: uploadURL, 
+    configuration: uploadConfig
+) { progress in
+    print("Upload progress: \(Int(progress * 100))%")
+}
 
 // Upload Method Tradeoffs:
 // - Base64 encoding increases payload size by ~33% and can more easily hit request size limits
@@ -415,42 +421,6 @@ let base64Response = try await imageService.uploadImageBase64(imageData, to: upl
 // - Multipart sends binary data directly and is generally preferable for larger files
 // - Use Base64 only for small images or when the API requires JSON payloads
 // - Multipart uploads are recommended as the default choice
-```
-
-> **Note on Image Conversion Examples**: The examples above use platform-standard SwiftUI `Image` initializers (`Image(uiImage:)` for iOS and `Image(nsImage:)` for macOS) to demonstrate universal compatibility. Blend provides convenience helpers `ImageService.swiftUIImage(from:)` and `Image.from(platformImage:)` in the `Blend` module for cross-platform image conversion. To use these helpers, add `import Blend` to your file. Blend helpers abstract platform differences and provide consistent error handling.
-
-### SwiftUI Integration
-
-#### Async Image Loading (Modern Pattern)
-
-```swift
-import SwiftUI
-import Blend  // Required for .asyncImage modifier
-
-struct ProfileView: View {
-    let imageURL: String
-    let imageService: ImageService // Dependency injection required
-
-    var body: some View {
-        Rectangle()
-            .frame(width: 200, height: 200)
-            .asyncImage(  // Blend extension (requires: import Blend)
-                from: imageURL,
-                imageService: imageService,
-                placeholder: ProgressView().controlSize(.large),
-                errorView: Image(systemName: "person.circle.fill")
-            )
-    }
-}
-
-// Requirements:
-// - **Minimum OS Requirements**: iOS 18.0+ / macOS 15.0+
-// - **Swift Version**: Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
-// - **Xcode**: Xcode 16+ (or Swift 6 toolchain) recommended
-// - **Framework**: SwiftUI framework
-//
-// **Note on SwiftUI Compatibility**: 
-// - SwiftUI itself is available on iOS 15.0+/macOS 12.0+, but Blend's modern concurrency features require the newer OS versions
 ```
 
 #### Complete Image Component with Upload
@@ -478,7 +448,7 @@ struct ImageGalleryView: View {
     }
 }
 
-// Programmatic upload with async/await
+// Programmatic upload examples
 struct UploadView: View {
     @State private var uploadResult: String = ""
     let imageService: ImageService
@@ -494,15 +464,32 @@ struct UploadView: View {
             )
             .frame(height: 200)
             
-            Button("Upload Image") {
-                Task {
-                    do {
-                        // Get reference to the view and trigger upload
-                        // Note: In a real app, you'd store a reference to AsyncNetImageView
-                        let result = try await uploadImage()
-                        uploadResult = "Upload successful: \(result.count) bytes"
-                    } catch {
-                        uploadResult = "Upload failed: \(error.localizedDescription)"
+            HStack {
+                // Option 1: Simple upload without progress tracking
+                Button("Upload (Simple)") {
+                    Task {
+                        do {
+                            let imageView = AsyncNetImageView(/* same parameters */)
+                            let result = try await imageView.uploadImage()
+                            uploadResult = "Upload successful: \(result.count) bytes"
+                        } catch {
+                            uploadResult = "Upload failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                
+                // Option 2: Upload with progress tracking
+                Button("Upload (With Progress)") {
+                    Task {
+                        do {
+                            let imageView = AsyncNetImageView(/* same parameters */)
+                            let result = try await imageView.uploadImage { progress in
+                                print("Upload progress: \(Int(progress * 100))%")
+                            }
+                            uploadResult = "Upload successful: \(result.count) bytes"
+                        } catch {
+                            uploadResult = "Upload failed: \(error.localizedDescription)"
+                        }
                     }
                 }
             }
@@ -510,12 +497,92 @@ struct UploadView: View {
             Text(uploadResult)
         }
     }
+}
+```
+
+#### AsyncImageModel with Progress Tracking
+
+```swift
+import SwiftUI
+import Blend
+
+struct AdvancedUploadView: View {
+    @State private var model = AsyncImageModel(imageService: ImageService())
+    @State private var uploadProgress: Double = 0.0
+    @State private var isUploading = false
     
-    // Example of programmatic upload
-    private func uploadImage() async throws -> Data {
-        // This would be called on an AsyncNetImageView instance
-        // For demonstration purposes only
-        throw NetworkError.customError("Not implemented in this example", details: nil)
+    var body: some View {
+        VStack {
+            if let image = model.loadedImage {
+                Image.from(platformImage: image)
+                    .resizable()
+                    .frame(height: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                if isUploading {
+                    ProgressView("Uploading...", value: uploadProgress, total: 1.0)
+                        .progressViewStyle(.linear)
+                        .padding()
+                }
+                
+                HStack {
+                    // Option 1: Simple upload without progress tracking
+                    Button("Upload (Simple)") {
+                        Task {
+                            do {
+                                isUploading = true
+                                let result = try await model.uploadImage(
+                                    image,
+                                    to: URL(string: "https://api.example.com/upload")!,
+                                    uploadType: .multipart,
+                                    configuration: UploadConfiguration()
+                                )
+                                print("Upload successful: \(result.count) bytes")
+                            } catch {
+                                print("Upload failed: \(error)")
+                            }
+                            isUploading = false
+                        }
+                    }
+                    
+                    // Option 2: Upload with progress tracking
+                    Button("Upload (With Progress)") {
+                        Task {
+                            do {
+                                isUploading = true
+                                uploadProgress = 0.0
+                                
+                                let result = try await model.uploadImage(
+                                    image,
+                                    to: URL(string: "https://api.example.com/upload")!,
+                                    uploadType: .multipart,
+                                    configuration: UploadConfiguration()
+                                ) { progress in
+                                    uploadProgress = progress
+                                }
+                                
+                                print("Upload successful: \(result.count) bytes")
+                            } catch {
+                                print("Upload failed: \(error)")
+                            }
+                            isUploading = false
+                        }
+                    }
+                }
+                .disabled(isUploading)
+            } else if model.isLoading {
+                ProgressView("Loading image...")
+            } else {
+                Button("Load Image") {
+                    Task {
+                        await model.loadImage(from: "https://example.com/image.jpg")
+                    }
+                }
+            }
+        }
+        .task {
+            await model.loadImage(from: "https://example.com/image.jpg")
+        }
     }
 }
 ```

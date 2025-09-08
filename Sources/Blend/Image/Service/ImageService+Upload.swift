@@ -32,29 +32,46 @@ extension ImageService {
     ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
     ///   - configuration: Upload configuration options
+    ///   - onProgress: Optional progress callback (0.0 to 1.0)
     /// - Returns: The response data from the server
     /// - Throws: NetworkError if the upload fails
     public func uploadImageBase64(
         _ imageData: Data,
         to url: URL,
-        configuration: UploadConfiguration = UploadConfiguration()
+        configuration: UploadConfiguration = UploadConfiguration(),
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
+        // Start progress at 0.0
+        onProgress?(0.0)
+
         // Pre-check to avoid memory issues with very large images
         let maxSafeRawSize = await calculateMaxSafeRawSize()
         try validateImageSize(imageData.count, maxSafeRawSize)
+
+        // Progress: validation complete
+        onProgress?(0.1)
 
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
         let effectiveMaxUploadSize = await getEffectiveMaxUploadSize()
         let encodedSize = calculateBase64EncodedSize(imageData.count)
         try validateEncodedSize(encodedSize, effectiveMaxUploadSize, imageData.count)
 
+        // Progress: size validation complete
+        onProgress?(0.2)
+
         // Determine upload strategy based on encoded size
-        return try await selectUploadStrategy(
+        let result = try await selectUploadStrategy(
             imageData: imageData,
             url: url,
             configuration: configuration,
-            encodedSize: encodedSize
+            encodedSize: encodedSize,
+            onProgress: onProgress
         )
+
+        // Progress: upload complete
+        onProgress?(1.0)
+
+        return result
     }
 
     /// Calculates the maximum safe raw image size for base64 uploads
@@ -149,16 +166,17 @@ extension ImageService {
         imageData: Data,
         url: URL,
         configuration: UploadConfiguration,
-        encodedSize: Int
+        encodedSize: Int,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
         if encodedSize <= configuration.streamThreshold {
             // Use JSON + base64 for smaller images (existing path)
             return try await uploadImageBase64Small(
-                imageData, to: url, configuration: configuration)
+                imageData, to: url, configuration: configuration, onProgress: onProgress)
         } else {
             // Use streaming multipart for larger images to avoid memory spikes
             return try await uploadImageBase64Streaming(
-                imageData, to: url, configuration: configuration)
+                imageData, to: url, configuration: configuration, onProgress: onProgress)
         }
     }
 
@@ -166,9 +184,17 @@ extension ImageService {
     private func uploadImageBase64Small(
         _ imageData: Data,
         to url: URL,
-        configuration: UploadConfiguration
+        configuration: UploadConfiguration,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
+        // Progress: starting encoding
+        onProgress?(0.3)
+        
         let base64String = imageData.base64EncodedString()
+        
+        // Progress: encoding complete
+        onProgress?(0.4)
+        
         let payload = UploadPayload(
             fieldName: configuration.fieldName,
             fileName: configuration.fileName,
@@ -179,9 +205,16 @@ extension ImageService {
 
         let jsonPayload = try JSONEncoder().encode(payload)
         try await validateUploadSize(jsonPayload.count, imageData.count)
+        
+        // Progress: payload prepared
+        onProgress?(0.5)
 
         let request = try await createUploadRequest(
             url: url, body: jsonPayload, contentType: "application/json")
+            
+        // Progress: request prepared, starting upload
+        onProgress?(0.6)
+
         let (data, response) = try await urlSession.data(for: request)
 
         // Apply response interceptors
@@ -189,6 +222,9 @@ extension ImageService {
         for interceptor in interceptors {
             await interceptor.didReceive(response: response, data: data)
         }
+        
+        // Progress: upload complete, validating response
+        onProgress?(0.9)
 
         return try validateUploadResponse(data: data, response: response)
     }
@@ -288,8 +324,12 @@ extension ImageService {
     private func uploadImageBase64Streaming(
         _ imageData: Data,
         to url: URL,
-        configuration: UploadConfiguration
+        configuration: UploadConfiguration,
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
+        // Progress: starting streaming upload
+        onProgress?(0.3)
+        
         // Log that we're using streaming upload for large images
         let encodedSize = calculateBase64EncodedSize(imageData.count)
         #if canImport(OSLog)
@@ -332,10 +372,16 @@ extension ImageService {
         request.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
+        // Progress: building multipart body
+        onProgress?(0.4)
+        
         let body = try MultipartBuilder.buildMultipartBody(
             boundary: boundary, configuration: configuration, imageData: imageData)
 
         request.httpBody = body
+        
+        // Progress: request prepared, starting upload
+        onProgress?(0.5)
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -343,6 +389,9 @@ extension ImageService {
         for interceptor in interceptors {
             await interceptor.didReceive(response: response, data: data)
         }
+        
+        // Progress: upload complete, validating response
+        onProgress?(0.9)
 
         return try validateUploadResponse(data: data, response: response)
     }
@@ -352,21 +401,39 @@ extension ImageService {
     ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
     ///   - configuration: Upload configuration options
+    ///   - onProgress: Optional progress callback (0.0 to 1.0)
     /// - Returns: The response data from the server
     /// - Throws: NetworkError if the upload fails
     public func uploadImageMultipart(
         _ imageData: Data,
         to url: URL,
-        configuration: UploadConfiguration = UploadConfiguration()
+        configuration: UploadConfiguration = UploadConfiguration(),
+        onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
+        // Start progress at 0.0
+        onProgress?(0.0)
+        
         try await validateImageSize(imageData.count)
+        
+        // Progress: validation complete
+        onProgress?(0.2)
 
         let boundary = "Boundary-" + UUID().uuidString
+        
+        // Progress: building multipart body
+        onProgress?(0.3)
+        
         let body = try MultipartBuilder.buildMultipartBody(
             boundary: boundary, configuration: configuration, imageData: imageData)
 
+        // Progress: body prepared
+        onProgress?(0.4)
+        
         let request = try await createUploadRequest(
             url: url, body: body, contentType: "multipart/form-data; boundary=\(boundary)")
+            
+        // Progress: request prepared, starting upload
+        onProgress?(0.5)
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -375,8 +442,16 @@ extension ImageService {
         for interceptor in interceptors {
             await interceptor.didReceive(response: response, data: data)
         }
-
-        return try validateUploadResponse(data: data, response: response)
+        
+        // Progress: upload complete, validating response
+        onProgress?(0.9)
+        
+        let result = try validateUploadResponse(data: data, response: response)
+        
+        // Progress: fully complete
+        onProgress?(1.0)
+        
+        return result
     }
 
     /// Validates image size against upload limits

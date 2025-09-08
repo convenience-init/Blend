@@ -175,6 +175,10 @@ public class AsyncImageModel {
     }
 
     /// Uploads an image and returns the response data. Throws NetworkError on failure.
+    ///
+    /// This is the simpler version without progress tracking. For uploads with progress callbacks,
+    /// use the overload that accepts an `onProgress` parameter.
+    ///
     /// - Parameters:
     ///   - image: The PlatformImage to upload
     ///   - uploadURL: The URL to upload the image to
@@ -236,13 +240,15 @@ public class AsyncImageModel {
                 responseData = try await imageService.uploadImageMultipart(
                     imageData,
                     to: uploadURL,
-                    configuration: configuration
+                    configuration: configuration,
+                    onProgress: onProgress
                 )
             case .base64:
                 responseData = try await imageService.uploadImageBase64(
                     imageData,
                     to: uploadURL,
-                    configuration: configuration
+                    configuration: configuration,
+                    onProgress: onProgress
                 )
             }
             self.error = nil  // Clear any previous error on successful upload
@@ -271,18 +277,21 @@ public class AsyncImageModel {
 ///   automatically reloads when the URL changes.
 /// - Note: Supports progress tracking during uploads via optional progress handlers.
 ///
-/// ### Usage Example
-/// ```swift
-/// AsyncNetImageView(
-///     url: "https://example.com/image.jpg",
-///     uploadURL: URL(string: "https://api.example.com/upload"),
-///     uploadType: .multipart,
-///     configuration: ImageService.UploadConfiguration(),
-///     autoUpload: true, // Automatically upload after loading
-///     imageService: imageService
-/// )
+/// ### Usage Examples
 ///
-/// // Or trigger upload programmatically with progress:
+/// **Simple async/await upload:**
+/// ```swift
+/// let imageView = AsyncNetImageView(/* parameters */)
+/// do {
+///     let result = try await imageView.uploadImage()
+///     print("Upload successful: \(result)")
+/// } catch {
+///     print("Upload failed: \(error)")
+/// }
+/// ```
+///
+/// **Upload with progress tracking:**
+/// ```swift
 /// let imageView = AsyncNetImageView(/* parameters */)
 /// do {
 ///     let result = try await imageView.uploadImage { progress in
@@ -293,6 +302,19 @@ public class AsyncImageModel {
 ///     print("Upload failed: \(error)")
 /// }
 /// ```
+///
+/// **Automatic upload after loading:**
+/// ```swift
+/// AsyncNetImageView(
+///     url: "https://example.com/image.jpg",
+///     uploadURL: URL(string: "https://api.example.com/upload"),
+///     uploadType: .multipart,
+///     configuration: ImageService.UploadConfiguration(),
+///     autoUpload: true, // Automatically upload after loading
+///     imageService: imageService
+/// )
+/// ```
+///
 public struct AsyncNetImageView: View {
     private let url: String?
     private let uploadURL: URL?
@@ -432,7 +454,11 @@ public struct AsyncNetImageView: View {
         }
     }
 
-    /// Public method to programmatically trigger image upload
+    /// Public method to programmatically trigger image upload without progress tracking.
+    ///
+    /// This is the simpler version without progress callbacks. For uploads with progress tracking,
+    /// use the overload that accepts an `onProgress` parameter.
+    ///
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
