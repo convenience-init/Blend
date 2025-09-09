@@ -98,20 +98,16 @@
         private func performInitialFailingUpload(model: AsyncImageModel, image: PlatformImage)
             async throws
         {
-            let initialResult: Result<Data, NetworkError> =
-                await performUploadWithTimeout(
+            do {
+                _ = try await performUploadWithTimeout(
                     model: model,
                     image: image,
                     url: Self.defaultUploadURL,
                     timeoutNanoseconds: 5_000_000_000  // 5 seconds
                 )
-
-            // Assert the initial result is the expected server error
-            switch initialResult {
-            case .success:
                 throw NetworkError.customError(
                     "Expected initial upload to fail, but it succeeded", details: nil)
-            case .failure(let error):
+            } catch let error as NetworkError {
                 #expect(
                     error
                         == NetworkError.serverError(
@@ -125,19 +121,16 @@
         private func performSuccessfulRetryUpload(model: AsyncImageModel, image: PlatformImage)
             async throws
         {
-            let successResult = await performUploadWithTimeout(
-                model: model,
-                image: image,
-                url: Self.defaultUploadURL
-            )
-
-            // Assert the successful result
-            switch successResult {
-            case .success(let data):
+            do {
+                let successResult = try await performUploadWithTimeout(
+                    model: model,
+                    image: image,
+                    url: Self.defaultUploadURL
+                )
                 #expect(
-                    String(data: data, encoding: .utf8) == "{\"success\": true}",
+                    String(data: successResult, encoding: .utf8) == "{\"success\": true}",
                     "Should receive success response")
-            case .failure(let error):
+            } catch {
                 Issue.record("Upload failed unexpectedly: \(error)")
             }
 
@@ -152,29 +145,22 @@
         ///   - image: The platform image to upload
         ///   - url: The upload URL
         ///   - timeoutNanoseconds: Timeout in nanoseconds (default: 5 seconds)
-        ///   - Returns: Result containing either the response data or a NetworkError
+        ///   - Returns: The response data from the upload
+        ///   - Throws: NetworkError if upload fails or times out
         @MainActor
         private func performUploadWithTimeout(
             model: AsyncImageModel,
             image: PlatformImage,
             url: URL,
             timeoutNanoseconds: UInt64 = 5_000_000_000  // 5 seconds
-        ) async -> Result<Data, NetworkError> {
-            do {
-                let uploadResult = try await raceUploadAgainstTimeout(
-                    model: model,
-                    image: image,
-                    url: url,
-                    timeoutNanoseconds: timeoutNanoseconds
-                )
-                return .success(uploadResult)
-            } catch let error as NetworkError {
-                return .failure(error)
-            } catch {
-                return .failure(
-                    NetworkError.customError(
-                        "Unexpected error: \(error.localizedDescription)", details: nil))
-            }
+        ) async throws -> Data {
+            let uploadResult = try await raceUploadAgainstTimeout(
+                model: model,
+                image: image,
+                url: url,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            return uploadResult
         }
 
         /// Races the upload operation against a timeout using task groups
