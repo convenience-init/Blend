@@ -39,7 +39,7 @@
         ///
         /// - Parameters:
         ///   - operation: The async operation to perform
-        ///   - timeoutNanoseconds: Timeout in nanoseconds
+        ///   - nanoseconds: Timeout in nanoseconds
         ///   - timeoutMessage: Custom timeout error message
         /// - Returns: The result of the operation
         /// - Throws: The operation's error or NetworkError on timeout
@@ -49,33 +49,28 @@
             timeoutMessage: String = "Operation timed out",
             operation: @escaping () async throws -> T
         ) async throws -> T {
-            // Create operation task
-            let operationTask = Task {
-                try await operation()
+            let startTime = DispatchTime.now()
+            let timeoutTime = startTime + .nanoseconds(Int(nanoseconds))
+
+            // Run operation and check timeout periodically
+            while DispatchTime.now() < timeoutTime {
+                do {
+                    // Try to run the operation
+                    return try await operation()
+                } catch is CancellationError {
+                    // If cancelled, check if we timed out
+                    if DispatchTime.now() >= timeoutTime {
+                        throw NetworkError.customError(timeoutMessage, details: nil)
+                    }
+                    continue  // Retry if not timed out
+                } catch {
+                    // Re-throw other errors immediately
+                    throw error
+                }
             }
 
-            // Race operation against timeout using task group
-            return try await withThrowingTaskGroup(of: T.self) { group in
-                // Add operation task
-                group.addTask { try await operationTask.value }
-
-                // Add timeout task that throws after delay
-                group.addTask {
-                    try await Task.sleep(nanoseconds: nanoseconds)
-                    throw NetworkError.customError(timeoutMessage, details: nil)
-                }
-
-                // Get the first completed task result
-                guard let result = try await group.next() else {
-                    throw NetworkError.customError("No task completed", details: nil)
-                }
-
-                // Clean up remaining tasks
-                group.cancelAll()
-                operationTask.cancel()
-
-                return result
-            }
+            // If we get here, we timed out
+            throw NetworkError.customError(timeoutMessage, details: nil)
         }
 
         /// Performs an image upload with timeout coordination using Swift 6 concurrency patterns.
