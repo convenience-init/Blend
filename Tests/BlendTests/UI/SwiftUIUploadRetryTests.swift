@@ -6,36 +6,10 @@
 
     @Suite("SwiftUI Upload Retry Tests")
     public struct SwiftUIUploadRetryTests {
-        private static let minimalPNGBase64 =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
-
-        /// Decode the minimal PNG Base64 string into Data
-        /// - Returns: The decoded Data
-        /// - Throws: NetworkError if decoding fails
-        private static func decodeMinimalPNGBase64() throws -> Data {
-            guard let data = Data(base64Encoded: minimalPNGBase64) else {
-                throw NetworkError.customError(
-                    "Failed to decode minimalPNGBase64 - invalid Base64 string", details: nil)
-            }
-            return data
-        }
-
-        /// Test-friendly version that throws instead of crashing
-        public static func getMinimalPNGData() throws -> Data {
-            try decodeMinimalPNGBase64()
-        }
-
-        private static let defaultUploadURL: URL = {
-            guard let url = URL(string: "https://mock.api/upload") else {
-                fatalError("Invalid test URL: https://mock.api/upload")
-            }
-            return url
-        }()
-
         @MainActor
         @Test public func testAsyncNetImageModelUploadRetry() async throws {
             // Guard against nil platform image
-            let testData = try Self.getMinimalPNGData()
+            let testData = try SwiftUIUploadTestHelpers.getMinimalPNGData()
             guard let platformImage = ImageService.platformImage(from: testData) else {
                 throw NetworkError.customError(
                     "Failed to create platform image from test data", details: nil)
@@ -55,7 +29,7 @@
         private func createRetryServiceAndModel() async throws -> AsyncImageModel {
             guard
                 let successResponse = HTTPURLResponse(
-                    url: Self.defaultUploadURL,
+                    url: SwiftUIUploadTestHelpers.defaultUploadURL,
                     statusCode: 200,
                     httpVersion: nil,
                     headerFields: ["Content-Type": "application/json"]
@@ -65,7 +39,7 @@
                     "Failed to create HTTPURLResponse for success test", details: nil)
             }
             let errorResponse = HTTPURLResponse(
-                url: Self.defaultUploadURL,
+                url: SwiftUIUploadTestHelpers.defaultUploadURL,
                 statusCode: 500,
                 httpVersion: nil,
                 headerFields: nil
@@ -99,10 +73,10 @@
             async throws
         {
             do {
-                _ = try await performUploadWithTimeout(
+                _ = try await SwiftUIUploadTestHelpers.performUploadWithTimeout(
                     model: model,
                     image: image,
-                    url: Self.defaultUploadURL,
+                    url: SwiftUIUploadTestHelpers.defaultUploadURL,
                     timeoutNanoseconds: 5_000_000_000  // 5 seconds
                 )
                 throw NetworkError.customError(
@@ -122,10 +96,10 @@
             async throws
         {
             do {
-                let successResult = try await performUploadWithTimeout(
+                let successResult = try await SwiftUIUploadTestHelpers.performUploadWithTimeout(
                     model: model,
                     image: image,
-                    url: Self.defaultUploadURL
+                    url: SwiftUIUploadTestHelpers.defaultUploadURL
                 )
                 #expect(
                     String(data: successResult, encoding: .utf8) == "{\"success\": true}",
@@ -137,78 +111,6 @@
             #expect(
                 model.isUploading == false, "isUploading should be false after successful upload")
             #expect(model.error == nil, "Error should be nil after successful upload")
-        }
-
-        /// Helper method to perform upload with timeout coordination using Swift 6 concurrency patterns
-        /// - Parameters:
-        ///   - model: The AsyncImageModel to perform upload on
-        ///   - image: The platform image to upload
-        ///   - url: The upload URL
-        ///   - timeoutNanoseconds: Timeout in nanoseconds (default: 5 seconds)
-        ///   - Returns: The response data from the upload
-        ///   - Throws: NetworkError if upload fails or times out
-        @MainActor
-        private func performUploadWithTimeout(
-            model: AsyncImageModel,
-            image: PlatformImage,
-            url: URL,
-            timeoutNanoseconds: UInt64 = 5_000_000_000  // 5 seconds
-        ) async throws -> Data {
-            let uploadResult = try await raceUploadAgainstTimeout(
-                model: model,
-                image: image,
-                url: url,
-                timeoutNanoseconds: timeoutNanoseconds
-            )
-            return uploadResult
-        }
-
-        /// Races the upload operation against a timeout using task groups
-        /// - Parameters:
-        ///   - model: The AsyncImageModel to perform upload on
-        ///   - image: The platform image to upload
-        ///   - url: The upload URL
-        ///   - timeoutNanoseconds: Timeout duration in nanoseconds
-        ///   - Returns: The upload response data
-        ///   - Throws: NetworkError if upload fails or times out
-        @MainActor
-        private func raceUploadAgainstTimeout(
-            model: AsyncImageModel,
-            image: PlatformImage,
-            url: URL,
-            timeoutNanoseconds: UInt64
-        ) async throws -> Data {
-            let uploadTask = Task {
-                try await model.uploadImage(
-                    image,
-                    to: url,
-                    uploadType: .multipart,
-                    configuration: UploadConfiguration()
-                )
-            }
-
-            return try await withThrowingTaskGroup(of: Data.self) { group in
-                // Add upload task
-                group.addTask { try await uploadTask.value }
-
-                // Add timeout task
-                group.addTask {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    throw NetworkError.customError(
-                        "Test timeout", details: "Upload operation took too long")
-                }
-
-                guard let result = try await group.next() else {
-                    throw NetworkError.customError(
-                        "No task completed", details: nil)
-                }
-
-                // Clean up remaining tasks
-                group.cancelAll()
-                uploadTask.cancel()
-
-                return result
-            }
         }
     }
 #endif

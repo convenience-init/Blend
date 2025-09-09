@@ -264,20 +264,22 @@ public class AsyncImageModel {
 
         do {
             let responseData: Data
+            let validatedProgressHandler = createValidatedProgressHandler(onProgress)
+
             switch uploadType {
             case .multipart:
                 responseData = try await imageService.uploadImageMultipart(
                     imageData,
                     to: uploadURL,
                     configuration: configuration,
-                    onProgress: createValidatedProgressHandler(onProgress)
+                    onProgress: validatedProgressHandler
                 )
             case .base64:
                 responseData = try await imageService.uploadImageBase64(
                     imageData,
                     to: uploadURL,
                     configuration: configuration,
-                    onProgress: createValidatedProgressHandler(onProgress)
+                    onProgress: validatedProgressHandler
                 )
             }
             self.error = nil  // Clear any previous error on successful upload
@@ -301,9 +303,10 @@ public class AsyncImageModel {
     private func createValidatedProgressHandler(_ originalHandler: (@Sendable (Double) -> Void)?) -> (@Sendable (Double) -> Void)? {
         guard let originalHandler = originalHandler else { return nil }
 
-        return { progress in
-            // Validate progress is within valid range (0.0 to 1.0)
-            let validatedProgress = max(0.0, min(1.0, progress))
+        return { [originalHandler] progress in
+            // Validate progress is within valid range (0.0 to 1.0) and call handler
+            // Optimized validation using conditional check for better performance
+            let validatedProgress = progress < 0.0 ? 0.0 : (progress > 1.0 ? 1.0 : progress)
             originalHandler(validatedProgress)
         }
     }
