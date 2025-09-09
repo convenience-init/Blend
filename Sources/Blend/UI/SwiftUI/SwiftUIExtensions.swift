@@ -270,14 +270,14 @@ public class AsyncImageModel {
                     imageData,
                     to: uploadURL,
                     configuration: configuration,
-                    onProgress: onProgress
+                    onProgress: createValidatedProgressHandler(onProgress)
                 )
             case .base64:
                 responseData = try await imageService.uploadImageBase64(
                     imageData,
                     to: uploadURL,
                     configuration: configuration,
-                    onProgress: onProgress
+                    onProgress: createValidatedProgressHandler(onProgress)
                 )
             }
             self.error = nil  // Clear any previous error on successful upload
@@ -292,6 +292,19 @@ public class AsyncImageModel {
             self.hasError = true
             self.error = netError
             throw netError
+        }
+    }
+
+    /// Creates a validated progress handler that ensures progress values are within 0.0 to 1.0 range
+    /// - Parameter originalHandler: The original progress handler to wrap
+    /// - Returns: A validated progress handler or nil if originalHandler is nil
+    private func createValidatedProgressHandler(_ originalHandler: (@Sendable (Double) -> Void)?) -> (@Sendable (Double) -> Void)? {
+        guard let originalHandler = originalHandler else { return nil }
+
+        return { progress in
+            // Validate progress is within valid range (0.0 to 1.0)
+            let validatedProgress = max(0.0, min(1.0, progress))
+            originalHandler(validatedProgress)
         }
     }
 }
@@ -475,11 +488,11 @@ public struct AsyncNetImageView: View {
             )
             // Upload successful - result contains response data
             // In a real app, you might want to handle the response data here
-            print("Upload successful: \(result)")
+            blendLogger.info("Upload successful: \(result.count) bytes received")
         } catch {
             // Upload failed - error is already handled by AsyncImageModel
             // The model's error state is updated, which will be reflected in the UI
-            print("Upload failed: \(error)")
+            blendLogger.error("Upload failed: \(error.localizedDescription)")
         }
     }
 
