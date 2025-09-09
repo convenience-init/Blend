@@ -317,7 +317,7 @@ public actor BlendConfig {
         _maxImagePixels = pixels
     }
 
-    /// Resets the timeout duration to the configured default (see AsyncNetConfig.defaultTimeout)
+    /// Resets the timeout duration to the configured default (see BlendConfig.defaultTimeout)
     public func resetTimeoutDuration() {
         _timeoutDuration = BlendConfig.defaultTimeout
     }

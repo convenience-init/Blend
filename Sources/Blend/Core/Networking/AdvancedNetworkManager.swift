@@ -19,9 +19,9 @@ import os
 /// - Retry logic with exponential backoff and jitter
 /// - Request/response interception
 /// - Thread-safe actor-based implementation
-/// - Integration with Blend error handling (NetworkError, AsyncNetConfig)
+/// - Integration with Blend error handling (NetworkError, BlendConfig)
 ///
-/// Dependencies: NetworkError and AsyncNetConfig are defined in the same Blend module
+/// Dependencies: NetworkError and BlendConfig are defined in the same Blend module
 /// and are accessible without additional imports.
 public actor AdvancedNetworkManager {
     private var inFlightTasks: [String: Task<Data, Error>] = [:]

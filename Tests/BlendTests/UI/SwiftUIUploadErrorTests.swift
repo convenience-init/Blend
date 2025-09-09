@@ -43,12 +43,12 @@
 
             // Test the upload by capturing the error through try/catch
             do {
-                let uploadResult = try await model.uploadImage(
+                _ = try await model.uploadImage(
                     platformImage, to: SwiftUIUploadTestHelpers.defaultUploadURL,
                     uploadType: .base64,
                     configuration: UploadConfiguration()
                 )
-                Issue.record("Expected upload to fail but it succeeded with result: \(uploadResult)")
+                Issue.record("Expected upload to fail but it succeeded")
             } catch {
                 // Assert the error is the expected type
                 if let networkError = error as? NetworkError {

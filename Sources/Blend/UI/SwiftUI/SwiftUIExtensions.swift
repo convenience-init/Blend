@@ -212,7 +212,7 @@ public class AsyncImageModel {
     ///
     /// - Parameters:
     ///   - image: The PlatformImage to upload
-    ///   - uploadURL: The URL to upload the image to
+    ///   - uploadURL: The URL to upload the image to (required)
     ///   - uploadType: The type of upload (.multipart or .base64)
     ///   - configuration: Upload configuration including field names and compression
     ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0).
@@ -224,7 +224,7 @@ public class AsyncImageModel {
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails
     public func uploadImage(
-        _ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType,
+        _ image: PlatformImage, to uploadURL: URL, uploadType: UploadType,
         configuration: UploadConfiguration,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
@@ -233,13 +233,6 @@ public class AsyncImageModel {
         defer {
             // Always reset uploading state after operation completes
             isUploading = false
-        }
-
-        guard let uploadURL = uploadURL else {
-            let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")
-            self.hasError = true
-            self.error = error
-            throw error
         }
 
         guard
@@ -447,11 +440,19 @@ public struct AsyncNetImageView: View {
             )
             // Upload successful - result contains response data
             // In a real app, you might want to handle the response data here
-            blendLogger.info("Upload successful: \(result.count) bytes received")
+            #if DEBUG
+                blendLogger.info("Upload successful: \(result.count) bytes received")
+            #else
+                blendLogger.info("Upload successful")
+            #endif
         } catch {
             // Upload failed - error is already handled by AsyncImageModel
             // The model's error state is updated, which will be reflected in the UI
-            blendLogger.error("Upload failed: \(error.localizedDescription)")
+            #if DEBUG
+                blendLogger.error("Upload failed: \(error.localizedDescription)")
+            #else
+                blendLogger.error("Upload failed")
+            #endif
         }
     }
 

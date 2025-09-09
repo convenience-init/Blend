@@ -215,7 +215,7 @@ public actor ImageService {
     // Deduplication: Track in-flight fetchImageData requests by URL string
     internal var inFlightImageTasks: [String: Task<Data, Error>] = [:]
 
-    /// Per-instance maximum upload size override (nil means use global AsyncNetConfig.shared.maxUploadSize)
+    /// Per-instance maximum upload size override (nil means use global BlendConfig.shared.maxUploadSize)
     internal let maxUploadSize: Int?
 
     // Cache metrics
