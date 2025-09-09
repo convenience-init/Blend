@@ -38,11 +38,11 @@
         /// This method races an upload operation against a timeout to prevent tests from hanging.
         ///
         /// - Parameters:
-        ///   - model: The AsyncImageModel to perform upload on.
-        ///   - image: The platform image to upload.
-        ///   - url: The upload URL.
-        ///   - uploadType: The type of upload (.multipart or .base64).
-        ///   - timeoutNanoseconds: Timeout in nanoseconds (default: 5 seconds).
+        ///   - model: The AsyncImageModel to perform upload on
+        ///   - image: The platform image to upload
+        ///   - url: The upload URL
+        ///   - uploadType: The type of upload (.multipart or .base64)
+        ///   - timeoutNanoseconds: Timeout in nanoseconds (default: 5 seconds)
         /// - Returns: The response data from the upload.
         /// - Throws: NetworkError if upload fails or times out.
         @MainActor
