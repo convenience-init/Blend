@@ -179,10 +179,6 @@ public class AsyncImageModel {
     /// This is the simpler version without progress tracking. For uploads with progress callbacks,
     /// use the overload that accepts an `onProgress` parameter.
     ///
-    /// There are two upload variants:
-    /// - Simple upload (no progress tracking): use this method.
-    /// - Upload with progress tracking: use the overload that accepts an `onProgress` parameter.
-    ///
     /// **Example: Simple upload**
     /// ```
     /// let responseData = try await uploadImage(

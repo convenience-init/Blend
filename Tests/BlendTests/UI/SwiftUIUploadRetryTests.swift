@@ -192,7 +192,7 @@
             url: URL,
             timeoutNanoseconds: UInt64
         ) async throws -> Data {
-            let uploadTask = Task { @MainActor in
+            let uploadTask = Task {
                 try await model.uploadImage(
                     image,
                     to: url,
