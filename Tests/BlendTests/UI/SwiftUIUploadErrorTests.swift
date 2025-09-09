@@ -7,20 +7,6 @@
 
     @Suite("SwiftUI Upload Error Tests")
     public struct SwiftUIUploadErrorTests {
-        private static let minimalPNGBase64 =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
-
-        /// Decode the minimal PNG Base64 string into Data
-        /// - Returns: The decoded Data
-        /// - Throws: NetworkError if decoding fails
-        private static func decodeMinimalPNGBase64() throws -> Data {
-            guard let data = Data(base64Encoded: minimalPNGBase64) else {
-                throw NetworkError.customError(
-                    "Failed to decode minimalPNGBase64 - invalid Base64 string", details: nil)
-            }
-            return data
-        }
-
         private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
 
         @MainActor
@@ -28,7 +14,7 @@
             // Create a mock session that returns an upload error
             guard
                 let errorResponse = HTTPURLResponse(
-                    url: Self.defaultUploadURL,
+                    url: SwiftUIUploadTestHelpers.defaultUploadURL,
                     statusCode: 500,
                     httpVersion: nil,
                     headerFields: ["Content-Type": "application/json"]
@@ -50,7 +36,7 @@
             let model = AsyncImageModel(imageService: service)
 
             // Guard against nil platform image
-            let testData = try Self.getMinimalPNGData()
+            let testData = try SwiftUIUploadTestHelpers.getMinimalPNGData()
             guard let platformImage = ImageService.platformImage(from: testData) else {
                 throw NetworkError.customError(
                     "Failed to create platform image from test data", details: nil)
@@ -59,7 +45,8 @@
             // Test the upload by capturing the error through try/catch
             do {
                 let uploadResult = try await model.uploadImage(
-                    platformImage, to: Self.defaultUploadURL, uploadType: .base64,
+                    platformImage, to: SwiftUIUploadTestHelpers.defaultUploadURL,
+                    uploadType: .base64,
                     configuration: UploadConfiguration()
                 )
                 Issue.record("Expected upload to fail but it succeeded with result: \(uploadResult)")
@@ -80,11 +67,5 @@
             #expect(model.hasError, "Model should have error state after failed upload")
             #expect(model.error != nil, "Model should have captured an error")
         }
-
-        /// Test-friendly version that throws instead of crashing
-        private static func getMinimalPNGData() throws -> Data {
-            try decodeMinimalPNGBase64()
-        }
     }
-
 #endif

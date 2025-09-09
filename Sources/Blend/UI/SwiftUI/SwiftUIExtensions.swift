@@ -209,27 +209,6 @@ public class AsyncImageModel {
     ///   - uploadURL: The URL to upload the image to
     ///   - uploadType: The type of upload (.multipart or .base64)
     ///   - configuration: Upload configuration including field names and compression
-    /// - Returns: The response data from the upload endpoint
-    /// - Throws: NetworkError if the upload fails
-    public func uploadImage(
-        _ image: PlatformImage, to uploadURL: URL?, uploadType: UploadType,
-        configuration: UploadConfiguration
-    ) async throws -> Data {
-        try await uploadImage(
-            image,
-            to: uploadURL,
-            uploadType: uploadType,
-            configuration: configuration,
-            onProgress: nil
-        )
-    }
-
-    /// Uploads an image with progress tracking and returns the response data. Throws NetworkError on failure.
-    /// - Parameters:
-    ///   - image: The PlatformImage to upload
-    ///   - uploadURL: The URL to upload the image to
-    ///   - uploadType: The type of upload (.multipart or .base64)
-    ///   - configuration: Upload configuration including field names and compression
     ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0)
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails
