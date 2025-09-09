@@ -133,7 +133,7 @@ public actor AdvancedNetworkManager {
             if error is CancellationError {
                 cancelInFlightTask(forKey: key)
             }
-            throw await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+            throw await NetworkError.wrapAsync(error, config: BlendConfig.shared)
         }
     }
 
@@ -213,7 +213,7 @@ public actor AdvancedNetworkManager {
         #endif
 
         if let lastError = lastError {
-            throw await NetworkError.wrapAsync(lastError, config: AsyncNetConfig.shared)
+            throw await NetworkError.wrapAsync(lastError, config: BlendConfig.shared)
         } else {
             throw NetworkError.customError("Unknown error in AdvancedNetworkManager", details: nil)
         }

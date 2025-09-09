@@ -202,7 +202,7 @@ public enum RequestUtilities {
             shouldRetryAttempt = customShouldRetry(error, attempt)
         } else {
             // Default behavior: always retry (maxAttempts controls total attempts)
-            let wrappedError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+            let wrappedError = await NetworkError.wrapAsync(error, config: BlendConfig.shared)
             #if canImport(OSLog)
                 blendLogger.debug(
                     """

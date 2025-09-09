@@ -122,7 +122,7 @@ public actor ImageService {
                 return try await operation()
             } catch {
                 let wrappedError = await NetworkError.wrapAsync(
-                    error, config: AsyncNetConfig.shared)
+                    error, config: BlendConfig.shared)
                 lastError = wrappedError
 
                 // Check if we should retry this error

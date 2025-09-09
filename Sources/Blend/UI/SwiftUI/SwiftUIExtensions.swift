@@ -168,7 +168,7 @@ public class AsyncImageModel {
     /// Handles image loading errors
     @MainActor
     private func handleImageLoadError(_ error: Error) async {
-        let wrappedError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+        let wrappedError = await NetworkError.wrapAsync(error, config: BlendConfig.shared)
         self.hasError = true
         self.error = wrappedError
         self.isLoading = false
@@ -287,7 +287,7 @@ public class AsyncImageModel {
             if let existingError = error as? NetworkError {
                 netError = existingError
             } else {
-                netError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+                netError = await NetworkError.wrapAsync(error, config: BlendConfig.shared)
             }
             self.hasError = true
             self.error = netError

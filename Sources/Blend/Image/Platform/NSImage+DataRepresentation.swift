@@ -64,8 +64,8 @@
             }
 
             // Get current configuration limits
-            let maxDimension = await AsyncNetConfig.shared.maxImageDimension
-            let maxPixels = await AsyncNetConfig.shared.maxImagePixels
+            let maxDimension = await BlendConfig.shared.maxImageDimension
+            let maxPixels = await BlendConfig.shared.maxImagePixels
 
             // Safeguard against arbitrarily large dimensions to prevent unbounded memory allocation
             // Check individual dimensions
@@ -150,8 +150,8 @@
             guard isValid else { return nil }
 
             // Get current configuration limits
-            let maxDimension = await AsyncNetConfig.shared.maxImageDimension
-            let maxPixels = await AsyncNetConfig.shared.maxImagePixels
+            let maxDimension = await BlendConfig.shared.maxImageDimension
+            let maxPixels = await BlendConfig.shared.maxImagePixels
 
             // Determine pixel dimensions from the best available source
             var pixelsWide: Int

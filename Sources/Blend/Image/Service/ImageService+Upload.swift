@@ -80,7 +80,7 @@ extension ImageService {
         if let instanceMaxUploadSize = maxUploadSize {
             configMaxUploadSize = instanceMaxUploadSize
         } else {
-            configMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+            configMaxUploadSize = await BlendConfig.shared.maxUploadSize
         }
 
         if configMaxUploadSize > 0 {
@@ -98,7 +98,7 @@ extension ImageService {
         if let instanceMaxUploadSize = maxUploadSize {
             return instanceMaxUploadSize
         } else {
-            return await AsyncNetConfig.shared.maxUploadSize
+            return await BlendConfig.shared.maxUploadSize
         }
     }
 
@@ -235,7 +235,7 @@ extension ImageService {
         if let instanceMaxUploadSize = maxUploadSize {
             effectiveMaxUploadSize = instanceMaxUploadSize
         } else {
-            effectiveMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+            effectiveMaxUploadSize = await BlendConfig.shared.maxUploadSize
         }
 
         if payloadSize > effectiveMaxUploadSize {
@@ -460,7 +460,7 @@ extension ImageService {
         if let instanceMaxUploadSize = maxUploadSize {
             effectiveMaxUploadSize = instanceMaxUploadSize
         } else {
-            effectiveMaxUploadSize = await AsyncNetConfig.shared.maxUploadSize
+            effectiveMaxUploadSize = await BlendConfig.shared.maxUploadSize
         }
 
         if imageSize > effectiveMaxUploadSize {

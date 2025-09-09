@@ -1,7 +1,7 @@
 import Foundation
 
 /// Errors that can occur when configuring Blend components
-public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
+public enum BlendConfigError: Error, LocalizedError, Sendable {
     /// The timeout duration is invalid (not finite or not greater than 0)
     case invalidTimeoutDuration(String)
     /// The maximum upload size is invalid (not greater than 0)
@@ -29,48 +29,48 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
         case .invalidTimeoutDuration:
             return "Provide a finite timeout duration greater than 0 seconds."
         case .invalidMaxUploadSize:
-            let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
-            let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
+            let minMB = Double(BlendConfig.minUploadSize) / 1024.0 / 1024.0
+            let maxMB = Double(BlendConfig.maxUploadSize) / 1024.0 / 1024.0
             return
-                "Provide a maximum upload size between \(AsyncNetConfig.minUploadSize) - " +
-                "\(AsyncNetConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
+                "Provide a maximum upload size between \(BlendConfig.minUploadSize) - " +
+                "\(BlendConfig.maxUploadSize) bytes (\(minMB) - \(maxMB) MB)."
         case .invalidMaxImageDimension:
             return "Provide a maximum image dimension between 1024 and 32768 pixels."
         case .invalidMaxImagePixels:
-            let minMPixels = Double(AsyncNetConfig.minImagePixels) / 1024.0 / 1024.0
-            let maxMPixels = Double(AsyncNetConfig.maxImagePixels) / 1024.0 / 1024.0
+            let minMPixels = Double(BlendConfig.minImagePixels) / 1024.0 / 1024.0
+            let maxMPixels = Double(BlendConfig.maxImagePixels) / 1024.0 / 1024.0
             return
-                "Provide a maximum image pixels between \(AsyncNetConfig.minImagePixels) - " +
-                "\(AsyncNetConfig.maxImagePixels) pixels (\(minMPixels) - \(maxMPixels) MP)."
+                "Provide a maximum image pixels between \(BlendConfig.minImagePixels) - " +
+                "\(BlendConfig.maxImagePixels) pixels (\(minMPixels) - \(maxMPixels) MP)."
         }
     }
 }
 
 /// Thread-safe configuration for Blend networking operations.
 ///
-/// `AsyncNetConfig` provides actor-isolated configuration that can be safely accessed
+/// `BlendConfig` provides actor-isolated configuration that can be safely accessed
 /// from concurrent contexts without race conditions.
 ///
-/// - Important: Accessing the static shared singleton (`AsyncNetConfig.shared`) is synchronous,
+/// - Important: Accessing the static shared singleton (`BlendConfig.shared`) is synchronous,
 ///   but reading instance properties and calling actor-isolated methods require `await`.
 ///
 /// ### Usage Example
 /// ```swift
 /// // Access the shared singleton (synchronous)
-/// let config = AsyncNetConfig.shared
+/// let config = BlendConfig.shared
 ///
 /// // Configure timeout duration (requires await and can throw)
 /// do {
-///     try await AsyncNetConfig.shared.setTimeoutDuration(30.0)
+///     try await BlendConfig.shared.setTimeoutDuration(30.0)
 /// } catch {
 ///     print("Failed to set timeout duration: \(error)")
 /// }
 ///
 /// // Read timeout duration (requires await)
-/// let timeout = await AsyncNetConfig.shared.timeoutDuration
+/// let timeout = await BlendConfig.shared.timeoutDuration
 ///
 /// // Use in async error wrapping
-/// let networkError = await NetworkError.wrapAsync(error, config: AsyncNetConfig.shared)
+/// let networkError = await NetworkError.wrapAsync(error, config: BlendConfig.shared)
 /// ```
 ///
 /// ### Thread Safety
@@ -78,10 +78,10 @@ public enum AsyncNetConfigError: Error, LocalizedError, Sendable {
 /// Instance property access and method calls require `await` to maintain isolation, but
 /// accessing the shared singleton reference itself is synchronous.
 ///
-/// Enhanced configuration system for AsyncNet (ASYNC-302)
-public actor AsyncNetConfig {
+/// Enhanced configuration system for Blend networking operations
+public actor BlendConfig {
     /// Shared instance for global configuration access
-    public static let shared = AsyncNetConfig()
+    public static let shared = BlendConfig()
 
     /// Default timeout duration for network requests (in seconds)
     public static let defaultTimeout: TimeInterval = 60.0
@@ -114,44 +114,44 @@ public actor AsyncNetConfig {
     public static let maxImagePixels: Int = 400 * 1024 * 1024  // 400M pixels
 
     /// Default timeout duration for network requests (in seconds)
-    private var _timeoutDuration: TimeInterval = AsyncNetConfig.defaultTimeout
+    private var _timeoutDuration: TimeInterval = BlendConfig.defaultTimeout
 
     /// Maximum upload size for image uploads (in bytes)
-    private var _maxUploadSize: Int = AsyncNetConfig.defaultMaxUploadSize
+    private var _maxUploadSize: Int = BlendConfig.defaultMaxUploadSize
 
     /// Initial effective maximum upload size (captures environment override or default)
-    private var _initialMaxUploadSize: Int = AsyncNetConfig.defaultMaxUploadSize
+    private var _initialMaxUploadSize: Int = BlendConfig.defaultMaxUploadSize
 
     /// Maximum image dimension (pixels per side)
-    private var _maxImageDimension: Int = AsyncNetConfig.defaultMaxImageDimension
+    private var _maxImageDimension: Int = BlendConfig.defaultMaxImageDimension
 
     /// Initial effective maximum image dimension (captures environment override or default)
-    private var _initialMaxImageDimension: Int = AsyncNetConfig.defaultMaxImageDimension
+    private var _initialMaxImageDimension: Int = BlendConfig.defaultMaxImageDimension
 
     /// Maximum total image pixels
-    private var _maxImagePixels: Int = AsyncNetConfig.defaultMaxImagePixels
+    private var _maxImagePixels: Int = BlendConfig.defaultMaxImagePixels
 
     /// Initial effective maximum image pixels (captures environment override or default)
-    private var _initialMaxImagePixels: Int = AsyncNetConfig.defaultMaxImagePixels
+    private var _initialMaxImagePixels: Int = BlendConfig.defaultMaxImagePixels
 
     /// Private initializer to enforce singleton pattern
     private init() {
         // Initialize maxUploadSize from environment variable if available
         if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_UPLOAD_SIZE"] {
             if let size = Int(envValue) {
-                if size >= AsyncNetConfig.minUploadSize && size <= AsyncNetConfig.maxUploadSize {
+                if size >= BlendConfig.minUploadSize && size <= BlendConfig.maxUploadSize {
                     _maxUploadSize = size
                 } else {
                     // Log warning for out-of-bounds values
-                    let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
-                    let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
+                    let minMB = Double(BlendConfig.minUploadSize) / 1024.0 / 1024.0
+                    let maxMB = Double(BlendConfig.maxUploadSize) / 1024.0 / 1024.0
                     let providedMB = Double(size) / 1024.0 / 1024.0
 
                     #if DEBUG
                     print(
                         "Warning: ASYNC_NET_MAX_UPLOAD_SIZE value \(size) bytes (\(providedMB) MB) is out of range. "
-                            + "Valid range is \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes "
-                            + "(\(minMB) - \(maxMB) MB). Using default: \(AsyncNetConfig.defaultMaxUploadSize) bytes.")
+                            + "Valid range is \(BlendConfig.minUploadSize) - \(BlendConfig.maxUploadSize) bytes "
+                            + "(\(minMB) - \(maxMB) MB). Using default: \(BlendConfig.defaultMaxUploadSize) bytes.")
                     #endif
                 }
             } else {
@@ -159,7 +159,7 @@ public actor AsyncNetConfig {
                 #if DEBUG
                 print(
                     "Warning: ASYNC_NET_MAX_UPLOAD_SIZE value '\(envValue)' is not a valid integer. "
-                        + "Using default: \(AsyncNetConfig.defaultMaxUploadSize) bytes.")
+                        + "Using default: \(BlendConfig.defaultMaxUploadSize) bytes.")
                 #endif
             }
         }
@@ -170,15 +170,15 @@ public actor AsyncNetConfig {
         // Initialize maxImageDimension from environment variable if available
         if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_IMAGE_DIMENSION"] {
             if let dimension = Int(envValue) {
-                if dimension >= AsyncNetConfig.minImageDimension && dimension <= AsyncNetConfig.maxImageDimension {
+                if dimension >= BlendConfig.minImageDimension && dimension <= BlendConfig.maxImageDimension {
                     _maxImageDimension = dimension
                 } else {
                     // Log warning for out-of-bounds values
                     #if DEBUG
                     print(
                         "Warning: ASYNC_NET_MAX_IMAGE_DIMENSION value \(dimension) is out of range. "
-                            + "Valid range is \(AsyncNetConfig.minImageDimension) - \(AsyncNetConfig.maxImageDimension) pixels. "
-                            + "Using default: \(AsyncNetConfig.defaultMaxImageDimension) pixels.")
+                            + "Valid range is \(BlendConfig.minImageDimension) - \(BlendConfig.maxImageDimension) pixels. "
+                            + "Using default: \(BlendConfig.defaultMaxImageDimension) pixels.")
                     #endif
                 }
             } else {
@@ -186,7 +186,7 @@ public actor AsyncNetConfig {
                 #if DEBUG
                 print(
                     "Warning: ASYNC_NET_MAX_IMAGE_DIMENSION value '\(envValue)' is not a valid integer. "
-                        + "Using default: \(AsyncNetConfig.defaultMaxImageDimension) pixels.")
+                        + "Using default: \(BlendConfig.defaultMaxImageDimension) pixels.")
                 #endif
             }
         }
@@ -194,18 +194,18 @@ public actor AsyncNetConfig {
         // Initialize maxImagePixels from environment variable if available
         if let envValue = ProcessInfo.processInfo.environment["ASYNC_NET_MAX_IMAGE_PIXELS"] {
             if let pixels = Int(envValue) {
-                if pixels >= AsyncNetConfig.minImagePixels && pixels <= AsyncNetConfig.maxImagePixels {
+                if pixels >= BlendConfig.minImagePixels && pixels <= BlendConfig.maxImagePixels {
                     _maxImagePixels = pixels
                 } else {
                     // Log warning for out-of-bounds values
-                    let minMPixels = Double(AsyncNetConfig.minImagePixels) / 1024.0 / 1024.0
-                    let maxMPixels = Double(AsyncNetConfig.maxImagePixels) / 1024.0 / 1024.0
+                    let minMPixels = Double(BlendConfig.minImagePixels) / 1024.0 / 1024.0
+                    let maxMPixels = Double(BlendConfig.maxImagePixels) / 1024.0 / 1024.0
                     let providedMPixels = Double(pixels) / 1024.0 / 1024.0
                     #if DEBUG
                     print(
                         "Warning: ASYNC_NET_MAX_IMAGE_PIXELS value \(pixels) pixels (\(providedMPixels) MP) is out of range. "
-                            + "Valid range is \(AsyncNetConfig.minImagePixels) - \(AsyncNetConfig.maxImagePixels) pixels "
-                            + "(\(minMPixels) - \(maxMPixels) MP). Using default: \(AsyncNetConfig.defaultMaxImagePixels) pixels.")
+                            + "Valid range is \(BlendConfig.minImagePixels) - \(BlendConfig.maxImagePixels) pixels "
+                            + "(\(minMPixels) - \(maxMPixels) MP). Using default: \(BlendConfig.defaultMaxImagePixels) pixels.")
                     #endif
                 }
             } else {
@@ -213,7 +213,7 @@ public actor AsyncNetConfig {
                 #if DEBUG
                 print(
                     "Warning: ASYNC_NET_MAX_IMAGE_PIXELS value '\(envValue)' is not a valid integer. "
-                        + "Using default: \(AsyncNetConfig.defaultMaxImagePixels) pixels.")
+                        + "Using default: \(BlendConfig.defaultMaxImagePixels) pixels.")
                 #endif
             }
         }
@@ -227,14 +227,14 @@ public actor AsyncNetConfig {
     /// - Parameter timeoutDuration: Initial timeout duration for testing
     /// - Note: This initializer is only available during testing to allow for isolated test instances
     #if DEBUG || TESTING
-        internal init(timeoutDuration: TimeInterval = AsyncNetConfig.defaultTimeout) {
+        internal init(timeoutDuration: TimeInterval = BlendConfig.defaultTimeout) {
             self._timeoutDuration = timeoutDuration
-            self._maxUploadSize = AsyncNetConfig.defaultMaxUploadSize
-            self._initialMaxUploadSize = AsyncNetConfig.defaultMaxUploadSize
-            self._maxImageDimension = AsyncNetConfig.defaultMaxImageDimension
-            self._initialMaxImageDimension = AsyncNetConfig.defaultMaxImageDimension
-            self._maxImagePixels = AsyncNetConfig.defaultMaxImagePixels
-            self._initialMaxImagePixels = AsyncNetConfig.defaultMaxImagePixels
+            self._maxUploadSize = BlendConfig.defaultMaxUploadSize
+            self._initialMaxUploadSize = BlendConfig.defaultMaxUploadSize
+            self._maxImageDimension = BlendConfig.defaultMaxImageDimension
+            self._initialMaxImageDimension = BlendConfig.defaultMaxImageDimension
+            self._maxImagePixels = BlendConfig.defaultMaxImagePixels
+            self._initialMaxImagePixels = BlendConfig.defaultMaxImagePixels
         }
     #endif
 
@@ -264,8 +264,8 @@ public actor AsyncNetConfig {
 
     /// Sets the timeout duration for network requests
     /// - Parameter duration: The timeout duration in seconds (must be finite and > 0)
-    /// - Throws: AsyncNetConfigError.invalidTimeoutDuration if the duration is invalid
-    public func setTimeoutDuration(_ duration: TimeInterval) throws(AsyncNetConfigError) {
+    /// - Throws: BlendConfigError.invalidTimeoutDuration if the duration is invalid
+    public func setTimeoutDuration(_ duration: TimeInterval) throws(BlendConfigError) {
         guard duration.isFinite && duration > 0 else {
             throw .invalidTimeoutDuration(
                 "Duration must be a finite number greater than 0, got \(duration)")
@@ -275,14 +275,14 @@ public actor AsyncNetConfig {
 
     /// Sets the maximum upload size for image uploads
     /// - Parameter size: The maximum upload size in bytes (must be between 1KB and 100MB)
-    /// - Throws: AsyncNetConfigError.invalidMaxUploadSize if the size is invalid
-    public func setMaxUploadSize(_ size: Int) throws(AsyncNetConfigError) {
-        guard size >= AsyncNetConfig.minUploadSize && size <= AsyncNetConfig.maxUploadSize else {
-            let minMB = Double(AsyncNetConfig.minUploadSize) / 1024.0 / 1024.0
-            let maxMB = Double(AsyncNetConfig.maxUploadSize) / 1024.0 / 1024.0
+    /// - Throws: BlendConfigError.invalidMaxUploadSize if the size is invalid
+    public func setMaxUploadSize(_ size: Int) throws(BlendConfigError) {
+        guard size >= BlendConfig.minUploadSize && size <= BlendConfig.maxUploadSize else {
+            let minMB = Double(BlendConfig.minUploadSize) / 1024.0 / 1024.0
+            let maxMB = Double(BlendConfig.maxUploadSize) / 1024.0 / 1024.0
             let providedMB = Double(size) / 1024.0 / 1024.0
             throw .invalidMaxUploadSize(
-                "Size must be between \(AsyncNetConfig.minUploadSize) - \(AsyncNetConfig.maxUploadSize) bytes " +
+                "Size must be between \(BlendConfig.minUploadSize) - \(BlendConfig.maxUploadSize) bytes " +
                 "(\(minMB) - \(maxMB) MB), got \(size) bytes (\(providedMB) MB)"
             )
         }
@@ -291,11 +291,11 @@ public actor AsyncNetConfig {
 
     /// Sets the maximum image dimension
     /// - Parameter dimension: The maximum image dimension in pixels per side (must be between 1K and 32K)
-    /// - Throws: AsyncNetConfigError.invalidMaxImageDimension if the dimension is invalid
-    public func setMaxImageDimension(_ dimension: Int) throws(AsyncNetConfigError) {
-        guard dimension >= AsyncNetConfig.minImageDimension && dimension <= AsyncNetConfig.maxImageDimension else {
+    /// - Throws: BlendConfigError.invalidMaxImageDimension if the dimension is invalid
+    public func setMaxImageDimension(_ dimension: Int) throws(BlendConfigError) {
+        guard dimension >= BlendConfig.minImageDimension && dimension <= BlendConfig.maxImageDimension else {
             throw .invalidMaxImageDimension(
-                "Dimension must be between \(AsyncNetConfig.minImageDimension) - \(AsyncNetConfig.maxImageDimension) pixels, got \(dimension) pixels"
+                "Dimension must be between \(BlendConfig.minImageDimension) - \(BlendConfig.maxImageDimension) pixels, got \(dimension) pixels"
             )
         }
         _maxImageDimension = dimension
@@ -303,14 +303,14 @@ public actor AsyncNetConfig {
 
     /// Sets the maximum total image pixels
     /// - Parameter pixels: The maximum total image pixels (must be between 1M and 400M)
-    /// - Throws: AsyncNetConfigError.invalidMaxImagePixels if the pixels value is invalid
-    public func setMaxImagePixels(_ pixels: Int) throws(AsyncNetConfigError) {
-        guard pixels >= AsyncNetConfig.minImagePixels && pixels <= AsyncNetConfig.maxImagePixels else {
-            let minMPixels = Double(AsyncNetConfig.minImagePixels) / 1024.0 / 1024.0
-            let maxMPixels = Double(AsyncNetConfig.maxImagePixels) / 1024.0 / 1024.0
+    /// - Throws: BlendConfigError.invalidMaxImagePixels if the pixels value is invalid
+    public func setMaxImagePixels(_ pixels: Int) throws(BlendConfigError) {
+        guard pixels >= BlendConfig.minImagePixels && pixels <= BlendConfig.maxImagePixels else {
+            let minMPixels = Double(BlendConfig.minImagePixels) / 1024.0 / 1024.0
+            let maxMPixels = Double(BlendConfig.maxImagePixels) / 1024.0 / 1024.0
             let providedMPixels = Double(pixels) / 1024.0 / 1024.0
             throw .invalidMaxImagePixels(
-                "Pixels must be between \(AsyncNetConfig.minImagePixels) - \(AsyncNetConfig.maxImagePixels) pixels " +
+                "Pixels must be between \(BlendConfig.minImagePixels) - \(BlendConfig.maxImagePixels) pixels " +
                 "(\(minMPixels) - \(maxMPixels) MP), got \(pixels) pixels (\(providedMPixels) MP)"
             )
         }
@@ -319,7 +319,7 @@ public actor AsyncNetConfig {
 
     /// Resets the timeout duration to the configured default (see AsyncNetConfig.defaultTimeout)
     public func resetTimeoutDuration() {
-        _timeoutDuration = AsyncNetConfig.defaultTimeout
+        _timeoutDuration = BlendConfig.defaultTimeout
     }
 
     /// Resets the maximum upload size to the initial runtime-configured value (preserves environment overrides)

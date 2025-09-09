@@ -9,7 +9,7 @@ extension NetworkError {
     ///   - config: The configuration to use for timeout duration
     /// - Returns: A NetworkError representation of the input error
     @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
-    public static func wrapAsync(_ error: Error, config: AsyncNetConfig) async -> NetworkError {
+    public static func wrapAsync(_ error: Error, config: BlendConfig) async -> NetworkError {
         // If error is already a NetworkError, return it as-is
         if let networkError = error as? NetworkError {
             return networkError
