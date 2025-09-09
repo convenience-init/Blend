@@ -10,12 +10,7 @@
         public static let defaultTimeoutNanoseconds: UInt64 = 5_000_000_000
 
         /// Default test upload URL
-        public static let defaultUploadURL: URL = {
-            guard let url = URL(string: "https://mock.api/upload") else {
-                fatalError("Invalid test URL: https://mock.api/upload")
-            }
-            return url
-        }()
+        public static let defaultUploadURL = URL(string: "https://mock.api/upload")!
 
         /// Minimal PNG image data encoded as Base64 for testing
         public static let minimalPNGBase64 =

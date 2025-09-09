@@ -20,7 +20,13 @@ extension Image {
 /// The upload type for image operations.
 ///
 /// - multipart: Uploads image using multipart form data.
+///   - Recommended for large images and production use.
+///   - Better performance for files over 1MB.
+///   - Supports streaming upload for better memory efficiency.
 /// - base64: Uploads image as base64 string in JSON payload.
+///   - Best for small images in JSON APIs.
+///   - Suitable for images under 1MB.
+///   - Convenient when the entire payload needs to be JSON.
 public enum UploadType: String, Sendable {
     case multipart
     case base64
@@ -287,9 +293,9 @@ public class AsyncImageModel {
     private func createValidatedProgressHandler(_ originalHandler: (@Sendable (Double) -> Void)?) -> (@Sendable (Double) -> Void)? {
         guard let originalHandler = originalHandler else { return nil }
 
-        return { [originalHandler] progress in
+        return { progress in
             // Validate progress is within valid range (0.0 to 1.0) and call handler
-            let validatedProgress = self.clampProgress(progress)
+            let validatedProgress = Self.clampProgress(progress)
             originalHandler(validatedProgress)
         }
     }
@@ -297,7 +303,7 @@ public class AsyncImageModel {
     /// Utility function to clamp progress between 0.0 and 1.0
     /// - Parameter progress: The progress value to clamp
     /// - Returns: The clamped progress value between 0.0 and 1.0
-    private nonisolated func clampProgress(_ progress: Double) -> Double {
+    private static nonisolated func clampProgress(_ progress: Double) -> Double {
         return min(max(progress, 0.0), 1.0)
     }
 }
