@@ -34,6 +34,50 @@
             try decodeMinimalPNGBase64()
         }
 
+        /// Performs an operation with a timeout using Swift 6 concurrency patterns.
+        /// This method races the operation against a timeout to prevent hanging.
+        ///
+        /// - Parameters:
+        ///   - operation: The async operation to perform
+        ///   - timeoutNanoseconds: Timeout in nanoseconds
+        ///   - timeoutMessage: Custom timeout error message
+        /// - Returns: The result of the operation
+        /// - Throws: The operation's error or NetworkError on timeout
+        @MainActor
+        public static func withTimeout<T: Sendable>(
+            nanoseconds: UInt64,
+            timeoutMessage: String = "Operation timed out",
+            operation: @escaping () async throws -> T
+        ) async throws -> T {
+            // Create operation task
+            let operationTask = Task {
+                try await operation()
+            }
+
+            // Race operation against timeout using task group
+            return try await withThrowingTaskGroup(of: T.self) { group in
+                // Add operation task
+                group.addTask { try await operationTask.value }
+
+                // Add timeout task that throws after delay
+                group.addTask {
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                    throw NetworkError.customError(timeoutMessage, details: nil)
+                }
+
+                // Get the first completed task result
+                guard let result = try await group.next() else {
+                    throw NetworkError.customError("No task completed", details: nil)
+                }
+
+                // Clean up remaining tasks
+                group.cancelAll()
+                operationTask.cancel()
+
+                return result
+            }
+        }
+
         /// Performs an image upload with timeout coordination using Swift 6 concurrency patterns.
         /// This method races an upload operation against a timeout to prevent tests from hanging.
         ///
@@ -53,39 +97,13 @@
             uploadType: UploadType = .multipart,
             timeoutNanoseconds: UInt64 = defaultTimeoutNanoseconds
         ) async throws -> Data {
-            // Create upload task that runs on main actor
-            let uploadTask = Task {
+            try await withTimeout(nanoseconds: timeoutNanoseconds, timeoutMessage: "Test timeout") {
                 try await model.uploadImage(
                     image,
                     to: url,
                     uploadType: uploadType,
                     configuration: UploadConfiguration()
                 )
-            }
-
-            // Race the upload against the timeout using task group
-            return try await withThrowingTaskGroup(of: Data.self) { group in
-                // Add upload task
-                group.addTask { try await uploadTask.value }
-
-                // Add timeout task that throws after delay
-                group.addTask {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    throw NetworkError.customError(
-                        "Test timeout", details: "Upload operation took too long")
-                }
-
-                // Get the first completed task result
-                guard let result = try await group.next() else {
-                    throw NetworkError.customError(
-                        "No task completed", details: nil)
-                }
-
-                // Clean up remaining tasks
-                group.cancelAll()
-                uploadTask.cancel()
-
-                return result
             }
         }
     }

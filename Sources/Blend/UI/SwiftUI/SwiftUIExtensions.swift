@@ -426,7 +426,15 @@ public struct AsyncNetImageView: View {
         if let expectedUrl = expectedUrl, expectedUrl != url {
             return
         }
-        guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else { return }
+        guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else {
+            // Log error for debugging but don't throw since this is a UI helper function
+            #if DEBUG
+                blendLogger.error("Upload failed: No image loaded or upload URL not set")
+            #else
+                blendLogger.error("Upload failed")
+            #endif
+            return
+        }
 
         do {
             let result = try await model.uploadImage(
@@ -479,8 +487,11 @@ public struct AsyncNetImageView: View {
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
     public func uploadImage(onProgress: (@Sendable (Double) -> Void)? = nil) async throws -> Data {
-        guard let loadedImage = model.loadedImage, let uploadURL = uploadURL else {
-            throw NetworkError.invalidEndpoint(reason: "No image loaded or upload URL not set")
+        guard let loadedImage = model.loadedImage else {
+            throw NetworkError.invalidEndpoint(reason: "No image loaded")
+        }
+        guard let uploadURL = uploadURL else {
+            throw NetworkError.invalidEndpoint(reason: "Upload URL not set")
         }
 
         return try await model.uploadImage(
