@@ -242,8 +242,15 @@ public class AsyncImageModel {
         configuration: UploadConfiguration,
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
+        // Set uploading state and ensure cleanup on exit
+        let wasUploading = isUploading
         isUploading = true
-        defer { isUploading = false }
+        defer {
+            // Only reset if we were the ones who set it
+            if !wasUploading {
+                isUploading = false
+            }
+        }
 
         guard let uploadURL = uploadURL else {
             let error = NetworkError.invalidEndpoint(reason: "Upload URL is required")

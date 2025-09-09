@@ -99,7 +99,7 @@
             async throws
         {
             let initialResult: Result<Data, NetworkError> =
-                try await performUploadWithTimeout(
+                await performUploadWithTimeout(
                     model: model,
                     image: image,
                     url: Self.defaultUploadURL,
@@ -125,7 +125,7 @@
         private func performSuccessfulRetryUpload(model: AsyncImageModel, image: PlatformImage)
             async throws
         {
-            let successResult = try await performUploadWithTimeout(
+            let successResult = await performUploadWithTimeout(
                 model: model,
                 image: image,
                 url: Self.defaultUploadURL
@@ -159,45 +159,69 @@
             image: PlatformImage,
             url: URL,
             timeoutNanoseconds: UInt64 = 5_000_000_000  // 5 seconds
-        ) async throws -> Result<Data, NetworkError> {
+        ) async -> Result<Data, NetworkError> {
             do {
-                let uploadTask = Task { @MainActor in
-                    try await model.uploadImage(
-                        image,
-                        to: url,
-                        uploadType: .multipart,
-                        configuration: UploadConfiguration()
-                    )
-                }
-
-                // Race the upload against the timeout
-                let result = try await withThrowingTaskGroup(of: Data.self) { group in
-                    // Add upload task
-                    group.addTask { try await uploadTask.value }
-
-                    // Add timeout task that throws after delay
-                    group.addTask {
-                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                        throw NetworkError.customError(
-                            "Test timeout", details: "Upload operation took too long")
-                    }
-
-                    guard let result = try await group.next() else {
-                        throw NetworkError.customError(
-                            "No task completed", details: nil)
-                    }
-                    group.cancelAll()
-                    uploadTask.cancel()
-                    return result
-                }
-
-                return .success(result)
+                let uploadResult = try await raceUploadAgainstTimeout(
+                    model: model,
+                    image: image,
+                    url: url,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+                return .success(uploadResult)
             } catch let error as NetworkError {
                 return .failure(error)
             } catch {
                 return .failure(
                     NetworkError.customError(
                         "Unexpected error: \(error.localizedDescription)", details: nil))
+            }
+        }
+
+        /// Races the upload operation against a timeout using task groups
+        /// - Parameters:
+        ///   - model: The AsyncImageModel to perform upload on
+        ///   - image: The platform image to upload
+        ///   - url: The upload URL
+        ///   - timeoutNanoseconds: Timeout duration in nanoseconds
+        ///   - Returns: The upload response data
+        ///   - Throws: NetworkError if upload fails or times out
+        @MainActor
+        private func raceUploadAgainstTimeout(
+            model: AsyncImageModel,
+            image: PlatformImage,
+            url: URL,
+            timeoutNanoseconds: UInt64
+        ) async throws -> Data {
+            let uploadTask = Task { @MainActor in
+                try await model.uploadImage(
+                    image,
+                    to: url,
+                    uploadType: .multipart,
+                    configuration: UploadConfiguration()
+                )
+            }
+
+            return try await withThrowingTaskGroup(of: Data.self) { group in
+                // Add upload task
+                group.addTask { try await uploadTask.value }
+
+                // Add timeout task
+                group.addTask {
+                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    throw NetworkError.customError(
+                        "Test timeout", details: "Upload operation took too long")
+                }
+
+                guard let result = try await group.next() else {
+                    throw NetworkError.customError(
+                        "No task completed", details: nil)
+                }
+
+                // Clean up remaining tasks
+                group.cancelAll()
+                uploadTask.cancel()
+
+                return result
             }
         }
     }
