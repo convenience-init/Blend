@@ -209,7 +209,12 @@ public class AsyncImageModel {
     ///   - uploadURL: The URL to upload the image to
     ///   - uploadType: The type of upload (.multipart or .base64)
     ///   - configuration: Upload configuration including field names and compression
-    ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0)
+    ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0).
+    ///     - **Thread Safety**: The handler is marked `@Sendable` and may be called from background threads.
+    ///       It should be lightweight and avoid UI updates directly (use `@MainActor` or `DispatchQueue.main` for UI work).
+    ///     - **Execution Context**: Called asynchronously during upload operations, potentially multiple times.
+    ///       Progress values are validated and clamped to the 0.0...1.0 range before calling the handler.
+    ///     - **Performance**: Keep the handler implementation lightweight as it's called during I/O operations.
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails
     public func uploadImage(
