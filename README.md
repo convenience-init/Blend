@@ -434,7 +434,7 @@ struct ImageGalleryView: View {
 
     var body: some View {
         VStack {
-            AsyncNetImageView(
+            BlendImageView(
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload")!,
                 uploadType: .multipart,
@@ -455,7 +455,7 @@ struct UploadView: View {
     
     var body: some View {
         VStack {
-            AsyncNetImageView(
+            BlendImageView(
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload")!,
                 uploadType: .multipart,
@@ -469,7 +469,7 @@ struct UploadView: View {
                 Button("Upload (Simple)") {
                     Task {
                         do {
-                            let imageView = AsyncNetImageView(/* same parameters */)
+                            let imageView = BlendImageView(/* same parameters */)
                             let result = try await imageView.uploadImage()
                             uploadResult = "Upload successful: \(result.count) bytes"
                         } catch {
@@ -482,7 +482,7 @@ struct UploadView: View {
                 Button("Upload (With Progress)") {
                     Task {
                         do {
-                            let imageView = AsyncNetImageView(/* same parameters */)
+                            let imageView = BlendImageView(/* same parameters */)
                             let result = try await imageView.uploadImage { progress in
                                 print("Upload progress: \(Int(progress * 100))%")
                             }

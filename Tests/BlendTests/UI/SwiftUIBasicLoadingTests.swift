@@ -63,7 +63,7 @@
         }
 
         @MainActor
-        @Test public func testAsyncNetImageModelLoadingState() async throws {
+        @Test public func testBlendImageModelLoadingState() async throws {
             let mockSession = try makeMockSession()
             let service = ImageService(
                 imageCacheCountLimit: 100,
@@ -91,12 +91,12 @@
         }
 
         @MainActor
-        @Test public func testAsyncNetImageModelErrorState() async {
+        @Test public func testBlendImageModelErrorState() async {
             // Create mock session that returns the same error for multiple calls (to handle retries)
             let mockSession = MockURLSession(scriptedCalls: [
                 MockScript(data: nil, response: nil, error: NetworkError.networkUnavailable),
                 MockScript(data: nil, response: nil, error: NetworkError.networkUnavailable),
-                MockScript(data: nil, response: nil, error: NetworkError.networkUnavailable)
+                MockScript(data: nil, response: nil, error: NetworkError.networkUnavailable),
             ])
             let service = ImageService(
                 imageCacheCountLimit: 100,

@@ -202,12 +202,12 @@ extension View {
 }
 ```
 
-### AsyncNetImageView
+### BlendImageView
 
 Complete SwiftUI view for image display with upload capabilities.
 
 ```swift
-struct AsyncNetImageView: View {
+struct BlendImageView: View {
     let url: String?
     let uploadURL: URL?
     let uploadType: UploadType

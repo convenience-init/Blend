@@ -34,7 +34,7 @@ public enum UploadType: String, Sendable {
 
 /// Observable view model for async image loading and uploading in SwiftUI.
 ///
-/// Use `AsyncImageModel` with `AsyncNetImageView` for robust, actor-isolated image state
+/// Use `AsyncImageModel` with `BlendImageView` for robust, actor-isolated image state
 /// management, including loading, error, and upload states.
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
@@ -281,7 +281,9 @@ public class AsyncImageModel {
     /// Creates a validated progress handler that ensures progress values are within 0.0 to 1.0 range
     /// - Parameter originalHandler: The original progress handler to wrap
     /// - Returns: A validated progress handler or nil if originalHandler is nil
-    private func createValidatedProgressHandler(_ originalHandler: (@Sendable (Double) -> Void)?) -> (@Sendable (Double) -> Void)? {
+    private func createValidatedProgressHandler(_ originalHandler: (@Sendable (Double) -> Void)?)
+        -> (@Sendable (Double) -> Void)?
+    {
         guard let originalHandler = originalHandler else { return nil }
 
         return { progress in
@@ -301,13 +303,13 @@ public class AsyncImageModel {
 
 /// A complete SwiftUI image view for async image loading and uploading, with progress and error handling.
 ///
-/// Use `AsyncNetImageView` for robust, cross-platform image display and upload in SwiftUI,
+/// Use `BlendImageView` for robust, cross-platform image display and upload in SwiftUI,
 /// with support for dependency injection, upload progress, and error states.
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
 /// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms. The view
 ///   automatically reloads when the URL changes.
-public struct AsyncNetImageView: View {
+public struct BlendImageView: View {
     private let url: String?
     private let uploadURL: URL?
     private let uploadType: UploadType
@@ -421,7 +423,9 @@ public struct AsyncNetImageView: View {
     }
 
     /// Performs the image upload with progress tracking and proper error handling
-    private func performUpload(expectedUrl: String? = nil, onProgress: (@Sendable (Double) -> Void)? = nil) async {
+    private func performUpload(
+        expectedUrl: String? = nil, onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async {
         // If expectedUrl is provided, ensure it still matches
         if let expectedUrl = expectedUrl, expectedUrl != url {
             return

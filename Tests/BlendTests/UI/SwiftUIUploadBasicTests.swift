@@ -7,7 +7,7 @@
     @Suite("SwiftUI Upload Basic Tests")
     public struct SwiftUIUploadBasicTests {
         @MainActor
-        @Test public func testAsyncNetImageModelErrorStateClearedAfterSuccess() async throws {
+        @Test public func testBlendImageModelErrorStateClearedAfterSuccess() async throws {
             // Guard against nil platform image
             let testData = try SwiftUIUploadTestHelpers.getMinimalPNGData()
             guard let platformImage = ImageService.platformImage(from: testData) else {
@@ -96,7 +96,8 @@
 
         /// Performs an upload that is expected to succeed and clear error state
         @MainActor
-        private func performSuccessUpload(model: AsyncImageModel, image: PlatformImage) async throws {
+        private func performSuccessUpload(model: AsyncImageModel, image: PlatformImage) async throws
+        {
             do {
                 let successResult = try await SwiftUIUploadTestHelpers.performUploadWithTimeout(
                     model: model,

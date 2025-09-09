@@ -1,6 +1,7 @@
 import Foundation
+
 #if canImport(OSLog)
-import OSLog
+	import OSLog
 #endif
 /// A protocol for performing asynchronous network requests with strict Swift 6 concurrency.
 ///
@@ -99,7 +100,7 @@ public protocol AsyncRequestable {
 	var networkManager: AdvancedNetworkManager { get }
 }
 
-public extension AsyncRequestable {
+extension AsyncRequestable {
 	/// Default implementation for sending a network request using URLSession.
 	///
 	/// - Parameters:
@@ -120,7 +121,7 @@ public extension AsyncRequestable {
 	/// let customDecoder = AsyncRequestable.defaultJSONDecoder
 	/// customDecoder.dateDecodingStrategy = .deferredToDate // Customize as needed
 	/// ```
-	static var defaultJSONDecoder: JSONDecoder {
+	public static var defaultJSONDecoder: JSONDecoder {
 		let decoder = JSONDecoder()
 		decoder.dateDecodingStrategy = .iso8601
 		decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -131,7 +132,7 @@ public extension AsyncRequestable {
 	///
 	/// Conforming types can override this property to provide custom decoders for testing
 	/// or different runtime contexts while maintaining the same interface.
-	var jsonDecoder: JSONDecoder {
+	public var jsonDecoder: JSONDecoder {
 		Self.defaultJSONDecoder
 	}
 
@@ -140,11 +141,11 @@ public extension AsyncRequestable {
 	/// This ensures all services use the same AdvancedNetworkManager instance by default,
 	/// providing consistent caching and deduplication behavior across the application.
 	/// Override this property to provide custom network managers for testing or specific requirements.
-	var networkManager: AdvancedNetworkManager {
+	public var networkManager: AdvancedNetworkManager {
 		sharedNetworkManager
 	}
 
-	func sendRequest<ResponseModel>(
+	public func sendRequest<ResponseModel>(
 		to endPoint: Endpoint,
 		session: URLSessionProtocol = URLSession.shared
 	) async throws -> ResponseModel
@@ -155,7 +156,7 @@ public extension AsyncRequestable {
 			throw NetworkError.noResponse
 		}
 		switch httpResponse.statusCode {
-		case 200 ... 299:
+		case 200...299:
 			do {
 				return try jsonDecoder.decode(ResponseModel.self, from: data)
 			} catch {
@@ -171,7 +172,7 @@ public extension AsyncRequestable {
 			throw NetworkError.notFound(data: data, statusCode: httpResponse.statusCode)
 		case 429:
 			throw NetworkError.rateLimited(data: data, statusCode: httpResponse.statusCode)
-		case 500 ... 599:
+		case 500...599:
 			throw NetworkError.serverError(statusCode: httpResponse.statusCode, data: data)
 		default:
 			throw NetworkError.httpError(statusCode: httpResponse.statusCode, data: data)
@@ -186,7 +187,11 @@ public extension AsyncRequestable {
 	/// - Parameter endPoint: The endpoint to build the request for.
 	/// - Returns: A configured URLRequest.
 	/// - Throws: `NetworkError.invalidEndpoint` if the endpoint configuration is invalid.
-	func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
+	///
+	/// - Important: This method is public to maintain API compatibility for consumers who may need
+	///   to build custom URL requests from endpoints. Do not change visibility without careful consideration
+	///   of breaking changes.
+	public func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
 		// Validate GET requests don't have a body
 		try validateGETRequest(endPoint)
 
@@ -339,13 +344,14 @@ public extension AsyncRequestable {
 	/// - **Intelligent Caching**: Automatic cache invalidation and memory management
 	/// - **Retry with Backoff**: Exponential backoff prevents server overload
 	/// - **Interceptors**: Clean separation of cross-cutting concerns
-	func sendRequestAdvanced<ResponseModel>(
+	public func sendRequestAdvanced<ResponseModel>(
 		to endPoint: Endpoint,
 		cacheKey: String? = nil,
 		retryPolicy: RetryPolicy = .default
 	) async throws -> ResponseModel where ResponseModel: Decodable {
 		let request = try buildURLRequest(from: endPoint)
-		let data = try await networkManager.fetchData(for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
+		let data = try await networkManager.fetchData(
+			for: request, cacheKey: cacheKey, retryPolicy: retryPolicy)
 		// Note: HTTP response status validation is performed by AdvancedNetworkManager.fetchData
 		// which throws appropriate NetworkError instances for non-2xx status codes
 		do {
@@ -377,9 +383,10 @@ private struct NetworkCacheConfig {
 
 		// Parse maxSize from environment with validation
 		let maxSize: Int
-		if let maxSizeString = environment["ASYNCNET_CACHE_MAX_SIZE"],
+		if let maxSizeString = environment["Blend_CACHE_MAX_SIZE"],
 			let parsedSize = Int(maxSizeString),
-			parsedSize > 0 {
+			parsedSize > 0
+		{
 			maxSize = parsedSize
 		} else {
 			maxSize = 100  // Default value
@@ -387,9 +394,10 @@ private struct NetworkCacheConfig {
 
 		// Parse expiration from environment with validation
 		let expiration: TimeInterval
-		if let expirationString = environment["ASYNCNET_CACHE_EXPIRATION"],
+		if let expirationString = environment["Blend_CACHE_EXPIRATION"],
 			let parsedExpiration = TimeInterval(expirationString),
-			parsedExpiration > 0 {
+			parsedExpiration > 0
+		{
 			expiration = parsedExpiration
 		} else {
 			expiration = 600.0  // Default: 10 minutes

@@ -7,7 +7,7 @@
     @Suite("SwiftUI Upload Retry Tests")
     public struct SwiftUIUploadRetryTests {
         @MainActor
-        @Test public func testAsyncNetImageModelUploadRetry() async throws {
+        @Test public func testBlendImageModelUploadRetry() async throws {
             // Guard against nil platform image
             let testData = try SwiftUIUploadTestHelpers.getMinimalPNGData()
             guard let platformImage = ImageService.platformImage(from: testData) else {
@@ -55,7 +55,7 @@
                     data: Data("{\"success\": true}".utf8),
                     response: successResponse,
                     error: nil
-                )
+                ),
             ])
             let service = ImageService(
                 imageCacheCountLimit: 100,

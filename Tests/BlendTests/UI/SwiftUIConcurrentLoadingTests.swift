@@ -29,7 +29,7 @@
         private static let concurrentTestURL2 = URL(string: "https://mock.api/test2")!
         private static let concurrentTestURL3 = URL(string: "https://mock.api/test3")!
 
-        @Test public func testAsyncNetImageModelConcurrentLoad() async throws {
+        @Test public func testBlendImageModelConcurrentLoad() async throws {
             let imageData = try Self.getMinimalPNGData()
 
             // Create a single mock session that can handle all three URLs

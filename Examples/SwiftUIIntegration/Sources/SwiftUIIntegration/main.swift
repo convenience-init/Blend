@@ -1,5 +1,5 @@
-import SwiftUI
 import Blend
+import SwiftUI
 
 // MARK: - Data Models
 
@@ -77,7 +77,7 @@ struct PhotoRow: View {
             Rectangle()
                 .frame(width: 60, height: 60)
                 .overlay(
-                    AsyncNetImageView(
+                    BlendImageView(
                         url: photo.thumbnailUrl,
                         imageService: imageService
                     )

@@ -10,7 +10,7 @@ Complete API documentation covering all public protocols, classes, and types in 
 - Core Protocols (`AsyncRequestable`, `AdvancedAsyncRequestable`)
 - Networking Components (`Endpoint`, `RequestMethod`, `URLScheme`)
 - Image Service (`ImageService`, `UploadConfiguration`)
-- SwiftUI Integration (`AsyncImageModel`, `AsyncNetImageView`)
+- SwiftUI Integration (`AsyncImageModel`, `BlendImageView`)
 - Error Handling (`NetworkError`)
 - Configuration (`RetryConfiguration`, `CacheConfiguration`)
 

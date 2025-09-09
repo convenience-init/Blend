@@ -1,4 +1,4 @@
-/* Localized strings for AsyncNet */
+/* Localized strings for Blend */
 
 /* HTTP error messages */
 "HTTP error: Status code %ld" = "HTTP error: received status code %1$ld";

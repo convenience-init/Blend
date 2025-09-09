@@ -9,7 +9,7 @@
     public struct SwiftUIUploadErrorTests {
 
         @MainActor
-        @Test public func testAsyncNetImageModelUploadErrorState() async throws {
+        @Test public func testBlendImageModelUploadErrorState() async throws {
             // Create a mock session that returns an upload error
             guard
                 let errorResponse = HTTPURLResponse(
@@ -61,7 +61,7 @@
                     Issue.record("Expected NetworkError but got: \(error)")
                 }
             }
-            
+
             // Check that the model captured the error after the operation
             #expect(model.hasError, "Model should have error state after failed upload")
             #expect(model.error != nil, "Model should have captured an error")
