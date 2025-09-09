@@ -17,7 +17,7 @@ extension Image {
     }
 }
 
-/// The upload type for image operations in Blend SwiftUI extensions.
+/// The upload type for image operations.
 ///
 /// - multipart: Uploads image using multipart form data.
 /// - base64: Uploads image as base64 string in JSON payload.
@@ -289,10 +289,16 @@ public class AsyncImageModel {
 
         return { [originalHandler] progress in
             // Validate progress is within valid range (0.0 to 1.0) and call handler
-            // Optimized validation using conditional check for better performance
-            let validatedProgress = progress < 0.0 ? 0.0 : (progress > 1.0 ? 1.0 : progress)
+            let validatedProgress = self.clampProgress(progress)
             originalHandler(validatedProgress)
         }
+    }
+
+    /// Utility function to clamp progress between 0.0 and 1.0
+    /// - Parameter progress: The progress value to clamp
+    /// - Returns: The clamped progress value between 0.0 and 1.0
+    private nonisolated func clampProgress(_ progress: Double) -> Double {
+        return min(max(progress, 0.0), 1.0)
     }
 }
 
@@ -304,46 +310,6 @@ public class AsyncImageModel {
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
 /// - Note: Supports both UIKit (UIImage) and macOS (NSImage) platforms. The view
 ///   automatically reloads when the URL changes.
-/// - Note: Supports progress tracking during uploads via optional progress handlers.
-///
-/// ### Usage Examples
-///
-/// **Simple async/await upload:**
-/// ```swift
-/// let imageView = AsyncNetImageView(/* parameters */)
-/// do {
-///     let result = try await imageView.uploadImage()
-///     print("Upload successful: \(result)")
-/// } catch {
-///     print("Upload failed: \(error)")
-/// }
-/// ```
-///
-/// **Upload with progress tracking:**
-/// ```swift
-/// let imageView = AsyncNetImageView(/* parameters */)
-/// do {
-///     let result = try await imageView.uploadImage { progress in
-///         print("Upload progress: \(progress * 100)%")
-///     }
-///     print("Upload successful: \(result)")
-/// } catch {
-///     print("Upload failed: \(error)")
-/// }
-/// ```
-///
-/// **Automatic upload after loading:**
-/// ```swift
-/// AsyncNetImageView(
-///     url: "https://example.com/image.jpg",
-///     uploadURL: URL(string: "https://api.example.com/upload"),
-///     uploadType: .multipart,
-///     configuration: ImageService.UploadConfiguration(),
-///     autoUpload: true, // Automatically upload after loading
-///     imageService: imageService
-/// )
-/// ```
-///
 public struct AsyncNetImageView: View {
     private let url: String?
     private let uploadURL: URL?

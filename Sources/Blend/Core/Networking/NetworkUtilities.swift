@@ -3,9 +3,12 @@ import Foundation
 import OSLog
 #endif
 
-/// Public logger for Blend library consumers to access internal logging.
+/// Logger for internal Blend library use and debugging.
 ///
-/// This logger can be used to:
+/// This logger is intended primarily for internal library diagnostics and debugging,
+/// and is not necessarily suitable for production app logging by consumers.
+///
+/// It can be used to:
 /// - Attach custom log handlers for debugging
 /// - Route Blend logs to your application's logging system
 /// - Monitor network request lifecycle and performance
