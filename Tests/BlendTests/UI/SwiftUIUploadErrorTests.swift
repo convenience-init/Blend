@@ -65,12 +65,14 @@
                 Issue.record("Expected upload to fail but it succeeded")
             } catch {
                 // Assert the error is the expected type
-                if let modelError = model.error {
-                    if case let .serverError(statusCode, _) = modelError {
+                if let networkError = error as? NetworkError {
+                    if case let .serverError(statusCode, _) = networkError {
                         #expect(statusCode == 500, "Should receive HTTP 500 error")
                     } else {
-                        Issue.record("Expected server error but got: \(modelError)")
+                        Issue.record("Expected server error but got: \(networkError)")
                     }
+                } else {
+                    Issue.record("Expected NetworkError but got: \(error)")
                 }
             }
             

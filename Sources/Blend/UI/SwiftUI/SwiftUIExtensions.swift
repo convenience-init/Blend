@@ -243,13 +243,10 @@ public class AsyncImageModel {
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
         // Set uploading state and ensure cleanup on exit
-        let wasUploading = isUploading
         isUploading = true
         defer {
-            // Only reset if we were the ones who set it
-            if !wasUploading {
-                isUploading = false
-            }
+            // Always reset uploading state after operation completes
+            isUploading = false
         }
 
         guard let uploadURL = uploadURL else {
