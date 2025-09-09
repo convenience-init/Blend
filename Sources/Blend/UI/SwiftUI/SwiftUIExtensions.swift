@@ -176,8 +176,8 @@ public class AsyncImageModel {
 
     /// Uploads an image and returns the response data. Throws NetworkError on failure.
     ///
-    /// This is the simpler version without progress tracking. For uploads with progress callbacks,
-    /// use the overload that accepts an `onProgress` parameter.
+    /// This method can be used without progress tracking, or with progress callbacks by passing
+    /// a closure to the optional `onProgress` parameter.
     ///
     /// **Example: Simple upload**
     /// ```
@@ -449,20 +449,29 @@ public struct AsyncNetImageView: View {
         }
     }
 
-    /// Public method to programmatically trigger image upload without progress tracking.
+    /// Public method to programmatically trigger image upload with optional progress tracking.
     ///
-    /// This is the simpler version without progress callbacks. For uploads with progress tracking,
-    /// use the overload that accepts an `onProgress` parameter.
+    /// This method can be used without progress tracking, or with progress callbacks by passing
+    /// a closure to the optional `onProgress` parameter.
     ///
-    /// - Returns: The response data from the upload endpoint
-    /// - Throws: NetworkError if the upload fails or no image is loaded
-    @MainActor
-    public func uploadImage() async throws -> Data {
-        try await uploadImage(onProgress: nil)
-    }
-
-    /// Public method to programmatically trigger image upload with progress tracking
-    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0)
+    /// **Example: Simple upload**
+    /// ```
+    /// let result = try await imageView.uploadImage()
+    /// ```
+    ///
+    /// **Example: Upload with progress tracking**
+    /// ```
+    /// let result = try await imageView.uploadImage { progress in
+    ///     print("Upload progress: \(progress * 100)%")
+    /// }
+    /// ```
+    ///
+    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0).
+    ///     - **Thread Safety**: The handler is marked `@Sendable` and may be called from background threads.
+    ///       It should be lightweight and avoid UI updates directly (use `@MainActor` or `DispatchQueue.main` for UI work).
+    ///     - **Execution Context**: Called asynchronously during upload operations, potentially multiple times.
+    ///       Progress values are validated and clamped to the 0.0...1.0 range before calling the handler.
+    ///     - **Performance**: Keep the handler implementation lightweight as it's called during I/O operations.
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
