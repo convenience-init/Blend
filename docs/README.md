@@ -31,7 +31,7 @@ Repository setup and configuration guide for:
 
 ## Getting Started
 
-1. **Installation**: Follow the [Swift Package Manager installation](README.md#installation) guide
+1. **Installation**: Follow the [Swift Package Manager installation](../README.md#installation) guide
 2. **Quick Start**: Check out the [Quick Start](README.md#quick-start) section
 3. **Examples**: Browse the comprehensive examples in the README
 4. **API Reference**: Use this API reference for detailed implementation guidance

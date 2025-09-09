@@ -17,4 +17,4 @@ import OSLog
 /// blendLogger.info("Network request started")
 /// blendLogger.error("Network request failed: \(error)")
 /// ```
-public let blendLogger = Logger(subsystem: "com.convenienceinit.asyncnet", category: "network")
+public let blendLogger = Logger(subsystem: "com.convenienceinit.blend", category: "network")

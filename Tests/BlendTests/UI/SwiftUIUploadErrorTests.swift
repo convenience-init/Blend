@@ -58,7 +58,7 @@
 
             // Test the upload by capturing the error through try/catch
             do {
-                let _ = try await model.uploadImage(
+                _ = try await model.uploadImage(
                     platformImage, to: Self.defaultUploadURL, uploadType: .base64,
                     configuration: UploadConfiguration()
                 )
