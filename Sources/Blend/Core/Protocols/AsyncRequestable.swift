@@ -186,7 +186,7 @@ public extension AsyncRequestable {
 	/// - Parameter endPoint: The endpoint to build the request for.
 	/// - Returns: A configured URLRequest.
 	/// - Throws: `NetworkError.invalidEndpoint` if the endpoint configuration is invalid.
-	public func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
+	func buildURLRequest(from endPoint: Endpoint) throws -> URLRequest {
 		// Validate GET requests don't have a body
 		try validateGETRequest(endPoint)
 

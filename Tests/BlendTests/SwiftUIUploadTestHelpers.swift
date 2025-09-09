@@ -38,9 +38,9 @@
         /// This method races the operation against a timeout to prevent hanging.
         ///
         /// - Parameters:
-        ///   - operation: The async operation to perform
         ///   - nanoseconds: Timeout in nanoseconds
         ///   - timeoutMessage: Custom timeout error message
+        ///   - operation: The async operation to perform
         /// - Returns: The result of the operation
         /// - Throws: The operation's error or NetworkError on timeout
         @MainActor
@@ -49,28 +49,38 @@
             timeoutMessage: String = "Operation timed out",
             operation: @escaping () async throws -> T
         ) async throws -> T {
-            let startTime = DispatchTime.now()
-            let timeoutTime = startTime + .nanoseconds(Int(nanoseconds))
-
-            // Run operation and check timeout periodically
-            while DispatchTime.now() < timeoutTime {
-                do {
-                    // Try to run the operation
-                    return try await operation()
-                } catch is CancellationError {
-                    // If cancelled, check if we timed out
-                    if DispatchTime.now() >= timeoutTime {
-                        throw NetworkError.customError(timeoutMessage, details: nil)
-                    }
-                    continue  // Retry if not timed out
-                } catch {
-                    // Re-throw other errors immediately
-                    throw error
-                }
+            // Create a task for the operation that will be cancelled on timeout
+            let operationTask = Task {
+                try await operation()
             }
 
-            // If we get here, we timed out
-            throw NetworkError.customError(timeoutMessage, details: nil)
+            // Create a timeout task
+            let timeoutTask = Task {
+                try await Task.sleep(nanoseconds: nanoseconds)
+            }
+
+            do {
+                // Wait for either the operation to complete or timeout
+                let result = try await operationTask.value
+
+                // If we get here, operation completed successfully
+                timeoutTask.cancel()
+                return result
+            } catch is CancellationError {
+                // Check if timeout occurred
+                if timeoutTask.isCancelled == false {
+                    // Timeout occurred
+                    operationTask.cancel()
+                    throw NetworkError.customError(timeoutMessage, details: nil)
+                } else {
+                    // Operation was cancelled for other reasons
+                    throw CancellationError()
+                }
+            } catch {
+                // Operation failed
+                timeoutTask.cancel()
+                throw error
+            }
         }
 
         /// Performs an image upload with timeout coordination using Swift 6 concurrency patterns.
