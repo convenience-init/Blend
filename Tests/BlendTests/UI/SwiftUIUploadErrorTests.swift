@@ -7,7 +7,6 @@
 
     @Suite("SwiftUI Upload Error Tests")
     public struct SwiftUIUploadErrorTests {
-        private static let defaultUploadURL = URL(string: "https://mock.api/upload")!
 
         @MainActor
         @Test public func testAsyncNetImageModelUploadErrorState() async throws {
