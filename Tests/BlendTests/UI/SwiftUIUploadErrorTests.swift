@@ -42,6 +42,7 @@
             }
 
             // Test the upload by capturing the error through try/catch
+            var capturedError: Error?
             do {
                 _ = try await model.uploadImage(
                     platformImage, to: SwiftUIUploadTestHelpers.defaultUploadURL,
@@ -50,6 +51,7 @@
                 )
                 Issue.record("Expected upload to fail but it succeeded")
             } catch {
+                capturedError = error
                 // Assert the error is the expected type
                 if let networkError = error as? NetworkError {
                     if case let .serverError(statusCode, _) = networkError {
@@ -62,9 +64,19 @@
                 }
             }
 
+            // Ensure the operation has completed and model state is updated
+            await Task.yield()
+
             // Check that the model captured the error after the operation
             #expect(model.hasError, "Model should have error state after failed upload")
             #expect(model.error != nil, "Model should have captured an error")
+
+            // Verify the captured error matches the model's error
+            if let capturedError = capturedError as? NetworkError,
+                let modelError = model.error
+            {
+                #expect(capturedError == modelError, "Captured error should match model's error")
+            }
         }
     }
 #endif

@@ -54,9 +54,11 @@
                 try await operation()
             }
 
-            // Create a timeout task
+            // Create a timeout task with proper cancellation handling
             let timeoutTask = Task {
                 try await Task.sleep(nanoseconds: nanoseconds)
+                // If we reach here without cancellation, the timeout occurred
+                return true
             }
 
             do {
@@ -65,20 +67,25 @@
 
                 // If we get here, operation completed successfully
                 timeoutTask.cancel()
+                // Wait for timeout task to complete gracefully
+                _ = try? await timeoutTask.value
                 return result
             } catch is CancellationError {
-                // Check if timeout occurred
-                if timeoutTask.isCancelled == false {
-                    // Timeout occurred
+                // Check if timeout occurred by awaiting the timeout task
+                do {
+                    _ = try await timeoutTask.value
+                    // If timeout task completed successfully, timeout occurred
                     operationTask.cancel()
                     throw NetworkError.customError(timeoutMessage, details: nil)
-                } else {
-                    // Operation was cancelled for other reasons
+                } catch {
+                    // Timeout task was cancelled, operation was cancelled for other reasons
                     throw CancellationError()
                 }
             } catch {
                 // Operation failed
                 timeoutTask.cancel()
+                // Wait for timeout task to complete gracefully
+                _ = try? await timeoutTask.value
                 throw error
             }
         }

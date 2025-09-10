@@ -39,7 +39,7 @@ public enum UploadType: String, Sendable {
 ///
 /// - Important: Always inject `ImageService` for strict concurrency and testability.
 /// - Note: All state properties are actor-isolated and observable for SwiftUI.
-/// - Note: Supports progress tracking during image uploads via optional progress handlers.
+/// - Note: Supports progress tracking during image uploads via optional progress callback.
 ///
 /// ### Usage Example
 /// ```swift
@@ -66,6 +66,8 @@ public class AsyncImageModel {
     public var error: NetworkError?
 
     private let imageService: ImageService
+    /// Cached reference to BlendConfig to minimize cross-actor calls in error handling
+    private let config: BlendConfig
 
     // Store the current task in a box to allow nonisolated access from deinit
     private let taskBox = TaskBox()
@@ -97,6 +99,7 @@ public class AsyncImageModel {
 
     public init(imageService: ImageService) {
         self.imageService = imageService
+        self.config = BlendConfig.shared
     }
 
     deinit {
@@ -174,7 +177,7 @@ public class AsyncImageModel {
     /// Handles image loading errors
     @MainActor
     private func handleImageLoadError(_ error: Error) async {
-        let wrappedError = await NetworkError.wrapAsync(error, config: BlendConfig.shared)
+        let wrappedError = await NetworkError.wrapAsync(error, config: config)
         self.hasError = true
         self.error = wrappedError
         self.isLoading = false
@@ -216,7 +219,7 @@ public class AsyncImageModel {
     ///   - uploadType: The type of upload (.multipart or .base64)
     ///   - configuration: Upload configuration including field names and compression
     ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0).
-    ///     - **Thread Safety**: Handler is `@Sendable` and may be called from background threads.
+    ///     - **Thread Safety**: Handler is `@Sendable` and called from async execution contexts during I/O operations.
     ///       Avoid direct UI updates; use `@MainActor` or `DispatchQueue.main` for UI work.
     ///     - **Performance**: Keep lightweight as it's called during I/O operations.
     /// - Returns: The response data from the upload endpoint
@@ -270,7 +273,7 @@ public class AsyncImageModel {
             if let existingError = error as? NetworkError {
                 netError = existingError
             } else {
-                netError = await NetworkError.wrapAsync(error, config: BlendConfig.shared)
+                netError = await NetworkError.wrapAsync(error, config: config)
             }
             self.hasError = true
             self.error = netError
@@ -484,9 +487,6 @@ public struct BlendImageView: View {
     /// ```
     ///
     /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0).
-    ///     - **Thread Safety**: Handler is `@Sendable` and may be called from background threads.
-    ///       Avoid direct UI updates; use `@MainActor` or `DispatchQueue.main` for UI work.
-    ///     - **Performance**: Keep lightweight as it's called during I/O operations.
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
