@@ -21,11 +21,11 @@ extension Image {
 ///
 /// - multipart: Uploads image using multipart form data.
 ///   - Recommended for large images and production use.
-///   - Better performance for files larger than 10MB (encoded size, ~7.5MB raw).
+///   - Better performance for files larger than 10MB (encoded size, ~7.5MB raw). This is a general guideline; actual limits may vary based on configuration.
 ///   - Supports streaming upload for better memory efficiency.
 /// - base64: Uploads image as base64 string in JSON payload.
 ///   - Best for small images in JSON APIs.
-///   - Suitable for images smaller than 10MB (encoded size, ~7.5MB raw).
+///   - Suitable for images smaller than 10MB (encoded size, ~7.5MB raw). This is a general recommendation; actual limits may vary based on configuration.
 ///   - Convenient when the entire payload needs to be JSON.
 public enum UploadType: String, Sendable {
     case multipart
@@ -220,7 +220,7 @@ public class AsyncImageModel {
     ///   - configuration: Upload configuration including field names and compression
     ///   - onProgress: Optional progress handler called during upload (0.0 to 1.0).
     ///     - **Thread Safety**: Handler is `@Sendable` and called from async execution contexts during I/O operations.
-    ///       Avoid direct UI updates; use `@MainActor` or `DispatchQueue.main` for UI work.
+    ///       Avoid direct UI updates; use `@MainActor` for UI work.
     ///     - **Performance**: Keep lightweight as it's called during I/O operations.
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails

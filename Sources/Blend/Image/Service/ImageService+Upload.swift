@@ -1,40 +1,69 @@
 import Foundation
 
-/// Progress constants for upload operations to ensure consistent progress reporting
+/// Progress constants for upload operations to ensure consistent progress reporting.
+///
+/// Progress values are designed to reflect the actual time distribution of upload phases:
+/// - Early phases (validation, encoding) get smaller increments as they're typically fast
+/// - Upload/network phases get larger increments as they're the most time-consuming
+/// - Response validation gets a small increment as it's typically quick
+///
+/// All progress values are between 0.0 and 1.0, with 1.0 indicating completion.
 private enum UploadProgress {
-    /// Base64 upload progress stages
+    /// Base64 upload progress stages - optimized for small to medium images
     enum Base64 {
+        /// Upload process starting
         static let started: Double = 0.0
+        /// Initial validation (file format, basic checks) complete
         static let validationComplete: Double = 0.1
+        /// Size validation and encoding strategy selection complete
         static let sizeValidationComplete: Double = 0.2
+        /// Full upload process complete
         static let uploadComplete: Double = 1.0
     }
 
     /// Small image upload progress stages (continues from Base64.sizeValidationComplete)
+    /// Used for images that fit in memory and can be encoded as base64 in JSON
     enum Small {
+        /// Base64 encoding process starting
         static let encodingStarted: Double = 0.3
+        /// Base64 encoding complete, preparing JSON payload
         static let encodingComplete: Double = 0.4
+        /// JSON payload fully prepared with encoded image
         static let payloadPrepared: Double = 0.5
+        /// HTTP request fully prepared and ready to send
         static let requestPrepared: Double = 0.6
+        /// Upload complete, validating server response
         static let responseValidating: Double = 0.9
     }
 
     /// Streaming upload progress stages (continues from Base64.sizeValidationComplete)
+    /// Used for large images that require streaming to avoid memory spikes
     enum Streaming {
+        /// Streaming upload process starting
         static let uploadStarted: Double = 0.3
+        /// Building multipart body for streaming
         static let buildingBody: Double = 0.4
+        /// HTTP request fully prepared for streaming upload
         static let requestPrepared: Double = 0.5
+        /// Upload complete, validating server response
         static let responseValidating: Double = 0.9
     }
 
-    /// Multipart upload progress stages
+    /// Multipart upload progress stages - optimized for direct binary uploads
     enum Multipart {
+        /// Upload process starting
         static let started: Double = 0.0
+        /// Initial validation (file format, size checks) complete
         static let validationComplete: Double = 0.2
+        /// Building multipart form data body
         static let buildingBody: Double = 0.3
+        /// Multipart body fully prepared
         static let bodyPrepared: Double = 0.4
+        /// HTTP request fully prepared and ready to send
         static let requestPrepared: Double = 0.5
+        /// Upload complete, validating server response
         static let responseValidating: Double = 0.9
+        /// Full process complete (including any post-processing)
         static let fullyComplete: Double = 1.0
     }
 }
