@@ -21,11 +21,11 @@ extension Image {
 ///
 /// - multipart: Uploads image using multipart form data.
 ///   - Recommended for large images and production use.
-///   - Better performance for files over 10MB (encoded size, ~7.5MB raw).
+///   - Better performance for files larger than 10MB (encoded size, ~7.5MB raw).
 ///   - Supports streaming upload for better memory efficiency.
 /// - base64: Uploads image as base64 string in JSON payload.
 ///   - Best for small images in JSON APIs.
-///   - Suitable for images under 10MB (encoded size, ~7.5MB raw).
+///   - Suitable for images smaller than 10MB (encoded size, ~7.5MB raw).
 ///   - Convenient when the entire payload needs to be JSON.
 public enum UploadType: String, Sendable {
     case multipart

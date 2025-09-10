@@ -42,26 +42,20 @@
             }
 
             // Test the upload by capturing the error through try/catch
-            var capturedError: Error?
-            do {
+            // Test that upload throws the expected error
+            let thrownError = await #expect(throws: NetworkError.self) {
                 _ = try await model.uploadImage(
                     platformImage, to: SwiftUIUploadTestHelpers.defaultUploadURL,
                     uploadType: .base64,
                     configuration: UploadConfiguration()
                 )
-                Issue.record("Expected upload to fail but it succeeded")
-            } catch {
-                capturedError = error
-                // Assert the error is the expected type
-                if let networkError = error as? NetworkError {
-                    if case let .serverError(statusCode, _) = networkError {
-                        #expect(statusCode == 500, "Should receive HTTP 500 error")
-                    } else {
-                        Issue.record("Expected server error but got: \(networkError)")
-                    }
-                } else {
-                    Issue.record("Expected NetworkError but got: \(error)")
-                }
+            }
+
+            // Assert the error is the expected type and status code
+            if case let .serverError(statusCode, _) = thrownError {
+                #expect(statusCode == 500, "Should receive HTTP 500 error")
+            } else {
+                Issue.record("Expected server error but got: \(String(describing: thrownError))")
             }
 
             // Ensure the operation has completed and model state is updated
@@ -71,12 +65,8 @@
             #expect(model.hasError, "Model should have error state after failed upload")
             #expect(model.error != nil, "Model should have captured an error")
 
-            // Verify the captured error matches the model's error
-            if let capturedError = capturedError as? NetworkError,
-                let modelError = model.error
-            {
-                #expect(capturedError == modelError, "Captured error should match model's error")
-            }
+            // Verify the thrown error matches the model's error
+            #expect(thrownError == model.error, "Thrown error should match model's error")
         }
     }
 #endif
