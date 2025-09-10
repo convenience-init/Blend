@@ -21,11 +21,11 @@ extension Image {
 ///
 /// - multipart: Uploads image using multipart form data.
 ///   - Recommended for large images and production use.
-///   - Better performance for files larger than the threshold (default: 10MB encoded, ~7.5MB raw). The actual threshold is defined by `BlendConfig.maxUploadSize`, which can be configured as needed. The encoded/raw values are estimates based on base64 encoding overhead.
+///   - Better performance for files larger than the threshold (default: 10MB encoded, ~7.5MB raw). The actual threshold is defined by `configuration.streamThreshold` in `UploadConfiguration`, which can be configured as needed. The encoded/raw values are estimates based on base64 encoding overhead.
 ///   - Supports streaming upload for better memory efficiency.
 /// - base64: Uploads image as base64 string in JSON payload.
 ///   - Best for small images in JSON APIs.
-///   - Suitable for images smaller than the threshold (default: 10MB encoded, ~7.5MB raw). The threshold is determined by `BlendConfig.maxUploadSize`; adjust this configuration to change limits. Encoded/raw values are approximate.
+///   - Suitable for images smaller than the threshold (default: 10MB encoded, ~7.5MB raw). The threshold is determined by `configuration.streamThreshold` in `UploadConfiguration`; adjust this configuration to change limits. Encoded/raw values are approximate.
 ///   - Convenient when the entire payload needs to be JSON.
 public enum UploadType: String, Sendable {
     case multipart
