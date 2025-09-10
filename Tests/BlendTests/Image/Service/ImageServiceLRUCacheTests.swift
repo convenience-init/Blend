@@ -45,7 +45,7 @@ public struct ImageServiceLRUCacheTests {
             isKey1Cached || isKey3Cached || isKey4Cached, "At least some images should be cached")
 
         // Test that operations complete successfully
-        #expect(true, "LRU operations completed without errors")
+        #expect(Bool(true), "LRU operations completed without errors")
     }
 
     @Test public func testImageServiceLRUNodeRemoval() async {
@@ -70,7 +70,7 @@ public struct ImageServiceLRUCacheTests {
         await service.storeImageInCache(PlatformImage(), forKey: "key6", data: data)
 
         // Test that operations complete successfully
-        #expect(true, "LRU removal operations completed without errors")
+        #expect(Bool(true), "LRU removal operations completed without errors")
     }
 
     @Test public func testImageServiceLRUHeadTailConsistency() async {
@@ -97,7 +97,7 @@ public struct ImageServiceLRUCacheTests {
         #expect(!isKey1StillCached, "Key1 should not be cached after clearing")
 
         // Test that operations complete successfully
-        #expect(true, "LRU consistency operations completed without errors")
+        #expect(Bool(true), "LRU consistency operations completed without errors")
     }
 
     @Test public func testImageServiceLRUStressTest() async {
@@ -126,7 +126,7 @@ public struct ImageServiceLRUCacheTests {
         let isTestCached = await service.isImageCached(forKey: "test")
         #expect(isTestCached, "Test item should be cached after storing")
 
-        #expect(true, "Stress test completed without crashes")
+        #expect(Bool(true), "Stress test completed without crashes")
     }
 
     @Test public func testImageServiceLRUConcurrentAccess() async {
@@ -168,7 +168,7 @@ public struct ImageServiceLRUCacheTests {
         let isFinalCached = await service.isImageCached(forKey: "final")
         #expect(isFinalCached, "Final item should be cached after storing")
 
-        #expect(true, "Concurrent access test completed without crashes")
+        #expect(Bool(true), "Concurrent access test completed without crashes")
     }
 
     @Test public func testDeduplicationPreventsDuplicateRequests() async throws {
