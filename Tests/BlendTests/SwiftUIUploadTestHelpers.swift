@@ -61,21 +61,23 @@
                 return true
             }
 
+            // Ensure both tasks are cancelled when this function exits
+            defer {
+                operationTask.cancel()
+                timeoutTask.cancel()
+            }
+
             do {
                 // Wait for either the operation to complete or timeout
                 let result = try await operationTask.value
 
                 // If we get here, operation completed successfully
-                timeoutTask.cancel()
-                // Wait for timeout task to complete gracefully
-                _ = try? await timeoutTask.value
                 return result
             } catch is CancellationError {
                 // Check if timeout occurred by awaiting the timeout task
                 do {
                     _ = try await timeoutTask.value
                     // If timeout task completed successfully, timeout occurred
-                    operationTask.cancel()
                     throw NetworkError.customError(timeoutMessage, details: nil)
                 } catch {
                     // Timeout task was cancelled, operation was cancelled for other reasons
@@ -83,9 +85,6 @@
                 }
             } catch {
                 // Operation failed
-                timeoutTask.cancel()
-                // Wait for timeout task to complete gracefully
-                _ = try? await timeoutTask.value
                 throw error
             }
         }

@@ -2,10 +2,16 @@ import Foundation
 
 /// Progress constants for upload operations to ensure consistent progress reporting.
 ///
-/// Progress values are designed to reflect the actual time distribution of upload phases:
-/// - Early phases (validation, encoding) get smaller increments as they're typically fast
-/// - Upload/network phases get larger increments as they're the most time-consuming
-/// - Response validation gets a small increment as it's typically quick
+/// Progress values are designed to reflect the actual time distribution of upload phases,
+/// based on empirical observation and typical upload workflows:
+/// - Early phases (validation, encoding) get smaller increments (e.g., 0.1, 0.2, 0.3) as they're typically fast (often <10% of total time).
+/// - Upload/network phases get larger increments (e.g., 0.4–0.9) as they're the most time-consuming (often >60% of total time).
+/// - Response validation gets a small increment (e.g., 0.9) as it's typically quick.
+/// - Final completion (1.0) indicates all phases, including any post-processing, are done.
+///
+/// These values are chosen to visually represent the relative time spent in each phase,
+/// so that progress bars advance in a way that matches user expectations and perceived wait times.
+/// Adjustments may be made based on profiling or changes in upload implementation.
 ///
 /// All progress values are between 0.0 and 1.0, with 1.0 indicating completion.
 private enum UploadProgress {

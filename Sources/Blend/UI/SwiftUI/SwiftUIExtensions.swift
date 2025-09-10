@@ -21,11 +21,11 @@ extension Image {
 ///
 /// - multipart: Uploads image using multipart form data.
 ///   - Recommended for large images and production use.
-///   - Better performance for files larger than the default threshold (10MB encoded, ~7.5MB raw). These defaults can be configured via `BlendConfig.maxUploadSize`; actual limits may vary.
+///   - Better performance for files larger than the threshold (default: 10MB encoded, ~7.5MB raw). The actual threshold is defined by `BlendConfig.maxUploadSize`, which can be configured as needed. The encoded/raw values are estimates based on base64 encoding overhead.
 ///   - Supports streaming upload for better memory efficiency.
 /// - base64: Uploads image as base64 string in JSON payload.
 ///   - Best for small images in JSON APIs.
-///   - Suitable for images smaller than the default threshold (10MB encoded, ~7.5MB raw). These defaults can be configured via `BlendConfig.maxUploadSize`; actual limits may vary.
+///   - Suitable for images smaller than the threshold (default: 10MB encoded, ~7.5MB raw). The threshold is determined by `BlendConfig.maxUploadSize`; adjust this configuration to change limits. Encoded/raw values are approximate.
 ///   - Convenient when the entire payload needs to be JSON.
 public enum UploadType: String, Sendable {
     case multipart
@@ -211,6 +211,27 @@ public class AsyncImageModel {
     /// )
     /// ```
     ///
+    /// **Example: Upload with UI progress updates (SwiftUI)**
+    /// ```
+    /// @State private var uploadProgress: Double = 0.0
+    ///
+    /// let responseData = try await uploadImage(
+    ///     myImage,
+    ///     to: uploadURL,
+    ///     uploadType: .multipart,
+    ///     configuration: config,
+    ///     onProgress: { progress in
+    ///         Task { @MainActor in
+    ///             uploadProgress = progress
+    ///         }
+    ///     }
+    /// )
+    ///
+    /// // Use uploadProgress in your SwiftUI view
+    /// ProgressView(value: uploadProgress)
+    ///     .progressViewStyle(.linear)
+    /// ```
+    ///
     /// Use the simple upload when you do not need to track progress. Use the progress-tracking variant to provide user feedback during long uploads.
     ///
     /// - Parameters:
@@ -222,6 +243,14 @@ public class AsyncImageModel {
     ///     - **Thread Safety**: Handler is `@Sendable` and called from async execution contexts during I/O operations.
     ///       Avoid direct UI updates; use `@MainActor` for UI work.
     ///     - **Performance**: Keep lightweight as it's called during I/O operations.
+    ///     - **UI Updates**: Use `@MainActor` to safely update UI from progress callbacks:
+    ///       ```swift
+    ///       onProgress: { progress in
+    ///           Task { @MainActor in
+    ///               self.uploadProgress = progress
+    ///           }
+    ///       }
+    ///       ```
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails
     public func uploadImage(
@@ -486,7 +515,29 @@ public struct BlendImageView: View {
     /// }
     /// ```
     ///
-    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0). Progress updates may be called on a background thread; if updating UI, dispatch to the main thread (e.g., use `@MainActor`).
+    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0). Progress updates may be called on a background thread; if updating UI, use `@MainActor`.
+    ///     - **SwiftUI Example**:
+    ///       ```swift
+    ///       @State private var uploadProgress: Double = 0.0
+    ///
+    ///       let result = try await imageView.uploadImage { progress in
+    ///           Task { @MainActor in
+    ///               uploadProgress = progress
+    ///           }
+    ///       }
+    ///
+    ///       // Use uploadProgress in your SwiftUI view
+    ///       ProgressView(value: uploadProgress)
+    ///           .progressViewStyle(.linear)
+    ///       ```
+    ///     - **UIKit Example**:
+    ///       ```swift
+    ///       let result = try await imageView.uploadImage { progress in
+    ///           Task { @MainActor in
+    ///               progressView.progress = Float(progress)
+    ///           }
+    ///       }
+    ///       ```
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor

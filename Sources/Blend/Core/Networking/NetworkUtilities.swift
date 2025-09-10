@@ -23,6 +23,14 @@ import OSLog
 /// - This logger is **not suitable for production app logging**. For production, use your application's logging system and ensure compliance with privacy requirements.
 /// - You may attach custom log handlers to route Blend logs to your own logging infrastructure.
 ///
+/// ### Logger Customization
+/// For custom subsystem requirements, create your own logger instance:
+/// ```swift
+/// // Create custom logger with your own subsystem
+/// let customLogger = Logger(subsystem: "com.yourcompany.yourapp.blend", category: "network")
+/// // Use customLogger instead of blendLogger
+/// ```
+///
 /// ### Example usage:
 /// ```swift
 /// // Attach a custom log handler
@@ -33,7 +41,9 @@ import OSLog
 /// blendLogger.error("Network request failed: \(error)")
 /// ```
 #if canImport(OSLog)
-public let blendLogger = Logger(subsystem: "com.convenienceinit.blend", category: "network")
+    /// The Blend logger instance. Uses a generic subsystem to avoid namespace conflicts.
+    /// For custom subsystem requirements, create your own Logger instance as shown above.
+    public let blendLogger = Logger(subsystem: "blend.network", category: "network")
 #else
 /// Fallback logger for platforms without OSLog support
 public struct BlendLogger {
@@ -58,5 +68,6 @@ public struct BlendLogger {
     }
 }
 
+    /// The Blend logger instance for platforms without OSLog support.
 public let blendLogger = BlendLogger()
 #endif
