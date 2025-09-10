@@ -1,5 +1,44 @@
 import Foundation
 
+/// Progress constants for upload operations to ensure consistent progress reporting
+private enum UploadProgress {
+    /// Base64 upload progress stages
+    enum Base64 {
+        static let started: Double = 0.0
+        static let validationComplete: Double = 0.1
+        static let sizeValidationComplete: Double = 0.2
+        static let uploadComplete: Double = 1.0
+    }
+
+    /// Small image upload progress stages (continues from Base64.sizeValidationComplete)
+    enum Small {
+        static let encodingStarted: Double = 0.3
+        static let encodingComplete: Double = 0.4
+        static let payloadPrepared: Double = 0.5
+        static let requestPrepared: Double = 0.6
+        static let responseValidating: Double = 0.9
+    }
+
+    /// Streaming upload progress stages (continues from Base64.sizeValidationComplete)
+    enum Streaming {
+        static let uploadStarted: Double = 0.3
+        static let buildingBody: Double = 0.4
+        static let requestPrepared: Double = 0.5
+        static let responseValidating: Double = 0.9
+    }
+
+    /// Multipart upload progress stages
+    enum Multipart {
+        static let started: Double = 0.0
+        static let validationComplete: Double = 0.2
+        static let buildingBody: Double = 0.3
+        static let bodyPrepared: Double = 0.4
+        static let requestPrepared: Double = 0.5
+        static let responseValidating: Double = 0.9
+        static let fullyComplete: Double = 1.0
+    }
+}
+
 extension ImageService {
     /// Calculates the size of data after base64 encoding
     ///
@@ -42,14 +81,14 @@ extension ImageService {
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
         // Start progress at 0.0
-        onProgress?(0.0)
+        onProgress?(UploadProgress.Base64.started)
 
         // Pre-check to avoid memory issues with very large images
         let maxSafeRawSize = await calculateMaxSafeRawSize()
         try validateImageSize(imageData.count, maxSafeRawSize)
 
         // Progress: validation complete
-        onProgress?(0.1)
+        onProgress?(UploadProgress.Base64.validationComplete)
 
         // Check upload size limit (validate post-encoding size since base64 increases size ~33%)
         let effectiveMaxUploadSize = await getEffectiveMaxUploadSize()
@@ -57,7 +96,7 @@ extension ImageService {
         try validateEncodedSize(encodedSize, effectiveMaxUploadSize, imageData.count)
 
         // Progress: size validation complete
-        onProgress?(0.2)
+        onProgress?(UploadProgress.Base64.sizeValidationComplete)
 
         // Determine upload strategy based on encoded size
         let result = try await selectUploadStrategy(
@@ -69,7 +108,7 @@ extension ImageService {
         )
 
         // Progress: upload complete
-        onProgress?(1.0)
+        onProgress?(UploadProgress.Base64.uploadComplete)
 
         return result
     }
@@ -188,12 +227,12 @@ extension ImageService {
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
         // Progress: starting encoding
-        onProgress?(0.3)
+        onProgress?(UploadProgress.Small.encodingStarted)
         
         let base64String = imageData.base64EncodedString()
         
         // Progress: encoding complete
-        onProgress?(0.4)
+        onProgress?(UploadProgress.Small.encodingComplete)
         
         let payload = UploadPayload(
             fieldName: configuration.fieldName,
@@ -207,13 +246,13 @@ extension ImageService {
         try await validateUploadSize(jsonPayload.count, imageData.count)
         
         // Progress: payload prepared
-        onProgress?(0.5)
+        onProgress?(UploadProgress.Small.payloadPrepared)
 
         let request = try await createUploadRequest(
             url: url, body: jsonPayload, contentType: "application/json")
             
         // Progress: request prepared, starting upload
-        onProgress?(0.6)
+        onProgress?(UploadProgress.Small.requestPrepared)
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -224,7 +263,7 @@ extension ImageService {
         }
         
         // Progress: upload complete, validating response
-        onProgress?(0.9)
+        onProgress?(UploadProgress.Small.responseValidating)
 
         return try validateUploadResponse(data: data, response: response)
     }
@@ -328,7 +367,7 @@ extension ImageService {
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
         // Progress: starting streaming upload
-        onProgress?(0.3)
+        onProgress?(UploadProgress.Streaming.uploadStarted)
         
         // Log that we're using streaming upload for large images
         let encodedSize = calculateBase64EncodedSize(imageData.count)
@@ -373,7 +412,7 @@ extension ImageService {
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         // Progress: building multipart body
-        onProgress?(0.4)
+        onProgress?(UploadProgress.Streaming.buildingBody)
         
         let body = try MultipartBuilder.buildMultipartBody(
             boundary: boundary, configuration: configuration, imageData: imageData)
@@ -381,7 +420,7 @@ extension ImageService {
         request.httpBody = body
         
         // Progress: request prepared, starting upload
-        onProgress?(0.5)
+        onProgress?(UploadProgress.Streaming.requestPrepared)
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -391,7 +430,7 @@ extension ImageService {
         }
         
         // Progress: upload complete, validating response
-        onProgress?(0.9)
+        onProgress?(UploadProgress.Streaming.responseValidating)
 
         return try validateUploadResponse(data: data, response: response)
     }
@@ -411,29 +450,29 @@ extension ImageService {
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Data {
         // Start progress at 0.0
-        onProgress?(0.0)
+        onProgress?(UploadProgress.Multipart.started)
         
         try await validateImageSize(imageData.count)
         
         // Progress: validation complete
-        onProgress?(0.2)
+        onProgress?(UploadProgress.Multipart.validationComplete)
 
         let boundary = "Boundary-" + UUID().uuidString
         
         // Progress: building multipart body
-        onProgress?(0.3)
+        onProgress?(UploadProgress.Multipart.buildingBody)
         
         let body = try MultipartBuilder.buildMultipartBody(
             boundary: boundary, configuration: configuration, imageData: imageData)
 
         // Progress: body prepared
-        onProgress?(0.4)
+        onProgress?(UploadProgress.Multipart.bodyPrepared)
         
         let request = try await createUploadRequest(
             url: url, body: body, contentType: "multipart/form-data; boundary=\(boundary)")
             
         // Progress: request prepared, starting upload
-        onProgress?(0.5)
+        onProgress?(UploadProgress.Multipart.requestPrepared)
 
         let (data, response) = try await urlSession.data(for: request)
 
@@ -444,12 +483,12 @@ extension ImageService {
         }
         
         // Progress: upload complete, validating response
-        onProgress?(0.9)
+        onProgress?(UploadProgress.Multipart.responseValidating)
         
         let result = try validateUploadResponse(data: data, response: response)
         
         // Progress: fully complete
-        onProgress?(1.0)
+        onProgress?(UploadProgress.Multipart.fullyComplete)
         
         return result
     }
