@@ -1,6 +1,6 @@
-# AsyncNet CI/CD Pipeline
+# Blend CI/CD Pipeline
 
-name: AsyncNet CI
+name: Blend CI
 
 on:
   push:
@@ -161,7 +161,7 @@ jobs:
 
       - name: Build (macOS Xcode)
         if: matrix.target == 'macos' && matrix.build == 'xcode'
-        run: xcodebuild -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+        run: xcodebuild -scheme Blend -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Find iOS Simulator
         if: matrix.target == 'ios'
@@ -239,7 +239,7 @@ jobs:
           fi
           
           echo "Building for iOS simulator: $DEST"
-          xcodebuild -scheme AsyncNet -destination "$DEST" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          xcodebuild -scheme Blend -destination "$DEST" -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
       - name: Install tvOS Runtime
         if: matrix.target == 'tvos'
@@ -363,7 +363,7 @@ jobs:
 
       - name: Test macOS Xcode
         if: matrix.target == 'macos' && matrix.build == 'xcode'
-        run: xcodebuild test -scheme AsyncNet -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+        run: xcodebuild test -scheme Blend -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Test iOS
         if: matrix.target == 'ios'
@@ -393,7 +393,7 @@ jobs:
           fi
           
           echo "Testing on iOS simulator: $DEST"
-          xcodebuild test -scheme AsyncNet -destination "$DEST" -destination-timeout 180 -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          xcodebuild test -scheme Blend -destination "$DEST" -destination-timeout 180 -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Test tvOS
         if: matrix.target == 'tvos'
@@ -423,7 +423,7 @@ jobs:
           fi
           
           echo "Testing on tvOS simulator: $DEST"
-          xcodebuild test -scheme AsyncNet -destination "$DEST" -destination-timeout 180 -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          xcodebuild test -scheme Blend -destination "$DEST" -destination-timeout 180 -sdk appletvsimulator CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Check coverage profdata
         if: matrix.target == 'macos' && matrix.build == 'spm'

@@ -1,21 +1,28 @@
-# AsyncNet
+# Blend
 
-A powerful Swift networking library with comprehensive image handling capabilities, built for iOS, iPadOS, and macOS with full SwiftUI support.
+A **Powerful, intuitive Swift 6 networking library** that makes modern platform-agnostic development a breeze through **composable, protocol-oriented architecture**. Blend combines powerful networking and image handling capabilities with deep SwiftUI integration, enabling developers to build reactive, type-safe applications with unprecedented ease and flexibility.
 
+ Blend embraces **composability** through its protocol hierarchy (`AsyncRequestable` → `AdvancedAsyncRequestable`) and **SwiftUI-first design** with native reactive components, making complex networking patterns feel natural in modern Swift 6 applications.
+
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/convenience-init/Blend/releases/tag/v1.0.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Swift](https://img.shields.io/badge/Swift-6.0-orange.svg)](https://swift.org)
+[![iOS](https://img.shields.io/badge/iOS-18+-lightgrey.svg)](https://developer.apple.com/ios/)
+[![macOS](https://img.shields.io/badge/macOS-15+-lightgrey.svg)](https://developer.apple.com/macos/)
 
 ## Features
 
-**Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
-**Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
-**Complete Image Solution** - Download, upload, and cache images with ease  
-**SwiftUI Integration** - Native SwiftUI view modifiers and components  
-**High Performance** - Intelligent caching with configurable limits  
-**Type Safe** - Protocol-oriented design with comprehensive error handling  
+**🎯 SwiftUI-First by Design** - Native reactive components and view modifiers built specifically for SwiftUI  
+**🔧 Protocol-Oriented Composability** - Flexible service composition with type-safe hierarchies  
+**⚡ Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
+**🌉 Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
+**🖼️ Complete Image Solution** - Download, upload, and cache and display images with ease  
+**🚀 High Performance** - Intelligent LRU caching with configurable limits  
+**🔒 Type Safe** - Protocol-oriented design with comprehensive error handling  
 
 > **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 >
-> **Support Note**: AsyncNet requires iOS 18+/macOS 15+ for full functionality.
+> **Support Note**: Blend requires iOS 18+/macOS 15+ for full functionality.
 > **Platform Feature Matrix**:
 
 | Feature | iOS 18+ | macOS 15+ |
@@ -35,17 +42,17 @@ A powerful Swift networking library with comprehensive image handling capabiliti
 
 ### Swift Package Manager
 
-Add AsyncNet to your project through Xcode:
+Add Blend to your project through Xcode:
 
 1. File → Add Package Dependency…
-2. Enter the repository URL: `https://github.com/convenience-init/async-net`
+2. Enter the repository URL: `https://github.com/convenience-init/Blend`
 3. Select your version requirements
 
 Or add it to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
+    .package(url: "https://github.com/convenience-init/Blend", from: "1.0.0")
 ]
 ```
 
@@ -62,20 +69,20 @@ let package = Package(
         .macOS(.v15)
     ],
     dependencies: [
-        .package(url: "https://github.com/convenience-init/async-net", from: "1.0.0")
+        .package(url: "https://github.com/convenience-init/Blend", from: "1.0.0")
     ],
     targets: [
         .target(
             name: "MyApp",
             dependencies: [
-                .product(name: "AsyncNet", package: "async-net")
+                .product(name: "Blend", package: "Blend")
             ]
         ),
         .testTarget(
             name: "MyAppTests",
             dependencies: [
                 "MyApp",
-                .product(name: "AsyncNet", package: "async-net")
+                .product(name: "Blend", package: "Blend")
             ]
         )
     ]
@@ -89,14 +96,14 @@ let package = Package(
 - **iOS**: 18.0+ (includes iPadOS 18.0+)
 - **macOS**: 15.0+
 
-These platforms are both the minimum supported versions and the recommended/tested versions. AsyncNet requires these minimum versions for full Swift 6 concurrency support and modern SwiftUI integration.
+These platforms are both the minimum supported versions and the recommended/tested versions. Blend requires these minimum versions for full Swift 6 concurrency support and modern SwiftUI integration.
 
 ## Quick Start
 
 ### Basic Network Request
 
 ```swift
-import AsyncNet
+import Blend
 
 // Define your endpoint
 struct UsersEndpoint: Endpoint {
@@ -127,7 +134,7 @@ For services requiring master-detail patterns, CRUD operations, or complex type 
 #### Master-Detail Pattern Example
 
 ```swift
-import AsyncNet
+import Blend
 
 // Define endpoints for list and detail views
 struct UsersEndpoint: Endpoint {
@@ -170,7 +177,7 @@ class UserService: AdvancedAsyncRequestable {
 #### CRUD Operations with Different Response Types
 
 ```swift
-import AsyncNet
+import Blend
 
 class ProductService: AdvancedAsyncRequestable {
     typealias ResponseModel = [ProductSummary]     // List operations
@@ -206,7 +213,7 @@ class ProductService: AdvancedAsyncRequestable {
 #### Generic Service Composition
 
 ```swift
-import AsyncNet
+import Blend
 
 // Generic CRUD service that works with any AdvancedAsyncRequestable
 class GenericCrudService<T: AdvancedAsyncRequestable> {
@@ -240,7 +247,7 @@ let productCrudService = GenericCrudService(service: ProductService())
 #### Type-Safe Service Hierarchies
 
 ```swift
-import AsyncNet
+import Blend
 
 // Base protocol for all API services
 protocol ApiService: AdvancedAsyncRequestable {
@@ -287,7 +294,7 @@ class ConcreteProductService: ProductManagementService {
 #### Download Images
 
 ```swift
-import AsyncNet
+import Blend
 import SwiftUI
 // Platform-conditional imports at the top level
 #if canImport(UIKit)
@@ -313,8 +320,11 @@ do {
     }
     #endif
 
-    // AsyncNet convenience helper (requires: import AsyncNet)
-    // let swiftUIImage = ImageService.swiftUIImage(from: imageData)
+    // Blend convenience helper (requires: import Blend)
+    // Convert data to PlatformImage, then to SwiftUI Image:
+    // if let platformImage = ImageService.platformImage(from: imageData) {
+    //     let swiftUIImage = Image.from(platformImage: platformImage)
+    // }
 
     // Use swiftUIImage in your SwiftUI view
     // swiftUIImage.resizable().frame(width: 200, height: 200)
@@ -324,7 +334,7 @@ do {
 
 // Check cache first (returns PlatformImage/UIImage/NSImage)
 if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image.jpg") {
-    // Safe conversion using AsyncNet helper (recommended approach)
+    // Safe conversion using Blend helper (recommended approach)
     if let swiftUIImage = Image.from(platformImage: cachedImage) {
         // Use swiftUIImage in your SwiftUI view
         swiftUIImage.resizable().frame(width: 200, height: 200)
@@ -353,7 +363,7 @@ if let cachedImage = imageService.cachedImage(forKey: "https://example.com/image
 #### Upload Images
 
 ```swift
-import AsyncNet
+import Blend
 
 // Dependency-injected image service
 let imageService = ImageService()
@@ -363,7 +373,7 @@ let uploadURL = URL(string: "https://api.example.com/upload")!
 let platformImage: PlatformImage = ... // Load or create your PlatformImage here
 
 // Cross-platform PlatformImage helpers
-// Note: NSImage does not natively expose jpegData/pngData - AsyncNet provides these as extensions
+// Note: NSImage does not natively expose jpegData/pngData - Blend provides these as extensions
 // for consistent cross-platform API (iOS/macOS)
 
 // jpegData(compressionQuality: CGFloat) -> Data?
@@ -386,18 +396,24 @@ if let jpeg = platformImage.jpegData(compressionQuality: 0.8) {
     throw NetworkError.imageProcessingFailed
 }
 
-let uploadConfig = ImageService.UploadConfiguration(
+let uploadConfig = UploadConfiguration(
     fieldName: "photo",
     fileName: "profile.jpg",
     compressionQuality: 0.8,
     additionalFields: ["userId": "123"]
 )
 
-// Multipart form upload (Data-based)
+// Option 1: Simple async/await upload (no progress tracking)
 let multipartResponse = try await imageService.uploadImageMultipart(imageData, to: uploadURL, configuration: uploadConfig)
 
-// Base64 upload (Data-based)
-let base64Response = try await imageService.uploadImageBase64(imageData, to: uploadURL, configuration: uploadConfig)
+// Option 2: Upload with progress tracking callback
+let base64Response = try await imageService.uploadImageBase64(
+    imageData, 
+    to: uploadURL, 
+    configuration: uploadConfig
+) { progress in
+    print("Upload progress: \(Int(progress * 100))%")
+}
 
 // Upload Method Tradeoffs:
 // - Base64 encoding increases payload size by ~33% and can more easily hit request size limits
@@ -407,65 +423,23 @@ let base64Response = try await imageService.uploadImageBase64(imageData, to: upl
 // - Multipart uploads are recommended as the default choice
 ```
 
-> **Note on Image Conversion Examples**: The examples above use platform-standard SwiftUI `Image` initializers (`Image(uiImage:)` for iOS and `Image(nsImage:)` for macOS) to demonstrate universal compatibility. AsyncNet provides convenience helpers `ImageService.swiftUIImage(from:)` and `Image.from(platformImage:)` in the `AsyncNet` module for cross-platform image conversion. To use these helpers, add `import AsyncNet` to your file. The AsyncNet helpers abstract platform differences and provide consistent error handling.
-
-### SwiftUI Integration
-
-#### Async Image Loading (Modern Pattern)
-
-```swift
-import SwiftUI
-import AsyncNet  // Required for .asyncImage modifier
-
-struct ProfileView: View {
-    let imageURL: String
-    let imageService: ImageService // Dependency injection required
-
-    var body: some View {
-        Rectangle()
-            .frame(width: 200, height: 200)
-            .asyncImage(  // AsyncNet extension (requires: import AsyncNet)
-                from: imageURL,
-                imageService: imageService,
-                placeholder: ProgressView().controlSize(.large),
-                errorView: Image(systemName: "person.circle.fill")
-            )
-    }
-}
-
-// Requirements:
-// - **Minimum OS Requirements**: iOS 18.0+ / macOS 15.0+
-// - **Swift Version**: Swift 6.0+ (Package.swift uses // swift-tools-version: 6.0)
-// - **Xcode**: Xcode 16+ (or Swift 6 toolchain) recommended
-// - **Framework**: SwiftUI framework
-//
-// **Note on SwiftUI Compatibility**: 
-// - AsyncNet requires iOS 18.0+/macOS 15.0+ for full functionality
-// - SwiftUI itself is available on iOS 15.0+/macOS 12.0+, but AsyncNet's modern concurrency features require the newer OS versions
-```
-
 #### Complete Image Component with Upload
 
 ```swift
 import SwiftUI
-import AsyncNet
+import Blend
 
 struct ImageGalleryView: View {
-    let imageService: ImageService // Dependency injection required
+    let imageService: ImageService
 
     var body: some View {
         VStack {
-            AsyncNetImageView(
+            BlendImageView(
                 url: "https://example.com/gallery/1.jpg",
                 uploadURL: URL(string: "https://api.example.com/upload")!,
                 uploadType: .multipart,
-                configuration: ImageService.UploadConfiguration(),
-                onUploadSuccess: { data in
-                    print("Upload successful: \(data)")
-                },
-                onUploadError: { error in
-                    print("Upload failed: \(error)")
-                },
+                configuration: UploadConfiguration(),
+                autoUpload: true, // Automatically upload after loading
                 imageService: imageService
             )
             .frame(height: 300)
@@ -474,293 +448,141 @@ struct ImageGalleryView: View {
     }
 }
 
-// Upload Callbacks Documentation:
-// - onUploadSuccess: ((Data) -> Void)? - Called on main thread with server response data
-// - onUploadError: ((NetworkError) -> Void)? - Called on main thread with NetworkError details
-// - Data parameter contains the raw response from the upload endpoint (e.g., JSON confirmation)
-// - NetworkError provides comprehensive error information (see NetworkError enum documentation)
-// - Callbacks are invoked on the main thread, so UI updates can be performed directly
-//
-// Thread Safety Guarantee:
-// - Upload callbacks are guaranteed to execute on the main thread via @MainActor isolation
-// - The AsyncImageModel class is marked @MainActor, ensuring all callback invocations run on the main thread
-// - Implementation location: Sources/AsyncNet/extensions/SwiftUIExtensions.swift - AsyncImageModel.uploadImage()
-```
-
-#### Image Upload with Progress
-
-```swift
-import SwiftUI
-import AsyncNet
-
-struct PhotoUploadView: View {
-    @State private var selectedImage: PlatformImage?
-    let imageService: ImageService // Dependency injection required
-    
-    var body: some View {
-        VStack {
-            if let platformImage = selectedImage {
-                // Safe conversion using AsyncNet helper (recommended approach)
-                if let swiftUIImage = Image.from(platformImage: platformImage) {
-                    swiftUIImage
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                } else {
-                    // Handle conversion failure gracefully
-                    Image(systemName: "photo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                }
-
-                // Alternative: Platform-standard conversion with safe casting
-                /*
-                #if canImport(UIKit)
-                if let uiImage = platformImage as? UIImage {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                }
-                #elseif canImport(AppKit)
-                if let nsImage = platformImage as? NSImage {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 200)
-                }
-                #endif
-                */
-            }
-            
-            Button("Select Photo") {
-                // Photo picker implementation
-            }
-            
-            if let platformImage = selectedImage {
-                Button("Upload") {
-                    Task {
-                        do {
-                            // Mirror JPEG→PNG fallback pattern from earlier example
-                            let imageData: Data
-                            if let jpegData = platformImage.jpegData(compressionQuality: 0.8) {
-                                imageData = jpegData
-                                print("Using JPEG conversion (compression: 0.8)")
-                            } else if let pngData = platformImage.pngData() {
-                                imageData = pngData
-                                print("JPEG conversion failed, falling back to PNG")
-                            } else {
-                                print("Failed to convert image to both JPEG and PNG formats")
-                                return
-                            }
-                            
-                            let config = ImageService.UploadConfiguration()
-                            let response = try await imageService.uploadImageMultipart(
-                                imageData,
-                                to: URL(string: "https://api.example.com/photos")!,
-                                configuration: config
-                            )
-                            print("Upload successful")
-                        } catch {
-                            print("Upload failed: \(error)")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
----
-
-#### Notes
-
-- Always inject `ImageService` for strict concurrency and testability.
-- Use `AsyncNetImageView` for robust SwiftUI integration with modern Swift 6 APIs.
-
-```swift
-do {
-    // Modern error handling with NetworkError
-    let imageData = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
-} catch let error as NetworkError {
-    // Option 1: Use the message() method
-    print("Network error: \(error.message())")
-    
-    // Option 2: Use localizedDescription (standard LocalizedError)
-    print("Network error: \(error.localizedDescription)")
-    
-    // Option 3: Pattern match for specific error details
-    switch error {
-    case .httpError(let statusCode, _):
-        print("HTTP error with status: \(statusCode)")
-    case .decodingError(let description, _):
-        print("Failed to decode response: \(description)")
-    case .networkUnavailable:
-        print("No internet connection")
-    case .requestTimeout(let duration):
-        print("Request timed out after \(duration) seconds")
-    case .invalidEndpoint(let reason):
-        print("Invalid endpoint: \(reason)")
-    case .unauthorized:
-        print("Authentication required")
-    case .uploadFailed(let details):
-        print("Upload failed: \(details)")
-    case .cacheError(let details):
-        print("Cache error: \(details)")
-    case .transportError(let code, let underlying):
-        print("Network transport error: \(code.rawValue) - \(underlying.localizedDescription)")
-    default:
-        print("Other network error: \(error.localizedDescription)")
-    }
-} catch {
-    print("Unexpected error: \(error)")
-}
-```
-
-### NetworkError Cases
-
-AsyncNet provides comprehensive error handling through the `NetworkError` enum:
-
-- **`.httpError(statusCode: Int, data: Data?)`**: HTTP errors with status code and optional response data
-- **`.decodingError(underlyingDescription: String, data: Data?)`**: JSON decoding failures
-- **`.networkUnavailable`**: Network connectivity issues
-- **`.requestTimeout(duration: TimeInterval)`**: Request timeout errors
-- **`.invalidEndpoint(reason: String)`**: Invalid URL or endpoint configuration
-- **`.unauthorized`**: Authentication failures (401)
-- **`.noResponse`**: No response received from server
-- **`.badMimeType(String)`**: Unsupported image MIME type
-- **`.uploadFailed(String)`**: Image upload failures
-- **`.imageProcessingFailed`**: PlatformImage conversion failures
-- **`.cacheError(String)`**: Cache operation failures
-- **`.transportError(code: URLError.Code, underlying: URLError)`**: Low-level network transport errors
-
-### Cache Management
-
-```swift
-import AsyncNet
-
-let imageService = ImageService()
-
-// Configure cache limits (these are set during initialization)
-let imageServiceConfigured = ImageService(cacheCountLimit: 200, cacheTotalCostLimit: 100 * 1024 * 1024)
-
-// Execute cache operations in an async context
-Task {
-    // Clear cache
-    await imageServiceConfigured.clearCache()
-
-    // Remove specific image
-    await imageServiceConfigured.removeFromCache(key: "https://example.com/image.jpg")
-
-    // Check if image is cached
-    let isCached = await imageServiceConfigured.isImageCached(forKey: "https://example.com/image.jpg")
-    print("Image cached: \(isCached)")
-}
-```
-
-#### Security Guidance for Sensitive Images
-
-When handling sensitive images such as user avatars, profile pictures, or any content containing personally identifiable information (PII), implement strict cache management to prevent data leakage:
-
-**Opt-out of Caching:**
-
-- **Important**: Setting `cacheCountLimit: 0` or `cacheTotalCostLimit: 0` does **NOT** disable caching - it means "no limit" (unlimited caching). Avoid this configuration for sensitive content.
-- To disable caching, do not attach an `NSCache` instance or pass `nil`/`no-op` cache to `ImageService`
-- Use `ImageService` constructor flags or configuration that explicitly disables caching when available
-- Call `cache.removeAllObjects()` on the underlying `NSCache` to clear all cached items
-- Call `await imageService.removeFromCache(key: "sensitive-image-url")` immediately after use to clear specific sensitive items
-
-**Avoid Caching PII-Containing Assets:**
-
-- Never cache user avatars, profile images, or images with embedded metadata
-- Use `fetchImageData(from: urlString)` without caching for sensitive content
-- Implement custom logic to bypass cache for authenticated user content
-
-**Aggressive Cache Eviction:**
-
-- Configure short `maxAge` (e.g., 300 seconds) for sensitive content using `CacheConfiguration(maxAge: 300)`
-- Call `await imageService.clearCache()` proactively for sensitive sessions
-- Use `await imageService.updateCacheConfiguration(CacheConfiguration(maxAge: 0))` to disable time-based caching
-
-**Lifecycle Cache Clearing:**
-Implement cache clearing using SwiftUI's ScenePhase for modern, cross-platform lifecycle management:
-
-```swift
-import SwiftUI
-import AsyncNet
-
-// Environment key for ImageService injection
-private struct ImageServiceKey: EnvironmentKey {
-    static let defaultValue: ImageService = ImageService()
-}
-
-extension EnvironmentValues {
-    var imageService: ImageService {
-        get { self[ImageServiceKey.self] }
-        set { self[ImageServiceKey.self] = newValue }
-    }
-}
-
-@main
-struct MyApp: App {
-    @Environment(\.scenePhase) private var scenePhase
-    let imageService = ImageService() // Or inject via dependency injection
-    
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environment(\.imageService, imageService)
-        }
-        .onChange(of: scenePhase) { newPhase in
-            switch newPhase {
-            case .background:
-                // Clear cache when app goes to background
-                Task {
-                    await imageService.clearCache()
-                }
-            case .inactive:
-                // Optional: Clear cache when app becomes inactive
-                Task {
-                    await imageService.clearCache()
-                }
-            case .active:
-                // App became active - no action needed for cache
-                break
-            @unknown default:
-                // Handle future scene phases
-                break
-            }
-        }
-    }
-}
-
-// Alternative: Handle lifecycle in individual views
-struct SensitiveContentView: View {
-    @Environment(\.scenePhase) private var scenePhase
+// Programmatic upload examples
+struct UploadView: View {
+    @State private var uploadResult: String = ""
     let imageService: ImageService
     
     var body: some View {
         VStack {
-            Text("Sensitive Content")
-            // Your sensitive content here
-        }
-        .onChange(of: scenePhase) { newPhase in
-            if newPhase == .background {
-                Task {
-                    await imageService.clearCache()
+            BlendImageView(
+                url: "https://example.com/gallery/1.jpg",
+                uploadURL: URL(string: "https://api.example.com/upload")!,
+                uploadType: .multipart,
+                configuration: UploadConfiguration(),
+                imageService: imageService
+            )
+            .frame(height: 200)
+            
+            HStack {
+                // Option 1: Simple upload without progress tracking
+                Button("Upload (Simple)") {
+                    Task {
+                        do {
+                            let imageView = BlendImageView(/* same parameters */)
+                            let result = try await imageView.uploadImage()
+                            uploadResult = "Upload successful: \(result.count) bytes"
+                        } catch {
+                            uploadResult = "Upload failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                
+                // Option 2: Upload with progress tracking
+                Button("Upload (With Progress)") {
+                    Task {
+                        do {
+                            let imageView = BlendImageView(/* same parameters */)
+                            let result = try await imageView.uploadImage { progress in
+                                print("Upload progress: \(Int(progress * 100))%")
+                            }
+                            uploadResult = "Upload successful: \(result.count) bytes"
+                        } catch {
+                            uploadResult = "Upload failed: \(error.localizedDescription)"
+                        }
+                    }
                 }
             }
+            
+            Text(uploadResult)
         }
     }
 }
 ```
 
-**Benefits of ScenePhase Approach:**
+#### AsyncImageModel with Progress Tracking
 
-- **Cross-platform**: Works identically on iOS, macOS, watchOS, and tvOS
-- **Multi-scene support**: Handles multiple windows/scenes correctly in iOS 13+ and macOS 10.15+
-- **Modern SwiftUI**: Uses SwiftUI's built-in lifecycle management
-- **Consistent behavior**: Same lifecycle events across all platforms
-- **Future-proof**: Automatically supports new scene phases as they're added
+```swift
+import SwiftUI
+import Blend
+
+struct AdvancedUploadView: View {
+    @State private var model = AsyncImageModel(imageService: ImageService())
+    @State private var uploadProgress: Double = 0.0
+    @State private var isUploading = false
+    
+    var body: some View {
+        VStack {
+            if let image = model.loadedImage {
+                Image.from(platformImage: image)
+                    .resizable()
+                    .frame(height: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                if isUploading {
+                    ProgressView("Uploading...", value: uploadProgress, total: 1.0)
+                        .progressViewStyle(.linear)
+                        .padding()
+                }
+                
+                HStack {
+                    // Option 1: Simple upload without progress tracking
+                    Button("Upload (Simple)") {
+                        Task {
+                            do {
+                                isUploading = true
+                                let result = try await model.uploadImage(
+                                    image,
+                                    to: URL(string: "https://api.example.com/upload")!,
+                                    uploadType: .multipart,
+                                    configuration: UploadConfiguration()
+                                )
+                                print("Upload successful: \(result.count) bytes")
+                            } catch {
+                                print("Upload failed: \(error)")
+                            }
+                            isUploading = false
+                        }
+                    }
+                    
+                    // Option 2: Upload with progress tracking
+                    Button("Upload (With Progress)") {
+                        Task {
+                            do {
+                                isUploading = true
+                                uploadProgress = 0.0
+                                
+                                let result = try await model.uploadImage(
+                                    image,
+                                    to: URL(string: "https://api.example.com/upload")!,
+                                    uploadType: .multipart,
+                                    configuration: UploadConfiguration()
+                                ) { progress in
+                                    uploadProgress = progress
+                                }
+                                
+                                print("Upload successful: \(result.count) bytes")
+                            } catch {
+                                print("Upload failed: \(error)")
+                            }
+                            isUploading = false
+                        }
+                    }
+                }
+                .disabled(isUploading)
+            } else if model.isLoading {
+                ProgressView("Loading image...")
+            } else {
+                Button("Load Image") {
+                    Task {
+                        await model.loadImage(from: "https://example.com/image.jpg")
+                    }
+                }
+            }
+        }
+        .task {
+            await model.loadImage(from: "https://example.com/image.jpg")
+        }
+    }
+}
+```
