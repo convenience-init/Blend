@@ -14,6 +14,9 @@ DerivedData/
 /blend-output.*
 /DevDocs/
 
+# Swift Package Manager
+Package.resolved
+
 # Example build folders
 Examples/AdvancedNetworking/.build/
 Examples/BasicNetworking/.build/
