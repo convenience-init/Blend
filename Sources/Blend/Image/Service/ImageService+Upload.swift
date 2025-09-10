@@ -100,7 +100,7 @@ extension ImageService {
     ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
     ///   - configuration: Upload configuration options
-    ///   - onProgress: Optional progress callback (0.0 to 1.0)
+    ///   - onProgress: Optional progress callback (0.0 to 1.0). Progress updates may be called on a background thread; if updating UI, dispatch to the main thread (e.g., use `@MainActor`).
     /// - Returns: The response data from the server
     /// - Throws: NetworkError if the upload fails
     public func uploadImageBase64(
@@ -469,7 +469,7 @@ extension ImageService {
     ///   - imageData: The image data to upload
     ///   - url: The upload endpoint URL
     ///   - configuration: Upload configuration options
-    ///   - onProgress: Optional progress callback (0.0 to 1.0)
+    ///   - onProgress: Optional progress callback (0.0 to 1.0). Progress updates may be called on a background thread; if updating UI, dispatch to the main thread (e.g., use `@MainActor`).
     /// - Returns: The response data from the server
     /// - Throws: NetworkError if the upload fails
     public func uploadImageMultipart(

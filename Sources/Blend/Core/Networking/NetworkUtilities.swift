@@ -3,17 +3,27 @@ import Foundation
 import OSLog
 #endif
 
-/// Logger for internal Blend library use and debugging.
+/// Public logger for internal Blend library diagnostics and debugging.
 ///
-/// This logger is intended primarily for internal library diagnostics and debugging,
-/// and is not necessarily suitable for production app logging by consumers.
+/// This logger is intended primarily for internal diagnostics and debugging, and is **not recommended for production use**.
+/// **Privacy Warning:** Do not log sensitive or personally identifiable information (PII) using this logger.
+/// Logs may be visible in console output or system logs, depending on platform.
 ///
-/// It can be used to:
-/// - Attach custom log handlers for debugging
-/// - Route Blend logs to your application's logging system
-/// - Monitor network request lifecycle and performance
+/// ### Logging Levels
+/// - `debug`: Detailed diagnostic information, intended for development and debugging only.
+/// - `info`: General informational messages about network activity.
+/// - `warning`: Non-critical issues that may require attention.
+/// - `error`: Errors or failures in network operations.
 ///
-/// Example usage:
+/// ### Platform Behavior
+/// - On Apple platforms with OSLog support, logs are routed via `OSLog` and may be visible in system logs.
+/// - On other platforms, logs are printed to the console.
+///
+/// ### Production Safety
+/// - This logger is **not suitable for production app logging**. For production, use your application's logging system and ensure compliance with privacy requirements.
+/// - You may attach custom log handlers to route Blend logs to your own logging infrastructure.
+///
+/// ### Example usage:
 /// ```swift
 /// // Attach a custom log handler
 /// blendLogger.log(level: .debug, "Custom debug message")

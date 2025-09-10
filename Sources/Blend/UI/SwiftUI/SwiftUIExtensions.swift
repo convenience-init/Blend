@@ -21,11 +21,11 @@ extension Image {
 ///
 /// - multipart: Uploads image using multipart form data.
 ///   - Recommended for large images and production use.
-///   - Better performance for files larger than 10MB (encoded size, ~7.5MB raw). This is a general guideline; actual limits may vary based on configuration.
+///   - Better performance for files larger than the default threshold (10MB encoded, ~7.5MB raw). These defaults can be configured via `BlendConfig.maxUploadSize`; actual limits may vary.
 ///   - Supports streaming upload for better memory efficiency.
 /// - base64: Uploads image as base64 string in JSON payload.
 ///   - Best for small images in JSON APIs.
-///   - Suitable for images smaller than 10MB (encoded size, ~7.5MB raw). This is a general recommendation; actual limits may vary based on configuration.
+///   - Suitable for images smaller than the default threshold (10MB encoded, ~7.5MB raw). These defaults can be configured via `BlendConfig.maxUploadSize`; actual limits may vary.
 ///   - Convenient when the entire payload needs to be JSON.
 public enum UploadType: String, Sendable {
     case multipart
@@ -486,7 +486,7 @@ public struct BlendImageView: View {
     /// }
     /// ```
     ///
-    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0).
+    /// - Parameter onProgress: Optional progress handler called during upload (0.0 to 1.0). Progress updates may be called on a background thread; if updating UI, dispatch to the main thread (e.g., use `@MainActor`).
     /// - Returns: The response data from the upload endpoint
     /// - Throws: NetworkError if the upload fails or no image is loaded
     @MainActor
