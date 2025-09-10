@@ -18,10 +18,5 @@ DerivedData/
 # Swift Package Manager
 Package.resolved
 
-# Example build folders
-Examples/AdvancedNetworking/.build/
-Examples/BasicNetworking/.build/
-Examples/ErrorHandling/.build/
-Examples/ImageOperations/.build/
-Examples/Shared/.build/
-Examples/SwiftUIIntegration/.build/.sourcekit-lsp/
+# Build directories
+**/.build/
