@@ -41,21 +41,33 @@
                     "Failed to create platform image from test data", details: nil)
             }
 
-            // Test the upload by capturing the error through try/catch
-            // Test that upload throws the expected error
-            let thrownError = await #expect(throws: NetworkError.self) {
+            // Test the upload and capture the thrown error
+            var thrownError: NetworkError?
+            do {
                 _ = try await model.uploadImage(
                     platformImage, to: SwiftUIUploadTestHelpers.defaultUploadURL,
                     uploadType: .base64,
                     configuration: UploadConfiguration()
                 )
+                Issue.record("Expected NetworkError but no error was thrown")
+                return
+            } catch let error as NetworkError {
+                thrownError = error
+            } catch {
+                Issue.record("Expected NetworkError but got different error: \(error)")
+                return
             }
 
             // Assert the error is the expected type and status code
-            if case let .serverError(statusCode, _) = thrownError {
+            guard let error = thrownError else {
+                Issue.record("No error was captured")
+                return
+            }
+
+            if case let .serverError(statusCode, _) = error {
                 #expect(statusCode == 500, "Should receive HTTP 500 error")
             } else {
-                Issue.record("Expected server error but got: \(String(describing: thrownError))")
+                Issue.record("Expected server error but got: \(error)")
             }
 
             // Ensure the operation has completed and model state is updated
@@ -66,7 +78,7 @@
             #expect(model.error != nil, "Model should have captured an error")
 
             // Verify the thrown error matches the model's error
-            #expect(thrownError == model.error, "Thrown error should match model's error")
+            #expect(error == model.error, "Thrown error should match model's error")
         }
     }
 #endif

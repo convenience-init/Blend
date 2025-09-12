@@ -65,7 +65,7 @@ public struct PlatformAbstractionTests {
         // The assignment above already proves the typealias works correctly
         #elseif canImport(AppKit)
             let image = NSImage(size: NSSize(width: 1, height: 1))
-            let platformImage: PlatformImage = image
+            _ = image as PlatformImage
         // Type check is redundant since PlatformImage is a typealias for NSImage on macOS
         // The assignment above already proves the typealias works correctly
         #endif
