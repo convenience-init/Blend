@@ -1,8 +1,8 @@
 # Blend
 
-A **Powerful, intuitive Swift 6 networking library** that makes modern platform-agnostic development a breeze through **composable, protocol-oriented architecture**. Blend combines powerful networking and image handling capabilities with deep SwiftUI integration, enabling developers to build reactive, type-safe applications with unprecedented ease and flexibility.
+A **Powerful, intuitive Swift 6 networking library** that makes modern cross-platform development a breeze through **composable, protocol-oriented architecture**. Blend combines powerful networking and image handling capabilities with deep SwiftUI integration, enabling developers to build reactive, type-safe applications with ease and flexibility.
 
- Blend embraces **composability** through its protocol hierarchy (`AsyncRequestable` → `AdvancedAsyncRequestable`) and **SwiftUI-first design** with native reactive components, making complex networking patterns feel natural in modern Swift 6 applications.
+Blend embraces **composability** through its protocol hierarchy (`AsyncRequestable` → `AdvancedAsyncRequestable`) and **SwiftUI-first design** with native reactive components, making complex networking patterns feel natural in modern Swift 6 applications.
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/convenience-init/Blend/releases/tag/v1.0.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -20,9 +20,9 @@ A **Powerful, intuitive Swift 6 networking library** that makes modern platform-
 **🚀 High Performance** - Intelligent LRU caching with configurable limits  
 **🔒 Type Safe** - Protocol-oriented design with comprehensive error handling  
 
-> **Platform Requirements**: iOS 18+ and macOS 15+ may provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
+> **Platform Requirements**: iOS 18+ and macOS 15+ provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 >
-> **Support Note**: Blend requires iOS 18+/macOS 15+ for full functionality.
+> **Support Note**: Blend requires iOS 18+/macOS 15+.
 > **Platform Feature Matrix**:
 
 | Feature | iOS 18+ | macOS 15+ |
