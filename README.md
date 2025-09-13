@@ -6,9 +6,8 @@ Blend embraces **composability** through its protocol hierarchy (`AsyncRequestab
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/convenience-init/Blend/releases/tag/v1.0.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Swift](https://img.shields.io/badge/Swift-6.0-orange.svg)](https://swift.org)
-[![iOS](https://img.shields.io/badge/iOS-18+-lightgrey.svg)](https://developer.apple.com/ios/)
-[![macOS](https://img.shields.io/badge/macOS-15+-lightgrey.svg)](https://developer.apple.com/macos/)
+[![Swift](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fconvenience-init%2FBlend%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/convenience-init/Blend)
+[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fconvenience-init%2FBlend%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/convenience-init/Blend)
 
 ## Features
 
