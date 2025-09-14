@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to Blend! This document provides guidelines and information for contributors.
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
@@ -15,7 +15,7 @@ Thank you for your interest in contributing to Blend! This document provides gui
 - [Submitting Changes](#submitting-changes)
 - [Reporting Issues](#reporting-issues)
 
-## 🤝 Code of Conduct
+## Code of Conduct
 
 This project follows a code of conduct to ensure a welcoming environment for all contributors. By participating, you agree to:
 
@@ -25,7 +25,7 @@ This project follows a code of conduct to ensure a welcoming environment for all
 - Show empathy towards other contributors
 - Help create a positive community
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -37,12 +37,14 @@ This project follows a code of conduct to ensure a welcoming environment for all
 ### Quick Setup
 
 1. **Fork the repository**
+
    ```bash
    git clone https://github.com/your-username/Blend.git
    cd Blend
    ```
 
 2. **Set up development environment**
+
    ```bash
    # Install dependencies (if any)
    swift package resolve
@@ -52,11 +54,12 @@ This project follows a code of conduct to ensure a welcoming environment for all
    ```
 
 3. **Create a branch for your changes**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
-## 🛠️ Development Setup
+## Development Setup
 
 ### Environment Configuration
 
@@ -77,6 +80,7 @@ let package = Package(
 ### IDE Setup
 
 #### Xcode Configuration
+
 1. Open `Blend.xcodeproj` or use Swift Package Manager
 2. Set Swift Language Version to 6.0
 3. Enable Strict Concurrency Checking
@@ -85,6 +89,7 @@ let package = Package(
    - macOS: 15.0
 
 #### VS Code Configuration (Alternative)
+
 ```json
 {
     "swift.languageVersion": "6.0",
@@ -94,9 +99,9 @@ let package = Package(
 }
 ```
 
-## 📁 Project Structure
+## Project Structure
 
-```
+```text
 Blend/
 ├── Sources/Blend/
 │   ├── Core/
@@ -122,14 +127,16 @@ Blend/
 └── scripts/                 # Build and utility scripts
 ```
 
-## 🔄 Development Workflow
+## Development Workflow
 
 ### 1. Choose an Issue
+
 - Check [GitHub Issues](https://github.com/convenience-init/Blend/issues) for open tasks
 - Look for issues labeled `good first issue` or `help wanted`
 - Comment on the issue to indicate you're working on it
 
 ### 2. Create a Branch
+
 ```bash
 # For features
 git checkout -b feature/descriptive-name
@@ -142,12 +149,14 @@ git checkout -b docs/update-section
 ```
 
 ### 3. Make Changes
+
 - Follow the coding standards below
 - Write tests for new functionality
 - Update documentation as needed
 - Ensure all tests pass
 
 ### 4. Test Your Changes
+
 ```bash
 # Run all tests
 swift test
@@ -160,6 +169,7 @@ swift test --enable-code-coverage
 ```
 
 ### 5. Commit Your Changes
+
 ```bash
 # Stage your changes
 git add .
@@ -175,13 +185,14 @@ git commit -m "feat: add new image upload functionality
 Closes #123"
 ```
 
-## 💻 Coding Standards
+## Coding Standards
 
 ### Swift Style Guide
 
 Blend follows the [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/) and [Swift.org style](https://swift.org/documentation/api-design-guidelines/).
 
 #### Naming Conventions
+
 ```swift
 // Protocols
 protocol AsyncRequestable { }
@@ -205,6 +216,7 @@ var isLoading: Bool
 ```
 
 #### Documentation Comments
+
 ```swift
 /// Fetches image data from the specified URL string.
 ///
@@ -221,6 +233,7 @@ func fetchImageData(from urlString: String) async throws -> Data
 ### Swift 6 Concurrency
 
 #### Actor Isolation
+
 ```swift
 // Correct: Actor-isolated state
 actor ImageService {
@@ -238,6 +251,7 @@ class BadImageService {
 ```
 
 #### Sendable Conformance
+
 ```swift
 // Correct: Sendable data types
 struct UploadConfiguration: Sendable {
@@ -251,6 +265,7 @@ actor ImageService: Sendable { }
 ```
 
 #### MainActor for UI
+
 ```swift
 @MainActor
 class AsyncImageModel: ObservableObject {
@@ -267,6 +282,7 @@ class AsyncImageModel: ObservableObject {
 ### Error Handling
 
 #### NetworkError Usage
+
 ```swift
 // Correct: Specific error cases
 do {
@@ -286,6 +302,7 @@ do {
 ```
 
 #### Custom Errors
+
 ```swift
 enum ImageProcessingError: Error {
     case invalidData
@@ -294,44 +311,52 @@ enum ImageProcessingError: Error {
 }
 ```
 
-## 🧪 Testing
+## Testing
 
 ### Test Structure
+
 ```swift
-class ImageServiceTests: XCTestCase {
-    var imageService: ImageService!
-    var mockSession: URLSession!
+import Testing
+@testable import Blend
 
-    override func setUp() async throws {
-        imageService = ImageService()
-        mockSession = createMockSession()
-    }
-
-    override func tearDown() async throws {
-        imageService = nil
-        mockSession = nil
-    }
-
+@Suite("Image Service Tests")
+struct ImageServiceTests {
+    @Test("Fetch image data success")
     func testFetchImageDataSuccess() async throws {
         // Given
         let expectedData = try Data(contentsOf: testImageURL)
+        let mockSession = createMockSession()
+        let imageService = ImageService(urlSession: mockSession)
 
         // When
         let result = try await imageService.fetchImageData(from: "https://example.com/image.jpg")
 
         // Then
-        XCTAssertEqual(result, expectedData)
+        #expect(result == expectedData)
+    }
+
+    @Test("Upload image with invalid data")
+    func testUploadImageInvalidData() async throws {
+        let imageService = ImageService()
+        let invalidData = Data()
+
+        // Test that invalid data throws appropriate error
+        await #expect(throws: NetworkError.invalidData) {
+            _ = try await imageService.uploadImage(invalidData, to: URL(string: "https://example.com/upload")!)
+        }
     }
 }
 ```
 
 ### Test Coverage Goals
+
 - **Unit Tests**: 90%+ coverage for all new code
 - **Integration Tests**: End-to-end workflows
 - **Platform Tests**: iOS and macOS compatibility
 - **Error Tests**: All error paths covered
 
 ### Running Tests
+
 ```bash
 # All tests
 swift test
@@ -346,30 +371,34 @@ swift test -v
 swift test --enable-code-coverage
 ```
 
-## 📚 Documentation
+## Documentation
 
 ### Code Documentation
+
 - All public APIs must have documentation comments
 - Include usage examples in doc comments
 - Document parameters, return values, and thrown errors
 - Mark important notes with `- Important:` or `- Note:`
 
 ### README Updates
+
 - Update README.md for new features
 - Add examples for new functionality
 - Update installation instructions if needed
 - Update platform requirements
 
 ### API Documentation
+
 - Update `docs/API_REFERENCE.md` for new APIs
 - Add examples to `Examples/` directory
 - Update CHANGELOG.md for changes
 
-## 📤 Submitting Changes
+## Submitting Changes
 
 ### Pull Request Process
 
 1. **Ensure tests pass**
+
    ```bash
    swift test
    ```
@@ -392,7 +421,7 @@ swift test --enable-code-coverage
 
 ### Commit Message Format
 
-```
+```text
 type(scope): description
 
 [optional body]
@@ -401,6 +430,7 @@ type(scope): description
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation
@@ -410,7 +440,8 @@ type(scope): description
 - `chore`: Maintenance
 
 **Examples:**
-```
+
+```text
 feat: add image upload with progress tracking
 
 - Add UploadProgress struct
@@ -420,7 +451,7 @@ feat: add image upload with progress tracking
 Closes #123
 ```
 
-```
+```text
 fix: resolve memory leak in image cache
 
 - Fix strong reference cycle in LRU cache
@@ -430,11 +461,12 @@ fix: resolve memory leak in image cache
 Fixes #456
 ```
 
-## 🐛 Reporting Issues
+## Reporting Issues
 
 ### Bug Reports
 
 **Good bug report** includes:
+
 - Clear title describing the issue
 - Steps to reproduce
 - Expected vs actual behavior
@@ -443,6 +475,7 @@ Fixes #456
 - Screenshots for UI issues
 
 **Template:**
+
 ```markdown
 ## Bug Report
 
@@ -473,23 +506,25 @@ Any other relevant information
 ### Feature Requests
 
 **Good feature request** includes:
+
 - Clear description of the proposed feature
 - Use case and benefits
 - Implementation suggestions (optional)
 - Mockups or examples (for UI features)
 
-## 🎉 Recognition
+## Recognition
 
 Contributors will be:
+
 - Listed in CHANGELOG.md for their contributions
 - Recognized in release notes
 - Added to a future contributors file
 - Invited to join the project maintainer team for significant contributions
 
-## 📞 Getting Help
+## Getting Help
 
 - **Discussions**: [GitHub Discussions](https://github.com/convenience-init/Blend/discussions)
 - **Issues**: [GitHub Issues](https://github.com/convenience-init/Blend/issues)
 - **Documentation**: [Blend Docs](./docs/)
 
-Thank you for contributing to Blend! 🚀
+Thank you for contributing to Blend!
