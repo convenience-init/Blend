@@ -11,13 +11,13 @@ Blend embraces **composability** through its protocol hierarchy (`AsyncRequestab
 
 ## Features
 
-**🎯 SwiftUI-First by Design** - Native reactive components and view modifiers built specifically for SwiftUI  
-**🔧 Protocol-Oriented Composability** - Flexible service composition with type-safe hierarchies  
-**⚡ Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
-**🌉 Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
-**🖼️ Complete Image Solution** - Download, upload, and cache and display images with ease  
-**🚀 High Performance** - Intelligent LRU caching with configurable limits  
-**🔒 Type Safe** - Protocol-oriented design with comprehensive error handling  
+**SwiftUI-First by Design** - Native reactive components and view modifiers built specifically for SwiftUI  
+**Protocol-Oriented Composability** - Flexible service composition with type-safe hierarchies  
+**Modern Swift Concurrency** - Built with async/await and Swift 6 compliance  
+**Cross-Platform** - Supports iOS 18+, iPadOS 18+, and macOS 15+  
+**Complete Image Solution** - Download, upload, and cache and display images with ease  
+**High Performance** - Intelligent LRU caching with configurable limits  
+**Type Safe** - Protocol-oriented design with comprehensive error handling  
 
 > **Platform Requirements**: iOS 18+ and macOS 15+ provide improved resumable HTTP transfers (URLSession pause/resume and enhanced background reliability)[^1], HTTP/3 enhancements[^2], system TLS 1.3 improvements[^3], and corrected CFNetwork API signatures[^4].
 >
